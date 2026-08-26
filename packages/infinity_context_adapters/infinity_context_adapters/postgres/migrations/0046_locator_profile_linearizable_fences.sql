@@ -247,6 +247,10 @@ BEGIN
     WHERE state IN ('building', 'active', 'retained')
       AND activation_lease_id IS NOT NULL;
 
+    IF TG_LEVEL = 'ROW' THEN
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+    END IF;
     RETURN NULL;
 END;
 $$;
@@ -272,9 +276,39 @@ BEFORE INSERT OR UPDATE OR DELETE ON memory_locator_profile_projection_receipts
 FOR EACH STATEMENT EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();
 
 DROP TRIGGER IF EXISTS trg_locator_profile_outbox_evidence_version ON memory_outbox;
-CREATE TRIGGER trg_locator_profile_outbox_evidence_version
-BEFORE INSERT OR UPDATE OR DELETE ON memory_outbox
-FOR EACH STATEMENT EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();
+-- These names sort before the strict-v4 fact/document row fences, preserving
+-- evidence -> profiles -> dependent-row lock order for relevant outbox rows.
+DROP TRIGGER IF EXISTS trg_00_locator_profile_outbox_evidence_insert ON memory_outbox;
+DROP TRIGGER IF EXISTS trg_00_locator_profile_outbox_evidence_update ON memory_outbox;
+DROP TRIGGER IF EXISTS trg_00_locator_profile_outbox_evidence_delete ON memory_outbox;
+
+CREATE TRIGGER trg_00_locator_profile_outbox_evidence_insert
+BEFORE INSERT ON memory_outbox
+FOR EACH ROW
+WHEN (NEW.event_type IN (
+    'vector.upsert_locator_profile', 'vector.delete_locator_profile'
+))
+EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();
+
+CREATE TRIGGER trg_00_locator_profile_outbox_evidence_update
+BEFORE UPDATE ON memory_outbox
+FOR EACH ROW
+WHEN (
+    OLD.event_type IN (
+        'vector.upsert_locator_profile', 'vector.delete_locator_profile'
+    ) OR NEW.event_type IN (
+        'vector.upsert_locator_profile', 'vector.delete_locator_profile'
+    )
+)
+EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();
+
+CREATE TRIGGER trg_00_locator_profile_outbox_evidence_delete
+BEFORE DELETE ON memory_outbox
+FOR EACH ROW
+WHEN (OLD.event_type IN (
+    'vector.upsert_locator_profile', 'vector.delete_locator_profile'
+))
+EXECUTE FUNCTION memory_locator_profile_invalidate_evidence_v1();
 
 DROP TRIGGER IF EXISTS trg_locator_profile_canonical_evidence_version ON memory_chunks;
 CREATE TRIGGER trg_locator_profile_canonical_evidence_version

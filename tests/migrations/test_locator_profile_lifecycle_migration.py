@@ -144,6 +144,44 @@ def test_linearizable_profile_fences_are_forward_only_and_non_stealable() -> Non
     assert "Deploy only after every pre-0046 binary has drained" in sql
 
 
+def test_linearizable_profile_outbox_invalidation_is_locator_event_scoped() -> None:
+    path = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0046_locator_profile_linearizable_fences.sql"
+    )
+    sql = path.read_text()
+    function = sql.split(
+        "CREATE OR REPLACE FUNCTION memory_locator_profile_invalidate_evidence_v1()", 1
+    )[1].split("REVOKE ALL ON FUNCTION", 1)[0]
+    triggers = sql.split(
+        "DROP TRIGGER IF EXISTS trg_locator_profile_outbox_evidence_version", 1
+    )[1].split("DROP TRIGGER IF EXISTS trg_locator_profile_canonical", 1)[0]
+
+    assert "IF TG_LEVEL = 'ROW' THEN" in function
+    assert "IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;" in function
+    assert "RETURN NEW;" in function
+    assert "CREATE TRIGGER trg_00_locator_profile_outbox_evidence_insert" in triggers
+    assert "BEFORE INSERT ON memory_outbox" in triggers
+    assert "WHEN (NEW.event_type IN (" in triggers
+    assert "CREATE TRIGGER trg_00_locator_profile_outbox_evidence_update" in triggers
+    assert "BEFORE UPDATE ON memory_outbox" in triggers
+    assert ") OR NEW.event_type IN (" in triggers
+    assert "CREATE TRIGGER trg_00_locator_profile_outbox_evidence_delete" in triggers
+    assert "BEFORE DELETE ON memory_outbox" in triggers
+    assert "WHEN (OLD.event_type IN (" in triggers
+    assert triggers.count("'vector.upsert_locator_profile'") == 4
+    assert triggers.count("'vector.delete_locator_profile'") == 4
+    assert triggers.count("FOR EACH ROW") == 3
+    assert "FOR EACH STATEMENT" not in triggers
+    assert "strict-v4 fact/document row fences" in triggers
+    assert sql.count(
+        "FOR EACH STATEMENT EXECUTE FUNCTION "
+        "memory_locator_profile_invalidate_evidence_v1();"
+    ) == 4
+    for preserved_source in ("lane", "tombstone", "receipt", "canonical"):
+        assert f"trg_locator_profile_{preserved_source}_evidence_version" in sql
+
+
 def test_runtime_death_proofs_are_supervisor_bound_and_non_retroactive() -> None:
     path = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"

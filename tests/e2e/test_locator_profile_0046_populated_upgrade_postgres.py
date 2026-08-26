@@ -211,6 +211,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                             "CURRENT_TIMESTAMP + interval '1 minute')"
                         )
                     )
+            await _assert_outbox_evidence_invalidation(engine)
             # The migration itself is safe to reapply by an operator after an
             # interrupted migration transaction; the migration ledger remains single.
             raw = await database.connect()
@@ -270,6 +271,102 @@ async def _assert_populated_upgrade(database_url: str) -> None:
             await engine.dispose()
     finally:
         await database.drop()
+
+
+async def _assert_outbox_evidence_invalidation(engine) -> None:
+    async def snapshot() -> tuple[int, bool, datetime]:
+        async with engine.connect() as connection:
+            row = (
+                await connection.execute(
+                    text(
+                        "SELECT evidence.aggregate_version, profile.reconciliation_drifted, "
+                        "profile.activation_lease_expires_at "
+                        "FROM memory_locator_profile_evidence_versions AS evidence "
+                        "CROSS JOIN memory_locator_profiles AS profile "
+                        "WHERE evidence.singleton=TRUE AND profile.profile_id='active-old'"
+                    )
+                )
+            ).one()
+            return row[0], row[1], row[2]
+
+    async def arm_future_lease() -> tuple[int, bool, datetime]:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "UPDATE memory_locator_profiles "
+                    "SET reconciliation_drifted=FALSE, "
+                    "activation_lease_issued_at=clock_timestamp()-interval '1 minute', "
+                    "activation_lease_expires_at=clock_timestamp()+interval '1 hour' "
+                    "WHERE profile_id='active-old'"
+                )
+            )
+        before = await snapshot()
+        assert before[1] is False
+        return before
+
+    async def assert_invalidates(statement: str) -> None:
+        before = await arm_future_lease()
+        async with engine.begin() as connection:
+            await connection.execute(text(statement))
+        # Read through a new committed transaction: the proof is a durable
+        # shortening relative to the saved future deadline, not a comparison
+        # against transaction-local CURRENT_TIMESTAMP plus one microsecond.
+        after = await snapshot()
+        assert after[0] == before[0] + 1
+        assert after[1] is True
+        assert after[2] < before[2]
+
+    unrelated_insert = """
+        INSERT INTO memory_outbox
+          (message_key,event_type,aggregate_type,aggregate_id,aggregate_version,
+           workload_class,fairness_key,payload_json,status,attempt_count,
+           next_attempt_at,created_at,updated_at)
+        VALUES
+          ('profile-evidence-unrelated','probe.unrelated','probe','unrelated-probe',1,
+           'projection','probe:unrelated','{}'::jsonb,'pending',0,
+           clock_timestamp(),clock_timestamp(),clock_timestamp())
+    """
+    baseline = await arm_future_lease()
+    async with engine.begin() as connection:
+        await connection.execute(text(unrelated_insert))
+    assert await snapshot() == baseline
+    async with engine.begin() as connection:
+        await connection.execute(
+            text(
+                "UPDATE memory_outbox SET attempt_count=attempt_count+1 "
+                "WHERE message_key='profile-evidence-unrelated'"
+            )
+        )
+    assert await snapshot() == baseline
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("DELETE FROM memory_outbox WHERE message_key='profile-evidence-unrelated'")
+        )
+    assert await snapshot() == baseline
+
+    await assert_invalidates(
+        """
+        INSERT INTO memory_outbox
+          (message_key,event_type,aggregate_type,aggregate_id,aggregate_version,
+           workload_class,fairness_key,payload_json,status,attempt_count,
+           next_attempt_at,created_at,updated_at)
+        VALUES
+          ('profile-evidence-relevant','vector.upsert_locator_profile','probe',
+           'relevant-probe',1,'projection','probe:relevant','{}'::jsonb,'pending',0,
+           clock_timestamp(),clock_timestamp(),clock_timestamp())
+        """
+    )
+    await assert_invalidates(
+        "UPDATE memory_outbox SET event_type='probe.unrelated' "
+        "WHERE message_key='profile-evidence-relevant'"
+    )
+    await assert_invalidates(
+        "UPDATE memory_outbox SET event_type='vector.delete_locator_profile' "
+        "WHERE message_key='profile-evidence-relevant'"
+    )
+    await assert_invalidates(
+        "DELETE FROM memory_outbox WHERE message_key='profile-evidence-relevant'"
+    )
 
 
 async def _run_pg(*arguments: str, client_image: str | None = None) -> str | None:
