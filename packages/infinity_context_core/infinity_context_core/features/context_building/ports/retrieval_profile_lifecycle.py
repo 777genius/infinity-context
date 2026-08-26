@@ -183,6 +183,48 @@ class ProfileReconciliationWriteOutcome(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class ExactVersionDeletionProof:
+    """Provider observation proving one exact projected generation is absent."""
+
+    canonical_ids: tuple[str, ...]
+    canonical_version: int
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.canonical_ids, tuple)
+            or not self.canonical_ids
+            or not all(isinstance(item, str) and item for item in self.canonical_ids)
+            or len(set(self.canonical_ids)) != len(self.canonical_ids)
+        ):
+            raise ValueError("Exact deletion proof identities are invalid")
+        if (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
+            raise ValueError("Exact deletion proof version is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileTombstoneDeleteAuthorization:
+    """Canonical authorization binding lifecycle and projected generations."""
+
+    identity: RetrievalProfileIdentity
+    canonical_version: int
+    delete_canonical_version: int
+
+    def __post_init__(self) -> None:
+        for name in ("canonical_version", "delete_canonical_version"):
+            value = getattr(self, name)
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 1 <= value <= 9_007_199_254_740_991
+            ):
+                raise ValueError(f"Profile tombstone {name} is invalid")
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileAttestationPageReceipt:
     page_number: int
     start_cursor: str | None
@@ -478,6 +520,20 @@ class RetrievalProfileRegistryPort(Protocol):
         projected_at: datetime,
     ) -> None: ...
 
+    async def authorize_tombstone(
+        self, profile_id: str, chunk_id: str, *, canonical_version: int
+    ) -> ProfileTombstoneDeleteAuthorization | None: ...
+
+    async def complete_tombstone(
+        self,
+        profile_id: str,
+        chunk_id: str,
+        *,
+        canonical_version: int,
+        delete_canonical_version: int,
+        completed_at: datetime,
+    ) -> bool: ...
+
     async def checkpoint_backfill(
         self,
         profile_id: str,
@@ -677,8 +733,8 @@ class RetrievalProfileProjectionPort(Protocol):
         canonical_ids: tuple[str, ...],
         *,
         canonical_version: int,
-    ) -> None:
-        """Delete only points still carrying the exact stale canonical version."""
+    ) -> ExactVersionDeletionProof:
+        """Prove points carrying the exact stale canonical version are absent."""
 
     async def attestation_epoch(
         self, identity: RetrievalProfileIdentity, *, now: datetime
@@ -771,12 +827,14 @@ __all__ = (
     "CanonicalProjectionItem",
     "CanonicalProjectionPage",
     "CanonicalProjectionSourcePort",
+    "ExactVersionDeletionProof",
     "ProfileAttestationCheckpoint",
     "ProfileAttestationPageReceipt",
     "ProfileReconciliationOperation",
     "InstalledReleaseIdentity",
     "ProfileCleanup",
     "ProfileCollectionDeleteAuthorization",
+    "ProfileTombstoneDeleteAuthorization",
     "RetrievalProfileCollectionCleanupPort",
     "RetrievalProfileDiagnosticsPort",
     "RetrievalProfileProjectionPort",

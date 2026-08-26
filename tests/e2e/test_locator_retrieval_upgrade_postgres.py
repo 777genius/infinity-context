@@ -71,11 +71,12 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
                 "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
             )
             installed_count = 1 if starting_migration == "0039_" else 2
             assert upgraded.applied == expected[installed_count:]
-            assert upgraded.current == "0053_retrieval_default_lifecycle"
-            assert upgraded.applied[-1] == "0053_retrieval_default_lifecycle"
+            assert upgraded.current == "0054_locator_profile_exact_delete_generation"
+            assert upgraded.applied[-1] == "0054_locator_profile_exact_delete_generation"
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             async with engine.begin() as connection:
@@ -213,9 +214,12 @@ async def _assert_running_work_refusal_and_idempotence(database_url: str) -> Non
                 await connection.execute(migration.read_text())
             async with connection.transaction():
                 await connection.execute(migration.read_text())
-            assert await connection.fetchval(
-                "SELECT to_regclass('memory_locator_projection_tombstones')"
-            ) is None
+            assert (
+                await connection.fetchval(
+                    "SELECT to_regclass('memory_locator_projection_tombstones')"
+                )
+                is None
+            )
         finally:
             await connection.close()
     finally:

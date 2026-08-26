@@ -46,6 +46,13 @@ class _Client:
             if self.current_versions.get(point_id) == version:
                 del self.current_versions[point_id]
 
+    async def retrieve(self, **kwargs: object) -> list[SimpleNamespace]:
+        return [
+            SimpleNamespace(payload={"canonical_version": self.current_versions[point_id]})
+            for point_id in kwargs["ids"]
+            if point_id in self.current_versions
+        ]
+
     async def close(self) -> None:
         return None
 
@@ -110,13 +117,43 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
         projection._adapters["profile-a"] = adapter
         identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
 
-        await projection.delete_profile_if_version(
+        proof = await projection.delete_profile_if_version(
             identity, ("chunk-2", "chunk-1"), canonical_version=7
         )
 
         assert calls == [(("chunk-2", "chunk-1"), 7)]
+        assert proof.canonical_ids == ("chunk-2", "chunk-1")
+        assert proof.canonical_version == 7
         assert [event[0] for event in fence.events] == ["begin", "finish"]
         assert await projection.attestation_epoch(identity, now=datetime.now(UTC)) == 2
+
+    asyncio.run(run())
+
+
+def test_qdrant_delete_fails_closed_when_exact_generation_remains() -> None:
+    async def run() -> None:
+        client = _Client()
+        adapter = QdrantVectorMemoryAdapter(
+            url="http://qdrant.test", collection_name="locator", vector_size=3
+        )
+
+        async def fake_client():
+            return client, _Models
+
+        async def ineffective_delete(**kwargs: object) -> None:
+            client.delete_calls.append(kwargs)
+
+        adapter._client = fake_client  # type: ignore[method-assign]
+        client.delete = ineffective_delete  # type: ignore[method-assign]
+        point_id = qdrant_point_id_for_chunk("chunk-1")
+        client.current_versions[point_id] = 7
+
+        result = await adapter.delete_chunks_if_version(("chunk-1",), canonical_version=7)
+
+        assert result.status == PortStatus.DEGRADED
+        assert tuple(item.code for item in result.diagnostics) == (
+            "qdrant.delete_exact_version_unproven",
+        )
 
     asyncio.run(run())
 

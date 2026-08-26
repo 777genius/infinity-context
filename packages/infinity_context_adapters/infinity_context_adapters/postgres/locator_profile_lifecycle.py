@@ -14,6 +14,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileCoverageAttestation,
     ProfileLaneHealth,
     ProfileQueueHealth,
+    ProfileTombstoneDeleteAuthorization,
     ProfileTombstoneHealth,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
@@ -813,6 +814,7 @@ class PostgresRetrievalProfileRegistry(
         chunk_id: str,
         *,
         canonical_version: int,
+        delete_canonical_version: int,
         completed_at: datetime,
     ) -> bool:
         async with self.sessions() as session, session.begin():
@@ -824,7 +826,11 @@ class PostgresRetrievalProfileRegistry(
             row = await session.get(
                 MemoryLocatorProfileTombstoneRow, (profile_id, chunk_id), with_for_update=True
             )
-            if row is None or row.canonical_version != canonical_version:
+            if (
+                row is None
+                or row.canonical_version != canonical_version
+                or row.delete_canonical_version != delete_canonical_version
+            ):
                 return False
             chunk = await session.get(MemoryChunkRow, chunk_id)
             if chunk is not None and (
@@ -844,7 +850,7 @@ class PostgresRetrievalProfileRegistry(
 
     async def authorize_tombstone(
         self, profile_id: str, chunk_id: str, *, canonical_version: int
-    ) -> RetrievalProfileIdentity | None:
+    ) -> ProfileTombstoneDeleteAuthorization | None:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
             await _lock_profile_evidence(session)
@@ -863,7 +869,11 @@ class PostgresRetrievalProfileRegistry(
                 chunk.retrieval_version != canonical_version or all(_eligible_value(chunk))
             ):
                 return None
-            return _identity(profile)
+            return ProfileTombstoneDeleteAuthorization(
+                _identity(profile),
+                tombstone.canonical_version,
+                tombstone.delete_canonical_version,
+            )
 
     async def _refresh_attestation(
         self, session: AsyncSession, profile: MemoryLocatorProfileRow

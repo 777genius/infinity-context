@@ -330,6 +330,25 @@ class QdrantVectorMemoryAdapter:
                 points_selector=selector,
                 wait=True,
             )
+            observed = await client.retrieve(
+                collection_name=self._collection_name,
+                ids=point_ids,
+                with_payload=["canonical_version"],
+                with_vectors=False,
+            )
+            for point in observed:
+                payload = getattr(point, "payload", None)
+                observed_version = (
+                    payload.get("canonical_version") if isinstance(payload, dict) else None
+                )
+                if (
+                    not isinstance(observed_version, int)
+                    or isinstance(observed_version, bool)
+                    or observed_version == canonical_version
+                ):
+                    return VectorWriteResult.degraded(
+                        "qdrant.delete_exact_version_unproven", retryable=True
+                    )
             return VectorWriteResult.ok(len(chunk_ids))
         except Exception:
             return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)

@@ -12,6 +12,9 @@ from infinity_context_adapters.postgres import (
     build_session_factory,
     upgrade_schema,
 )
+from infinity_context_adapters.postgres.locator_profile_lifecycle import (
+    PostgresRetrievalProfileRegistry,
+)
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
@@ -25,6 +28,8 @@ from infinity_context_adapters.postgres.repositories import PostgresChunkReposit
 from infinity_context_core.domain.entities import MemoryChunkKind
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
+from test_locator_retrieval_upgrade_postgres import _install_staged_watermark
+from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
 
 MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991
 WHEN = datetime(2026, 1, 1, tzinfo=UTC)
@@ -38,6 +43,20 @@ def test_maximum_safe_version_round_trips_through_real_postgres_when_configured(
     asyncio.run(_scenario(database_url))
 
 
+def test_exact_delete_generation_is_aba_and_crash_replay_safe_when_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_aba_scenario(database_url))
+
+
+def test_0054_reopens_false_preupgrade_completion_when_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_upgrade_repair_scenario(database_url))
+
+
 async def _scenario(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
@@ -48,7 +67,7 @@ async def _scenario(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgraded = await upgrade_schema(engine)
-            assert upgraded.applied[-16:] == (
+            assert upgraded.applied[-17:] == (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
@@ -65,6 +84,7 @@ async def _scenario(database_url: str) -> None:
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
                 "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
             )
             await _assert_transit_column_types(engine)
 
@@ -112,7 +132,158 @@ async def _scenario(database_url: str) -> None:
                 ).scalar_one()
                 assert tombstone is not None
                 assert tombstone.canonical_version == MAX_SAFE_JSON_INTEGER
+                assert tombstone.delete_canonical_version == MAX_SAFE_JSON_INTEGER - 1
                 assert outbox.aggregate_version == MAX_SAFE_JSON_INTEGER
+                assert outbox.payload_json["delete_canonical_version"] == (
+                    MAX_SAFE_JSON_INTEGER - 1
+                )
+        finally:
+            await engine.dispose()
+    finally:
+        await database.drop()
+
+
+async def _aba_scenario(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(database_url, prefix="retrieval_aba", asyncpg=asyncpg)
+    await database.recreate()
+    try:
+        engine = build_async_engine(database.app_url)
+        try:
+            await upgrade_schema(engine)
+            sessions = build_session_factory(engine)
+            registry = PostgresRetrievalProfileRegistry(sessions)
+            async with sessions() as session, session.begin():
+                await _seed_authority(session)
+                chunk = _maximum_deleted_chunk()
+                chunk.id = "chunk-aba"
+                chunk.source_hash = "c" * 64
+                chunk.retrieval_version = 1
+                session.add(chunk)
+            async with sessions() as session, session.begin():
+                await session.execute(
+                    text(
+                        "UPDATE memory_chunks SET status='deleted', retrieval_version=2 "
+                        "WHERE id='chunk-aba'"
+                    )
+                )
+
+            first = await registry.authorize_tombstone(
+                "profile-max", "chunk-aba", canonical_version=2
+            )
+            replay = await registry.authorize_tombstone(
+                "profile-max", "chunk-aba", canonical_version=2
+            )
+            assert first is not None and replay == first
+            assert first.delete_canonical_version == 1
+            assert not await registry.complete_tombstone(
+                "profile-max",
+                "chunk-aba",
+                canonical_version=2,
+                delete_canonical_version=2,
+                completed_at=WHEN,
+            )
+
+            async with sessions() as session, session.begin():
+                await session.execute(
+                    text(
+                        "UPDATE memory_chunks SET status='active', classification='internal', "
+                        "retrieval_version=3 WHERE id='chunk-aba'"
+                    )
+                )
+            assert not await registry.complete_tombstone(
+                "profile-max",
+                "chunk-aba",
+                canonical_version=2,
+                delete_canonical_version=1,
+                completed_at=WHEN,
+            )
+
+            async with sessions() as session, session.begin():
+                await session.execute(
+                    text(
+                        "UPDATE memory_chunks SET classification='restricted', "
+                        "retrieval_version=4 WHERE id='chunk-aba'"
+                    )
+                )
+            assert (
+                await registry.authorize_tombstone("profile-max", "chunk-aba", canonical_version=2)
+                is None
+            )
+            successor = await registry.authorize_tombstone(
+                "profile-max", "chunk-aba", canonical_version=4
+            )
+            assert successor is not None
+            assert successor.delete_canonical_version == 3
+        finally:
+            await engine.dispose()
+    finally:
+        await database.drop()
+
+
+async def _upgrade_repair_scenario(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url, prefix="retrieval_delete_repair", asyncpg=asyncpg
+    )
+    await database.recreate()
+    try:
+        await _install_versioned_schema_through(database, "0053_")
+        raw = await database.connect()
+        try:
+            await _install_staged_watermark(raw)
+        finally:
+            await raw.close()
+        engine = build_async_engine(database.app_url)
+        try:
+            sessions = build_session_factory(engine)
+            async with sessions() as session, session.begin():
+                await _seed_authority(session)
+                chunk = _maximum_deleted_chunk()
+                chunk.id = "chunk-repair"
+                chunk.source_hash = "d" * 64
+                chunk.retrieval_version = 1
+                session.add(chunk)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE memory_chunks SET status='deleted', retrieval_version=2 "
+                        "WHERE id='chunk-repair'"
+                    )
+                )
+                await connection.execute(
+                    text(
+                        "UPDATE memory_locator_profile_tombstones "
+                        "SET completed_at=:when WHERE profile_id='profile-max' "
+                        "AND chunk_id='chunk-repair'"
+                    ),
+                    {"when": WHEN},
+                )
+
+            upgraded = await upgrade_schema(engine)
+            assert upgraded.applied == ("0054_locator_profile_exact_delete_generation",)
+            async with engine.connect() as connection:
+                tombstone = (
+                    await connection.execute(
+                        text(
+                            "SELECT canonical_version, delete_canonical_version, completed_at "
+                            "FROM memory_locator_profile_tombstones "
+                            "WHERE profile_id='profile-max' AND chunk_id='chunk-repair'"
+                        )
+                    )
+                ).one()
+                repair = (
+                    await connection.execute(
+                        text(
+                            "SELECT aggregate_version, payload_json "
+                            "FROM memory_outbox WHERE event_type='vector.delete_locator_profile' "
+                            "AND message_key LIKE 'locator-profile-delete-v2:%'"
+                        )
+                    )
+                ).one()
+            assert tuple(tombstone) == (2, 1, None)
+            assert repair.aggregate_version == 2
+            assert repair.payload_json["delete_canonical_version"] == 1
         finally:
             await engine.dispose()
     finally:
@@ -123,6 +294,7 @@ async def _assert_transit_column_types(engine) -> None:
     expected = {
         ("memory_chunks", "retrieval_version"),
         ("memory_locator_profile_tombstones", "canonical_version"),
+        ("memory_locator_profile_tombstones", "delete_canonical_version"),
         ("memory_outbox", "aggregate_version"),
         ("memory_projection_result_receipts", "aggregate_version"),
     }
@@ -137,6 +309,7 @@ async def _assert_transit_column_types(engine) -> None:
                       AND (table_name, column_name) IN (
                         ('memory_chunks', 'retrieval_version'),
                         ('memory_locator_profile_tombstones', 'canonical_version'),
+                        ('memory_locator_profile_tombstones', 'delete_canonical_version'),
                         ('memory_outbox', 'aggregate_version'),
                         ('memory_projection_result_receipts', 'aggregate_version')
                       )

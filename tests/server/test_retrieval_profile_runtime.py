@@ -8,11 +8,13 @@ from types import SimpleNamespace
 import pytest
 from infinity_context_core.features.context_building.public import (
     CanonicalProjectionItem,
+    ExactVersionDeletionProof,
     ProfileActivationDecision,
     ProfileAttestationCheckpoint,
     ProfileAttestationLease,
     ProfileReconciliationOperation,
     ProfileReconciliationWriteOutcome,
+    ProfileTombstoneDeleteAuthorization,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -95,6 +97,49 @@ def test_profile_outbox_stale_delete_is_a_noop() -> None:
     asyncio.run(coordinator.delete(job, now=datetime(2026, 8, 23, tzinfo=UTC)))
 
     assert projection.deletes == []
+    assert registry.completed == []
+
+
+def test_profile_outbox_deletes_prior_projection_generation_before_completion() -> None:
+    registry = _Registry()
+    projection = _Projection()
+    coordinator = RetrievalProfileOutboxCoordinator(registry, _Source(), projection)
+    job = ClaimedOutboxJob(
+        id=3,
+        event_type="vector.delete_locator_profile",
+        aggregate_id="chunk-a",
+        aggregate_version=2,
+        attempt_count=0,
+        workload_class="projection",
+        fairness_key="profile:profile-a",
+        payload_json={"profile_id": "profile-a", "chunk_ids": ["chunk-a"]},
+    )
+
+    asyncio.run(coordinator.delete(job, now=datetime(2026, 8, 23, tzinfo=UTC)))
+
+    assert projection.deletes == [("profile-a", ("chunk-a",), 1)]
+    assert registry.completed == [("profile-a", "chunk-a", 2, 1)]
+
+
+def test_profile_outbox_rejects_unbound_absence_proof_without_completion() -> None:
+    registry = _Registry()
+    projection = _Projection()
+    projection.proof_version = 2
+    coordinator = RetrievalProfileOutboxCoordinator(registry, _Source(), projection)
+    job = ClaimedOutboxJob(
+        id=4,
+        event_type="vector.delete_locator_profile",
+        aggregate_id="chunk-a",
+        aggregate_version=2,
+        attempt_count=0,
+        workload_class="projection",
+        fairness_key="profile:profile-a",
+        payload_json={"profile_id": "profile-a", "chunk_ids": ["chunk-a"]},
+    )
+
+    with pytest.raises(RuntimeError, match="retrieval_profile_delete_proof_mismatch"):
+        asyncio.run(coordinator.delete(job, now=datetime(2026, 8, 23, tzinfo=UTC)))
+
     assert registry.completed == []
 
 
@@ -677,10 +722,22 @@ class _Registry:
         )
 
     async def authorize_tombstone(self, profile_id, chunk_id, *, canonical_version):
-        return self.identity if self.authorized else None
+        return (
+            ProfileTombstoneDeleteAuthorization(self.identity, canonical_version, 1)
+            if self.authorized
+            else None
+        )
 
-    async def complete_tombstone(self, profile_id, chunk_id, *, canonical_version, completed_at):
-        self.completed.append((profile_id, chunk_id, canonical_version))
+    async def complete_tombstone(
+        self,
+        profile_id,
+        chunk_id,
+        *,
+        canonical_version,
+        delete_canonical_version,
+        completed_at,
+    ):
+        self.completed.append((profile_id, chunk_id, canonical_version, delete_canonical_version))
 
 
 class _Source:
@@ -704,6 +761,7 @@ class _Projection:
     def __init__(self):
         self.upserts = []
         self.deletes = []
+        self.proof_version = None
 
     async def upsert_profile(self, identity, items):
         self.upserts.extend(
@@ -712,6 +770,10 @@ class _Projection:
 
     async def delete_profile_if_version(self, identity, canonical_ids, *, canonical_version):
         self.deletes.append((identity.profile_id, canonical_ids, canonical_version))
+        return ExactVersionDeletionProof(
+            canonical_ids,
+            canonical_version if self.proof_version is None else self.proof_version,
+        )
 
 
 class _ReconciliationRegistry:

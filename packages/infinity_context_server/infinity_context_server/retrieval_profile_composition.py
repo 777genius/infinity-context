@@ -96,22 +96,28 @@ class RetrievalProfileOutboxCoordinator:
         profile_id = _profile_id(job)
         if job.aggregate_version is None:
             raise RuntimeError("retrieval_profile_delete_version_missing")
-        profile = await self.registry.authorize_tombstone(
+        authorization = await self.registry.authorize_tombstone(
             profile_id,
             job.aggregate_id,
             canonical_version=job.aggregate_version,
         )
-        if profile is None:
+        if authorization is None:
             return
-        await self.projection.delete_profile_if_version(
-            profile,
+        proof = await self.projection.delete_profile_if_version(
+            authorization.identity,
             (job.aggregate_id,),
-            canonical_version=job.aggregate_version,
+            canonical_version=authorization.delete_canonical_version,
         )
+        if (
+            proof.canonical_ids != (job.aggregate_id,)
+            or proof.canonical_version != authorization.delete_canonical_version
+        ):
+            raise RuntimeError("retrieval_profile_delete_proof_mismatch")
         await self.registry.complete_tombstone(
             profile_id,
             job.aggregate_id,
             canonical_version=job.aggregate_version,
+            delete_canonical_version=authorization.delete_canonical_version,
             completed_at=now,
         )
 

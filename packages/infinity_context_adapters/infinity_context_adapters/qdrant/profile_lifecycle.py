@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from infinity_context_core.features.context_building.public import (
     CanonicalProjectionItem,
+    ExactVersionDeletionProof,
     ProfileCollectionDeleteAuthorization,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
@@ -108,7 +109,7 @@ class QdrantRetrievalProfileProjection:
         canonical_ids: tuple[str, ...],
         *,
         canonical_version: int,
-    ) -> None:
+    ) -> ExactVersionDeletionProof:
         async with self._mutation(identity) as mutation:
             async with asyncio.timeout(50):
                 result = await self._adapter(identity).delete_chunks_if_version(
@@ -117,6 +118,7 @@ class QdrantRetrievalProfileProjection:
             if result.status.value != "ok":
                 raise RuntimeError("retrieval_profile_qdrant_delete_failed")
             mutation.complete()
+        return ExactVersionDeletionProof(canonical_ids, canonical_version)
 
     async def attestation(self, identity: RetrievalProfileIdentity) -> tuple[int, str]:
         return await self._adapter(identity).locator_profile_attestation()

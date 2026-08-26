@@ -110,7 +110,7 @@ def test_document_listing_migration_is_explicit_nontransactional_and_split() -> 
 def test_pr57_history_through_0051_has_exact_appended_0052_sequence_pending() -> None:
     migrations = migration_runner._load_migrations()
     migration_ids = tuple(migration.migration_id for migration in migrations)
-    pr57_migrations = migrations[:-3]
+    pr57_migrations = migrations[:-4]
     history = {migration.migration_id: migration.checksum for migration in pr57_migrations}
     document_index_migrations = tuple(
         migration.migration_id
@@ -118,13 +118,14 @@ def test_pr57_history_through_0051_has_exact_appended_0052_sequence_pending() ->
         if migration.migration_id.endswith("_document_scope_listing_indexes")
     )
 
-    assert migration_ids[-4:] == (
+    assert migration_ids[-5:] == (
         "0051_locator_profile_acl_search_path_hardening",
         "0052_document_scope_listing_indexes",
         "0052_reconciliation_outbox_binding_index",
         "0053_retrieval_default_lifecycle",
+        "0054_locator_profile_exact_delete_generation",
     )
-    assert migrations[-1].migration_id == "0053_retrieval_default_lifecycle"
+    assert migrations[-1].migration_id == "0054_locator_profile_exact_delete_generation"
     assert document_index_migrations == ("0052_document_scope_listing_indexes",)
     migration_runner._validate_history(migrations, history)
     assert migration_runner._first_pending_out_of_transaction(migrations, history) == len(

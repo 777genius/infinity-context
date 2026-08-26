@@ -7,7 +7,7 @@ from infinity_context_adapters.postgres.migration_runner import _load_migrations
 def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     migrations = _load_migrations()
     ids = tuple(migration.migration_id for migration in migrations)
-    assert ids[-16:] == (
+    assert ids[-17:] == (
         "0039_locator_retrieval_attributes",
         "0040_locator_profile_lifecycle",
         "0041_locator_profile_attestation_fence",
@@ -24,6 +24,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0052_document_scope_listing_indexes",
         "0052_reconciliation_outbox_binding_index",
         "0053_retrieval_default_lifecycle",
+        "0054_locator_profile_exact_delete_generation",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
@@ -285,3 +286,17 @@ def test_retrieval_default_cutover_retires_only_the_historical_event_lane() -> N
     assert "status = 'running'" in sql
     assert "retrieval.legacy_projection_retired" in sql
     assert "trg_memory_chunk_locator_profile_events_v2" not in sql
+
+
+def test_exact_delete_generation_migration_separates_authority_from_target() -> None:
+    path = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0054_locator_profile_exact_delete_generation.sql"
+    )
+    sql = path.read_text()
+    assert "ADD COLUMN delete_canonical_version BIGINT" in sql
+    assert "OLD.retrieval_version" in sql
+    assert "delete_canonical_version = EXCLUDED.delete_canonical_version" in sql
+    assert "locator-profile-delete-v2:" in sql
+    assert "completed_at = NULL" in sql
+    assert "CREATE OR REPLACE FUNCTION public.memory_chunk_locator_profile_events_v2()" in sql

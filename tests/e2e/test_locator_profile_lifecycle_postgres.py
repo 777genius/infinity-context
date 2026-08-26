@@ -437,8 +437,9 @@ async def _assert_profile_lifecycle(database_url: str) -> None:
                 await connection.execute(
                     text(
                         "INSERT INTO memory_locator_profile_tombstones "
-                        "(profile_id, chunk_id, canonical_version, created_at, updated_at) "
-                        "VALUES ('profile-a', 'deleted-chunk', 1, :now, :now)"
+                        "(profile_id, chunk_id, canonical_version, delete_canonical_version, "
+                        "created_at, updated_at) "
+                        "VALUES ('profile-a', 'deleted-chunk', 1, 1, :now, :now)"
                     ),
                     {"now": now},
                 )

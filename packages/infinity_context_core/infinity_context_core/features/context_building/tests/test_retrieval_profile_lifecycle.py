@@ -5,6 +5,8 @@ import hashlib
 import tracemalloc
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from infinity_context_core.features.context_building.application.retrieval_profile_lifecycle import (  # noqa: E501
     RetrievalProfileLifecycle,
 )
@@ -23,9 +25,24 @@ from infinity_context_core.features.context_building.domain.retrieval_profile_li
 from infinity_context_core.features.context_building.ports.retrieval_profile_lifecycle import (
     CanonicalProjectionItem,
     CanonicalProjectionPage,
+    ExactVersionDeletionProof,
+    ProfileTombstoneDeleteAuthorization,
 )
 
 NOW = datetime(2026, 8, 23, tzinfo=UTC)
+
+
+def test_tombstone_authority_and_absence_proof_bind_both_exact_generations() -> None:
+    identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
+    authorization = ProfileTombstoneDeleteAuthorization(identity, 8, 7)
+    proof = ExactVersionDeletionProof(("chunk-a",), 7)
+
+    assert authorization.canonical_version == 8
+    assert authorization.delete_canonical_version == proof.canonical_version == 7
+    with pytest.raises(ValueError):
+        ExactVersionDeletionProof(("chunk-a",), True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        ExactVersionDeletionProof(("chunk-a", "chunk-a"), 7)
 
 
 def test_activation_requires_every_exact_operational_gate() -> None:
