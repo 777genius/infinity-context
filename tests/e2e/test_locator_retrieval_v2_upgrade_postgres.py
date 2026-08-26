@@ -84,6 +84,7 @@ async def _assert_seeded_upgrade(database_url: str) -> None:
                     "0049_reconciliation_runtime_generation",
                     "0050_locator_profile_outbox_transaction_coalescing",
                     "0051_locator_profile_acl_search_path_hardening",
+                    "0052_document_scope_listing_indexes",
                 )
             assert len(await build_locator_retrieval_indexes(engine)) == 4
             assert len(await build_locator_retrieval_indexes(engine)) == 4

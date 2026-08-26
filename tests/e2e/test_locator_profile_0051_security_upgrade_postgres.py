@@ -59,7 +59,10 @@ async def _scenario(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.applied == ("0051_locator_profile_acl_search_path_hardening",)
+            assert result.applied == (
+                "0051_locator_profile_acl_search_path_hardening",
+                "0052_document_scope_listing_indexes",
+            )
         finally:
             await engine.dispose()
 
