@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import ast
+import importlib.util
+import os
 import re
+import tarfile
+import zipfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -21,7 +25,17 @@ ADAPTERS_PACKAGE = (
 POSTGRES_ADAPTER = ADAPTERS_PACKAGE / "postgres"
 QDRANT_ADAPTER = ADAPTERS_PACKAGE / "qdrant"
 PRODUCTION_PACKAGE_ROOTS = tuple((REPO_ROOT / "packages").glob("*/"))
-TYPESCRIPT_RETRIEVAL_ROOT = REPO_ROOT / "packages" / "infinity_context_ts_sdk" / "src"
+CURRENT_SOURCE_ROOTS = tuple(
+    path
+    for path in (
+        REPO_ROOT / "packages",
+        REPO_ROOT / "docs",
+        REPO_ROOT / "examples",
+        REPO_ROOT / "scripts",
+        REPO_ROOT / "tests",
+    )
+    if path.exists()
+)
 VERSIONED_RETRIEVAL_PATH_ALLOWLIST = {
     REPO_ROOT
     / "packages"
@@ -37,6 +51,38 @@ OLD_RETRIEVAL_IDENTIFIER = re.compile(
     r"locator_retrieval_v2|retrieval_v2)"
 )
 OLD_SERVING_MODULE = "infinity_context_server.serving_identity"
+REMOVED_RETRIEVAL_MODULE = "infinity_context_server.retrieval_composition"
+CURRENT_V2_NAME = re.compile(r"\bRetrieval[ _-]?V2\b|\bretrieval[_-]v2\b", re.IGNORECASE)
+TEXT_SUFFIXES = {
+    ".cjs",
+    ".cts",
+    ".js",
+    ".json",
+    ".md",
+    ".mjs",
+    ".mts",
+    ".py",
+    ".pyi",
+    ".rst",
+    ".toml",
+    ".ts",
+    ".tsx",
+}
+IMMUTABLE_V2_TREE_PARTS = {
+    "docs/adr",
+    "infinity_context_adapters/postgres/maintenance",
+    "infinity_context_adapters/postgres/migrations",
+    "infinity_context_contracts/fixtures/context_retrieval_v2",
+    "infinity_context_ts_sdk/fixtures/context_retrieval_v2",
+    "tests/migrations",
+}
+IMMUTABLE_V2_LINE_MARKERS = {
+    "ADR-0011-locator-retrieval-v2-boundary.md",
+    "context-retrieval.v2",
+    "context_retrieval_v2",
+    "generic-retrieval-v2-dataset.v1",
+    "pre-0046 Retrieval V2 writers",
+}
 NEW_SOURCE_CLASSIFICATION = {
     CORE_FEATURE / "domain" / "locator_retrieval.py": "domain",
     CORE_FEATURE / "domain" / "locator_retrieval_filters.py": "domain_filters",
@@ -116,7 +162,7 @@ NEW_SOURCE_CLASSIFICATION = {
 INTEGRATION_SOURCE_CLASSIFICATION = {
     SERVER_CONTEXT_BUILDING / "retrieval_service.py": "application_composition",
     SERVER_CONTEXT_BUILDING / "retrieval_mappers.py": "contract_mapping",
-    SERVER_PACKAGE / "retrieval_composition.py": "provider_composition",
+    SERVER_PACKAGE / "retrieval_profile_composition.py": "provider_composition",
     SERVER_PACKAGE / "api" / "v1" / "context_retrieval.py": "http_adapter",
     POSTGRES_ADAPTER / "locator_retrieval.py": "canonical_read_adapter",
     POSTGRES_ADAPTER / "projected_document_ingestion.py": "canonical_write_adapter",
@@ -272,34 +318,119 @@ def test_locator_retrieval_boundary_adr_is_accepted_and_locator_only() -> None:
 
 
 def test_current_retrieval_has_no_v2_or_old_serving_identifiers() -> None:
-    """Keep V2 at immutable wire/state/history boundaries, never in current code names."""
+    """Keep V2 at explicit immutable boundaries, never in current names or strings."""
 
     violations: list[str] = []
-    for package_root in PRODUCTION_PACKAGE_ROOTS:
-        for path in package_root.rglob("*.py"):
-            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for path in _current_text_files():
+        relative = path.relative_to(REPO_ROOT)
+        text = path.read_text(encoding="utf-8")
+        if "serving_identity" in path.name:
+            violations.append(f"{relative}:old serving filename")
+        if ("retrieval_v2" in path.name or "retrieval-v2" in path.name) and not (
+            _immutable_v2_path(relative)
+        ):
+            violations.append(f"{relative}:current V2 filename")
+        for line_number, line in enumerate(text.splitlines(), 1):
+            if "serving_identity" in line:
+                violations.append(f"{relative}:{line_number}:old serving name")
+            if CURRENT_V2_NAME.search(line) and not _immutable_v2_line(relative, line):
+                violations.append(f"{relative}:{line_number}:current V2 name")
+        if path.suffix in {".py", ".pyi"}:
+            tree = ast.parse(text, filename=str(path))
             violations.extend(
-                f"{path.relative_to(REPO_ROOT)}:{name}"
+                f"{relative}:{name}"
                 for name in _imports(tree)
-                if name.lstrip(".") == OLD_SERVING_MODULE
-                or name.lstrip(".").endswith(".serving_identity")
+                if name.lstrip(".") in {OLD_SERVING_MODULE, REMOVED_RETRIEVAL_MODULE}
+                or name.lstrip(".").endswith((".serving_identity", ".retrieval_composition"))
             )
             for node in ast.walk(tree):
-                names = _defined_or_referenced_names(node)
-                violations.extend(
-                    f"{path.relative_to(REPO_ROOT)}:{name}"
-                    for name in names
-                    if OLD_RETRIEVAL_IDENTIFIER.search(name)
-                )
-    for path in TYPESCRIPT_RETRIEVAL_ROOT.rglob("*.ts"):
-        identifiers = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", path.read_text(encoding="utf-8"))
-        violations.extend(
-            f"{path.relative_to(REPO_ROOT)}:{name}"
-            for name in identifiers
-            if OLD_RETRIEVAL_IDENTIFIER.search(name)
-        )
+                for name in _defined_or_referenced_names(node):
+                    if OLD_RETRIEVAL_IDENTIFIER.search(name):
+                        violations.append(f"{relative}:{name}")
+                if (
+                    isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and ("serving_identity" in node.value or REMOVED_RETRIEVAL_MODULE in node.value)
+                ):
+                    violations.append(f"{relative}:dynamic old module string")
+        elif path.suffix in {".cts", ".mts", ".ts", ".tsx"} or path.name.endswith(
+            (".d.cts", ".d.ts")
+        ):
+            identifiers = re.findall(r"[A-Za-z_$][A-Za-z0-9_$]*", text)
+            violations.extend(
+                f"{relative}:{name}"
+                for name in identifiers
+                if OLD_RETRIEVAL_IDENTIFIER.search(name)
+            )
     assert violations == []
     assert not (SERVER_PACKAGE / "serving_identity.py").exists()
+    assert not (SERVER_PACKAGE / "retrieval_composition.py").exists()
+
+
+def test_drained_retrieval_runtime_has_no_dynamic_or_packaged_consumer() -> None:
+    profile_source = (SERVER_PACKAGE / "retrieval_profile_composition.py").read_text(
+        encoding="utf-8"
+    )
+    composition_source = (SERVER_PACKAGE / "composition.py").read_text(encoding="utf-8")
+    assert "fallback" not in profile_source
+    assert "build_locator_retrieval_service" not in composition_source
+    assert importlib.util.find_spec(OLD_SERVING_MODULE) is None
+    assert importlib.util.find_spec(REMOVED_RETRIEVAL_MODULE) is None
+
+    removed_members = {
+        "infinity_context_server/serving_identity.py",
+        "infinity_context_server/retrieval_composition.py",
+    }
+    violations: list[str] = []
+    for path in _current_text_files():
+        text = path.read_text(encoding="utf-8")
+        if OLD_SERVING_MODULE in text or REMOVED_RETRIEVAL_MODULE in text:
+            violations.append(f"{path.relative_to(REPO_ROOT)}:removed module consumer")
+    archive_roots = (
+        REPO_ROOT,
+        REPO_ROOT / "dist",
+        REPO_ROOT / "packages" / "infinity_context_ts_sdk",
+    )
+    archive_paths = {
+        path
+        for root in archive_roots
+        if root.exists()
+        for pattern in ("*.tar", "*.tar.gz", "*.tgz", "*.whl", "*.zip")
+        for path in root.glob(pattern)
+    }
+    for path in sorted(archive_paths):
+        try:
+            if zipfile.is_zipfile(path):
+                with zipfile.ZipFile(path) as archive:
+                    violations.extend(
+                        f"{path.relative_to(REPO_ROOT)}:{name}"
+                        for name in archive.namelist()
+                        if any(name.endswith(member) for member in removed_members)
+                    )
+                    for name in archive.namelist():
+                        if name.endswith("retrieval_profile_composition.py"):
+                            source = archive.read(name).decode("utf-8")
+                            if "fallback" in source:
+                                violations.append(
+                                    f"{path.relative_to(REPO_ROOT)}:{name}:drained fallback"
+                                )
+            elif path.name.endswith((".tar", ".tar.gz", ".tgz")) and tarfile.is_tarfile(path):
+                with tarfile.open(path) as archive:
+                    violations.extend(
+                        f"{path.relative_to(REPO_ROOT)}:{member.name}"
+                        for member in archive.getmembers()
+                        if any(member.name.endswith(name) for name in removed_members)
+                    )
+                    for member in archive.getmembers():
+                        if member.name.endswith("retrieval_profile_composition.py"):
+                            extracted = archive.extractfile(member)
+                            if extracted is not None and b"fallback" in extracted.read():
+                                violations.append(
+                                    f"{path.relative_to(REPO_ROOT)}:{member.name}:drained fallback"
+                                )
+        except OSError:
+            continue
+    assert violations == []
 
 
 def test_versioned_retrieval_filenames_are_explicit_immutable_boundaries() -> None:
@@ -335,3 +466,48 @@ def _defined_or_referenced_names(node: ast.AST) -> tuple[str, ...]:
     if isinstance(node, ast.alias):
         return (node.name, node.asname or "")
     return ()
+
+
+def _current_text_files() -> tuple[Path, ...]:
+    guard = Path(__file__).resolve()
+    excluded = {
+        ".git",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".venv",
+        "node_modules",
+        "__pycache__",
+    }
+    paths: set[Path] = set()
+    for root in CURRENT_SOURCE_ROOTS:
+        for directory, names, filenames in os.walk(root):
+            names[:] = [name for name in names if name not in excluded]
+            for filename in filenames:
+                path = Path(directory) / filename
+                if path != guard and (
+                    path.suffix in TEXT_SUFFIXES or path.name.endswith((".d.cts", ".d.ts"))
+                ):
+                    paths.add(path)
+    paths.update(
+        path for path in (REPO_ROOT / "README.md", REPO_ROOT / "pyproject.toml") if path.exists()
+    )
+    return tuple(sorted(paths))
+
+
+def _immutable_v2_path(relative: Path) -> bool:
+    value = relative.as_posix()
+    return any(part in value for part in IMMUTABLE_V2_TREE_PARTS)
+
+
+def _immutable_v2_line(relative: Path, line: str) -> bool:
+    if _immutable_v2_path(relative):
+        return True
+    if (
+        "ADR-0011-locator-retrieval-v2-boundary.md" in line
+        or "pre-0046 Retrieval V2 writers" in line
+    ):
+        return True
+    sanitized = line
+    for marker in IMMUTABLE_V2_LINE_MARKERS:
+        sanitized = sanitized.replace(marker, "")
+    return not CURRENT_V2_NAME.search(sanitized)

@@ -214,11 +214,11 @@ def _owner(generation: str) -> RuntimeFenceOwner:
 
 def _service(owner, registry):
     return ProfileAwareLocatorRetrievalService(
-        fallback=object(),
         registry=registry,
         projection=_Projection(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
         runtime_owner=owner,
     )
 

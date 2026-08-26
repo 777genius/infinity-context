@@ -19,11 +19,11 @@ def test_profile_query_fence_spans_delegate_and_releases_on_failure(monkeypatch)
     events: list[str] = []
     registry = _QueryFenceRegistry(events)
     service = ProfileAwareLocatorRetrievalService(
-        fallback=object(),
         registry=registry,
         projection=object(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
     )
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
@@ -41,12 +41,12 @@ def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
     events: list[str] = []
     registry = _QueryFenceRegistry(events)
     service = ProfileAwareLocatorRetrievalService(
-        fallback=object(),
         registry=registry,
         projection=object(),
         sessions=object(),
         query_embeddings=object(),
         runtime_lifecycle=_StartingRuntime(events),
+        service_revision="1" * 40,
     )
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
@@ -58,40 +58,44 @@ def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
     assert events == ["register", "begin", "finish:lease-active"]
 
 
-def test_fallback_requires_atomic_no_profile_and_unavailable_fails_closed() -> None:
-    fallback = _Fallback()
-    no_profile = ProfileAwareLocatorRetrievalService(
-        fallback=fallback,
-        registry=_AdmissionRegistry(ProfileQueryAdmissionStatus.NO_PROFILE),
+@pytest.mark.parametrize(
+    "status",
+    [ProfileQueryAdmissionStatus.NO_PROFILE, ProfileQueryAdmissionStatus.UNAVAILABLE],
+)
+def test_absent_or_unavailable_admitted_profile_fails_closed(status) -> None:
+    service = ProfileAwareLocatorRetrievalService(
+        registry=_AdmissionRegistry(status),
         projection=object(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
     )
-    assert asyncio.run(no_profile.execute(object())) == "fallback"
-    assert fallback.calls == 1
+    with pytest.raises(RuntimeError, match="retrieval_profile_query_unavailable"):
+        asyncio.run(service.execute(object()))
 
-    unavailable = ProfileAwareLocatorRetrievalService(
-        fallback=fallback,
-        registry=_AdmissionRegistry(ProfileQueryAdmissionStatus.UNAVAILABLE),
+
+def test_descriptor_without_active_profile_fails_closed() -> None:
+    service = ProfileAwareLocatorRetrievalService(
+        registry=_ActiveRegistry(None),
         projection=object(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
     )
-    with pytest.raises(RuntimeError, match="query_unavailable"):
-        asyncio.run(unavailable.execute(object()))
-    assert fallback.calls == 1
+    with pytest.raises(RuntimeError, match="retrieval_profile_query_unavailable"):
+        asyncio.run(service.descriptor())
 
 
 def test_exact_close_mismatch_fails_closed_and_is_observable(monkeypatch) -> None:
     diagnostics = _Diagnostics()
-    fallback = _Fallback(diagnostics)
     registry = _QueryFenceRegistry([], close_error=True)
     service = ProfileAwareLocatorRetrievalService(
-        fallback=fallback,
         registry=registry,
         projection=object(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
+        diagnostics=diagnostics,
     )
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
@@ -161,14 +165,12 @@ class _AdmissionRegistry:
         return ProfileQueryAdmission(self.status)
 
 
-class _Fallback:
-    def __init__(self, diagnostics=None):
-        self.calls = 0
-        self.diagnostics = diagnostics
+class _ActiveRegistry:
+    def __init__(self, active):
+        self._active = active
 
-    async def execute(self, _request):
-        self.calls += 1
-        return "fallback"
+    async def active(self):
+        return self._active
 
 
 class _Diagnostics:

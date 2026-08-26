@@ -16,9 +16,6 @@ from infinity_context_adapters.postgres.locator_catalog_attestation import (
     attest_locator_retrieval_catalog,
     lock_and_attest_locator_retrieval_catalog,
 )
-from infinity_context_server.retrieval_composition import (
-    _postgres_profile_qualified,
-)
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
 
@@ -58,7 +55,8 @@ async def _assert_catalog_attestation(database_url: str) -> None:
                 assert version // 10000 in {16, 17, 18}
                 assert (await attest_locator_retrieval_catalog(connection)).qualified
             session_factory = build_session_factory(engine)
-            assert await _postgres_profile_qualified(session_factory)
+            async with session_factory() as session:
+                assert (await attest_locator_retrieval_catalog(session)).qualified
 
             original_oid = await _index_oid(engine)
             await _replace_locator_index_with_wrong_definition(engine)
@@ -84,7 +82,8 @@ async def _assert_catalog_attestation(database_url: str) -> None:
             async with engine.begin() as connection:
                 await lock_and_attest_locator_retrieval_catalog(connection)
             await _assert_exactly_one_locator_owner(database, engine)
-            assert await _postgres_profile_qualified(session_factory)
+            async with session_factory() as session:
+                assert (await attest_locator_retrieval_catalog(session)).qualified
         finally:
             await engine.dispose()
     finally:
@@ -103,7 +102,8 @@ async def _assert_unqualified(engine, session_factory, kind: str, properties: se
         assert properties <= relevant
         with pytest.raises(RuntimeError, match="catalog is not exact"):
             await lock_and_attest_locator_retrieval_catalog(connection)
-    assert not await _postgres_profile_qualified(session_factory)
+    async with session_factory() as session:
+        assert not (await attest_locator_retrieval_catalog(session)).qualified
 
 
 async def _replace_locator_index_with_wrong_definition(engine) -> None:

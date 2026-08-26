@@ -112,22 +112,17 @@ def test_locator_indexes_are_a_separately_fenced_concurrent_phase() -> None:
     assert "DROP INDEX" not in sql
 
 
-def test_projected_ingestion_and_capability_use_exact_catalog_attestation() -> None:
+def test_projected_ingestion_uses_exact_catalog_attestation() -> None:
     root = Path(__file__).resolve().parents[2]
     ingestion = root.joinpath(
         "packages/infinity_context_adapters/infinity_context_adapters/postgres",
         "projected_document_ingestion.py",
-    ).read_text()
-    composition = root.joinpath(
-        "packages/infinity_context_server/infinity_context_server/features",
-        "../retrieval_composition.py",
     ).read_text()
     maintenance = root.joinpath(
         "packages/infinity_context_adapters/infinity_context_adapters/postgres",
         "locator_index_maintenance.py",
     ).read_text()
     assert "lock_and_attest_locator_retrieval_catalog(session)" in ingestion
-    assert "attest_locator_retrieval_catalog(session)" in composition
     assert "_drop_mismatched_indexes" in maintenance
 
 

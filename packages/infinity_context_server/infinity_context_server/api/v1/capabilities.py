@@ -21,7 +21,7 @@ async def capabilities(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     result = await container.get_capabilities.execute()
-    serving_identity = container.serving_profile
+    serving_profile = container.serving_profile
     profile_id, profile_digest = _public_embedding_profile(container, result)
     context_capability = {
         "api_version": 1,
@@ -47,7 +47,7 @@ async def capabilities(
         "api_version": "v1",
         "server_version": "0.1.0",
         "service_name": result.service_name,
-        "service_revision": serving_identity.service_revision,
+        "service_revision": serving_profile.service_revision,
         "embedding_profile_id": profile_id,
         "embedding_profile_digest_sha256": profile_digest,
         "deploy_profile": result.deploy_profile,

@@ -1,4 +1,4 @@
-# Generic Retrieval V2 evaluation
+# Generic Retrieval evaluation
 
 Status: deterministic provider-free evaluation tooling. This is not production
 qualification evidence and does not mount or call a retrieval service.
@@ -6,7 +6,7 @@ qualification evidence and does not mount or call a retrieval service.
 ## Boundary
 
 The scoring domain in
-`infinity_context_core.features.context_building.domain.retrieval_v2_evaluation`
+`infinity_context_core.features.context_building.domain.retrieval_evaluation`
 accepts only ranked opaque locator identities, explicit integer ranks through 10,
 graded gold locator relevance, forbidden-scope locator identities, outcome status,
 integer microsecond latency, and integer byte counts. It has no server, database,
@@ -83,7 +83,7 @@ A qualification binding contains all of:
 
 - service revision;
 - core revision;
-- Retrieval V2 contract and ranking policy;
+- Retrieval contract and ranking policy;
 - capability fingerprint;
 - retrieval profile;
 - index identity;

@@ -54,12 +54,7 @@ from infinity_context_core.application.extractor import (
     RuleBasedMemoryExtractor,
 )
 from infinity_context_core.domain.usage import ProductPlan
-from infinity_context_core.ports.adapters import (
-    EmbeddingPort,
-    GraphMemoryPort,
-    MemoryAdapterPort,
-    VectorMemoryPort,
-)
+from infinity_context_core.ports.adapters import EmbeddingPort, GraphMemoryPort, MemoryAdapterPort
 from infinity_context_core.ports.assets import BlobStorageMaintenancePort
 from infinity_context_core.ports.auto_memory import MemoryExtractorPort
 from infinity_context_core.ports.capabilities import DocumentMemoryPort
@@ -97,7 +92,6 @@ from infinity_context_server.provider_circuit import (
     CircuitBreakingVectorMemoryAdapter,
     ProviderCircuitBreaker,
 )
-from infinity_context_server.retrieval_composition import build_locator_retrieval_service
 from infinity_context_server.retrieval_profile_composition import (
     ProfileAwareLocatorRetrievalService,
     RetrievalProfileOutboxCoordinator,
@@ -207,7 +201,6 @@ class Container:
     canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
     locator_retrieval: context_building_server.LocatorRetrievalService | None
-    locator_vector_index: VectorMemoryPort | None
     locator_projection_maintenance: PostgresLocatorProjectionMaintenance
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
@@ -259,7 +252,6 @@ class Container:
             *self.adapters,
             self.cognee_memory,
             self.vector_index,
-            self.locator_vector_index,
             self.graph_index,
             self.vector_projection_evidence,
             self.graph_projection_evidence,
@@ -379,17 +371,6 @@ def build_container(
         max_per_minute=resolved_settings.max_query_embeddings_per_minute,
     )
     runtime_metrics = RuntimeMetrics()
-    (
-        locator_retrieval,
-        locator_vector_index,
-        locator_projection_maintenance,
-    ) = build_locator_retrieval_service(
-        session_factory=session_factory,
-        settings=resolved_settings,
-        serving_profile=serving_profile,
-        query_embeddings=query_embeddings,
-        diagnostics=runtime_metrics,
-    )
     retrieval_profile_lifecycle, retrieval_profile_outbox = build_retrieval_profile_lifecycle(
         session_factory=session_factory,
         settings=resolved_settings,
@@ -415,16 +396,22 @@ def build_container(
             retrieval_profile_outbox.projection.runtime_owner,
         )
     )
-    if locator_retrieval is not None:
-        locator_retrieval = ProfileAwareLocatorRetrievalService(
-            fallback=locator_retrieval,
+    locator_retrieval = (
+        ProfileAwareLocatorRetrievalService(
             registry=retrieval_profile_outbox.registry,
             projection=retrieval_profile_outbox.projection,
             sessions=session_factory,
             query_embeddings=query_embeddings,
             runtime_lifecycle=retrieval_runtime_lifecycle,
+            service_revision=serving_profile.service_revision,
+            sdk_revision=serving_profile.service_revision,
+            diagnostics=runtime_metrics,
             runtime_owner=retrieval_profile_outbox.projection.runtime_owner,
         )
+        if serving_profile.service_revision is not None
+        else None
+    )
+    locator_projection_maintenance = PostgresLocatorProjectionMaintenance(session_factory)
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(
         tier=resolved_settings.product_plan_tier,
@@ -873,7 +860,6 @@ def build_container(
         canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
         locator_retrieval=locator_retrieval,
-        locator_vector_index=locator_vector_index,
         locator_projection_maintenance=locator_projection_maintenance,
         retrieval_profile_lifecycle=retrieval_profile_lifecycle,
         retrieval_profile_outbox=retrieval_profile_outbox,

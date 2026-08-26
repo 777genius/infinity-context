@@ -17,6 +17,7 @@ from infinity_context_adapters.postgres.locator_profile_lifecycle import (
     PostgresRetrievalProfileRegistry,
 )
 from infinity_context_adapters.postgres.locator_retrieval import (
+    PostgresCanonicalLocatorReader,
     PostgresLocatorCandidateProvider,
 )
 from infinity_context_adapters.qdrant.profile_lifecycle import (
@@ -120,14 +121,17 @@ class RetrievalProfileOutboxCoordinator:
 
 @dataclass(frozen=True, slots=True)
 class ProfileAwareLocatorRetrievalService:
-    """Use the canonical active profile, preserving the old route while none exists."""
+    """Serve Retrieval only through an admitted canonical active profile."""
 
-    fallback: LocatorRetrievalService
     registry: PostgresRetrievalProfileRegistry
     projection: QdrantRetrievalProfileProjection
     sessions: object
     query_embeddings: object
+    service_revision: str
     runtime_lifecycle: RetrievalRuntimeLifecycle | None = None
+    sdk_revision: str | None = None
+    supports_neighbors: bool = True
+    diagnostics: object | None = None
     runtime_owner: RuntimeFenceOwner = field(
         default_factory=lambda: RuntimeFenceOwner.unrecoverable_current(
             instance_id=f"retrieval-runtime-{uuid4().hex}",
@@ -165,9 +169,10 @@ class ProfileAwareLocatorRetrievalService:
             now=now,
             expires_at=now + timedelta(seconds=5),
         )
-        if admission.status is ProfileQueryAdmissionStatus.NO_PROFILE:
-            return await self.fallback.execute(request)
-        if admission.status is ProfileQueryAdmissionStatus.UNAVAILABLE:
+        if admission.status in {
+            ProfileQueryAdmissionStatus.NO_PROFILE,
+            ProfileQueryAdmissionStatus.UNAVAILABLE,
+        }:
             raise RuntimeError("retrieval_profile_query_unavailable")
         active = admission.identity
         activation_lease_id = admission.activation_lease_id
@@ -184,7 +189,7 @@ class ProfileAwareLocatorRetrievalService:
                     activation_lease_id=activation_lease_id,
                 )
             except BaseException:
-                record = getattr(getattr(self.fallback, "diagnostics", None), "record", None)
+                record = getattr(self.diagnostics, "record", None)
                 if callable(record):
                     record(active.profile_id, "query_fence_close_failed")
                 raise
@@ -338,7 +343,7 @@ class ProfileAwareLocatorRetrievalService:
     async def _delegate(self) -> LocatorRetrievalService:
         active = await self.registry.active()
         if active is None:
-            return self.fallback
+            raise RuntimeError("retrieval_profile_query_unavailable")
         return self._service_for_active(active)
 
     def _service_for_active(self, active) -> LocatorRetrievalService:
@@ -384,13 +389,13 @@ class ProfileAwareLocatorRetrievalService:
                     profile_qualification=qdrant_health,
                 ),
             ),
-            canonical_reader=self.fallback.canonical_reader,
-            service_revision=self.fallback.service_revision,
-            sdk_revision=self.fallback.sdk_revision,
+            canonical_reader=PostgresCanonicalLocatorReader(self.sessions),
+            service_revision=self.service_revision,
+            sdk_revision=self.sdk_revision,
             index_profile_digest=active.profile_digest,
             profile_kind="full",
-            supports_neighbors=self.fallback.supports_neighbors,
-            diagnostics=self.fallback.diagnostics,
+            supports_neighbors=self.supports_neighbors,
+            diagnostics=self.diagnostics,
             profile_id_override=active.profile_id,
         )
 

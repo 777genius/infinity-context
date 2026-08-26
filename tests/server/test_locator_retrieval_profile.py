@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 
 import infinity_context_core.features.context_building.public as core
-import infinity_context_server.retrieval_composition as composition
 import pytest
 from infinity_context_server.features.context_building.retrieval_service import (
     LocatorRetrievalService,
@@ -78,18 +76,6 @@ def test_stale_profile_and_required_health_fail_before_provider_call() -> None:
     assert provider.calls == 0
 
 
-def test_qdrant_request_path_qualification_is_bounded(monkeypatch) -> None:
-    async def canonical_profile(_session_factory):
-        return True
-
-    vector = _BoundedVector()
-    monkeypatch.setattr(composition, "_postgres_profile_qualified", canonical_profile)
-
-    assert asyncio.run(composition._qdrant_profile_qualified(vector, object())) is True
-    assert vector.capability_calls == 1
-    assert vector.full_scan_calls == 0
-
-
 def _request(fingerprint: str, profile: str) -> core.LocatorRetrievalRequest:
     return core.LocatorRetrievalRequest(
         "context-retrieval.v2",
@@ -124,21 +110,3 @@ class _Reader:
 
     async def hydrate_final_locator_read(self, request, identities, radius):  # pragma: no cover
         raise AssertionError
-
-
-class _BoundedVector:
-    capability_calls = 0
-    full_scan_calls = 0
-
-    async def capabilities(self):
-        self.capability_calls += 1
-        return SimpleNamespace(
-            enabled=True,
-            healthy=True,
-            supports_search=True,
-            supports_filters=True,
-        )
-
-    async def locator_profile_complete(self, expected):  # pragma: no cover
-        self.full_scan_calls += 1
-        raise AssertionError("full profile scans cannot run on the request path")

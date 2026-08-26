@@ -500,7 +500,7 @@ memory policy/orchestrator when correctness matters. Direct `memory_remember_fac
 has a server-side duplicate/conflict preflight, but no server can fix a request
 where the agent never calls a memory tool.
 
-Retrieval V2 abandoned reader/provider fences are never removed because a deadline
+Retrieval abandoned reader/provider fences are never removed because a deadline
 elapsed. After externally quiescing the service and reconciling any ambiguous provider
 operation, strict operators may use `infinity-context-admin retrieval-profile-recover`
 or `POST /v1/internal/retrieval-profiles/recoveries` with the exact profile, operation,
@@ -514,7 +514,7 @@ path/digest, exit-observation id/code/time, key and unique proof id. At server s
 without it local composition is explicitly unrecoverable, and server+Qdrant startup refuses
 the configuration. Strict-admin authority/evidence text is not death proof, and a supervisor
 cannot issue proof while its observed OS process is live.
-All Retrieval V2 admissions remain blocked until recovery closes maintenance. Provider
+All Retrieval admissions remain blocked until recovery closes maintenance. Provider
 mutation recovery also requires a provider-produced reconciliation receipt bound to the
 exact operation, owner instance/generation, mutation epoch/deadline, collection,
 profile/generation, maintenance/evidence epochs and observed state/count/digest. It is

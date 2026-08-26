@@ -73,7 +73,7 @@ Installed binaries:
 
 - `infinity-context-full-memory-proof`: run the full-memory release proof script.
 - `infinity-context-runtime-canary`: run the non-mutating runtime canary script.
-- `infinity-context-retrieval-runtime-canary`: call the live V2 route only after
+- `infinity-context-retrieval-runtime-canary`: call the live Retrieval route only after
   capability fingerprint, profile and SDK-revision pins match.
 
 Both binaries support `--help` and `--version` without contacting the service.

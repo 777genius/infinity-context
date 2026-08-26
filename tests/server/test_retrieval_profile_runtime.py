@@ -436,11 +436,11 @@ def test_active_profile_reconciliation_fails_closed_on_physical_drift(monkeypatc
         drift,
     )
     service = ProfileAwareLocatorRetrievalService(
-        fallback=object(),
         registry=registry,
         projection=_ReconciliationProjection(),
         sessions=object(),
         query_embeddings=object(),
+        service_revision="1" * 40,
     )
 
     with pytest.raises(RuntimeError, match="checkpoint_drift"):
