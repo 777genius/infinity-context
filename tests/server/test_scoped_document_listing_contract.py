@@ -94,9 +94,8 @@ def test_list_documents_is_exactly_scoped_and_defaults_to_active(tmp_path: Path)
         thread_page = _list(client)
         global_page = _list(client, thread=None)
         deleted_page = _list(client, status="deleted")
-        deleted_by_id = client.get(
-            f"/v1/documents/{deleted['id']}", headers=ROOT_HEADERS
-        )
+        deleted_by_id = client.get(f"/v1/documents/{deleted['id']}", headers=ROOT_HEADERS)
+        deleted_chunks = client.get(f"/v1/documents/{deleted['id']}/chunks", headers=ROOT_HEADERS)
         source_page = _list(client, source_external_id="TARGET_THREAD_A")
         missing_source_page = _list(client, source_external_id="TARGET_THREAD")
 
@@ -108,8 +107,12 @@ def test_list_documents_is_exactly_scoped_and_defaults_to_active(tmp_path: Path)
     assert global_page.json()["data"][0]["id"] == global_sentinel["id"]
     assert deleted_page.status_code == 400, deleted_page.text
     assert "DELETED_TARGET" not in deleted_page.text
-    assert deleted_by_id.status_code == 200, deleted_by_id.text
-    assert deleted_by_id.json()["data"]["status"] == "deleted"
+    assert deleted_by_id.status_code == 404, deleted_by_id.text
+    assert deleted_by_id.json()["error"]["code"] == "memory.not_found"
+    assert "DELETED_TARGET" not in deleted_by_id.text
+    assert deleted_chunks.status_code == 404, deleted_chunks.text
+    assert deleted_chunks.json()["error"]["code"] == "memory.not_found"
+    assert "DELETED_TARGET" not in deleted_chunks.text
     assert _external_ids(source_page) == ["TARGET_THREAD_A"]
     assert missing_source_page.json() == {"data": [], "next_cursor": None}
 
@@ -297,9 +300,7 @@ def test_database_scoped_token_cannot_cross_space_or_memory_scope(
             space="token-space",
             memory_scope="allowed",
         )
-        deleted_response = client.delete(
-            f"/v1/documents/{tombstone['id']}", headers=ROOT_HEADERS
-        )
+        deleted_response = client.delete(f"/v1/documents/{tombstone['id']}", headers=ROOT_HEADERS)
         assert deleted_response.status_code == 200, deleted_response.text
 
     scoped = asyncio.run(

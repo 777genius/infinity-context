@@ -10,6 +10,7 @@ from infinity_context_core.application.dto import (
     ListDocumentChunksQuery,
     ListDocumentsQuery,
 )
+from infinity_context_core.domain.entities import LifecycleStatus
 from infinity_context_core.domain.errors import MemoryNotFoundError
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
@@ -21,7 +22,7 @@ class GetDocumentUseCase:
     async def execute(self, query: GetDocumentQuery) -> DocumentQueryResult:
         async with self._uow_factory() as uow:
             document = await uow.documents.get_by_id(query.document_id)
-        if document is None:
+        if document is None or document.status is not LifecycleStatus.ACTIVE:
             raise MemoryNotFoundError("Document not found")
         return DocumentQueryResult(document=document)
 
@@ -52,7 +53,7 @@ class ListDocumentChunksUseCase:
     async def execute(self, query: ListDocumentChunksQuery) -> DocumentChunksQueryResult:
         async with self._uow_factory() as uow:
             document = await uow.documents.get_by_id(query.document_id)
-            if document is None:
+            if document is None or document.status is not LifecycleStatus.ACTIVE:
                 raise MemoryNotFoundError("Document not found")
             chunks = await uow.documents.list_chunks(
                 query.document_id,
