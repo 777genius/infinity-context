@@ -20,11 +20,6 @@ from infinity_context_core.application import (
     IngestDocumentCommand as LegacyIngestDocumentCommand,
 )
 from infinity_context_core.domain.errors import MemoryValidationError
-from infinity_context_core.features.document_ingestion.public import (
-    DocumentProjectionIdempotencyConflictError,
-    DocumentProjectionLocatorConflictError,
-    DocumentProjectionOrdinalConflictError,
-)
 
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
@@ -92,11 +87,11 @@ async def ingest_document(
             if request.retrieval_projection is not None
             else container.ingest_document.execute(command)
         )
-    except DocumentProjectionLocatorConflictError:
+    except document_ingestion_server.DocumentProjectionLocatorConflictError:
         return _projection_error("memory.document_projection_locator_conflict")
-    except DocumentProjectionOrdinalConflictError:
+    except document_ingestion_server.DocumentProjectionOrdinalConflictError:
         return _projection_error("memory.document_projection_ordinal_conflict")
-    except DocumentProjectionIdempotencyConflictError:
+    except document_ingestion_server.DocumentProjectionIdempotencyConflictError:
         return _projection_error("memory.document_projection_idempotency_conflict")
     except ValueError:
         return _projection_error(

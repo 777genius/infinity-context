@@ -130,6 +130,9 @@ def test_document_ingestion_server_feature_public_surface_composes_router() -> N
     assert feature.feature_id == "document_ingestion"
     assert server_public.__all__ == (
         "DocumentIngestionServerFeature",
+        "DocumentProjectionIdempotencyConflictError",
+        "DocumentProjectionLocatorConflictError",
+        "DocumentProjectionOrdinalConflictError",
         "FEATURE_ID",
         "IngestDocumentHttpRequest",
         "LegacyDocumentSourceRefRequest",
@@ -149,6 +152,18 @@ def test_document_ingestion_server_feature_public_surface_composes_router() -> N
         "read_limited_asset_upload_body",
     )
     assert server_public.FEATURE_ID == "document_ingestion"
+    assert (
+        server_public.DocumentProjectionIdempotencyConflictError
+        is document_ingestion.DocumentProjectionIdempotencyConflictError
+    )
+    assert (
+        server_public.DocumentProjectionLocatorConflictError
+        is document_ingestion.DocumentProjectionLocatorConflictError
+    )
+    assert (
+        server_public.DocumentProjectionOrdinalConflictError
+        is document_ingestion.DocumentProjectionOrdinalConflictError
+    )
     assert {route.path for route in feature.create_router().routes} == {
         "/document-ingestion/documents"
     }

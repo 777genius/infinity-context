@@ -16,7 +16,7 @@ from infinity_context_contracts.features.document_ingestion import (
     IngestDocumentResultDto,
     MemoryDocumentDto,
 )
-from infinity_context_core.application.document_fragments import fragment_document_text
+from infinity_context_core.document_ingestion import validate_projected_document_text
 
 from infinity_context_server.api.public_payload import safe_public_metadata
 from infinity_context_server.features.document_ingestion.contracts import (
@@ -114,8 +114,8 @@ def legacy_ingest_document_command_from_request(
         ).to_contract()
     )
     projection = _projection_dto(request.retrieval_projection)
-    if projection is not None and len(fragment_document_text(request.text)) != 1:
-        raise ValueError("projected ingestion requires exactly one canonical chunk")
+    if projection is not None:
+        validate_projected_document_text(request.text)
     chunk_metadata = _legacy_document_chunk_metadata(request.source_refs) or {}
     if projection is not None:
         chunk_metadata["_retrieval_projection_contract"] = projection.to_dict()
