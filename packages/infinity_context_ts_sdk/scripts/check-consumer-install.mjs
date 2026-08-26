@@ -2,9 +2,9 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
+import { parseArgs, promisify } from "node:util";
 import { runInNewContext } from "node:vm";
 
 const execFileAsync = promisify(execFile);
@@ -15,17 +15,10 @@ const esbuildPath = fileURLToPath(new URL("../node_modules/esbuild/bin/esbuild",
 const tempRoot = await mkdtemp(join(tmpdir(), "infinity-context-sdk-consumer-"));
 
 try {
-  const pack = await execFileAsync("npm", ["pack", "--json", "--pack-destination", tempRoot], {
-    cwd: packageRoot,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  const [packResult] = JSON.parse(pack.stdout);
-  if (packResult === undefined || typeof packResult.filename !== "string") {
-    throw new Error("npm pack did not return a package filename");
-  }
+  const artifactPath = await resolveArtifact();
 
   await writeFile(join(tempRoot, "package.json"), JSON.stringify({ private: true }, null, 2));
-  await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", `./${packResult.filename}`], {
+  await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", artifactPath], {
     cwd: tempRoot,
     maxBuffer: 10 * 1024 * 1024,
   });
@@ -88,9 +81,30 @@ try {
     if (!source.equals(packed)) throw new Error(`Packed Contract C fixture bytes drifted: ${name}`);
   }
 
-  console.log(`Consumer install ok: ${packResult.filename}`);
+  console.log(`Consumer install ok: ${artifactPath}`);
 } finally {
   await rm(tempRoot, { force: true, recursive: true });
+}
+
+async function resolveArtifact() {
+  const { values } = parseArgs({
+    options: { artifact: { type: "string" } },
+    strict: true,
+    allowPositionals: false,
+  });
+  if (values.artifact !== undefined) {
+    if (values.artifact.trim() === "") throw new Error("--artifact must not be empty");
+    return isAbsolute(values.artifact) ? values.artifact : resolve(process.cwd(), values.artifact);
+  }
+  const pack = await execFileAsync("npm", ["pack", "--json", "--pack-destination", tempRoot], {
+    cwd: packageRoot,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  const [packResult] = JSON.parse(pack.stdout);
+  if (packResult === undefined || typeof packResult.filename !== "string") {
+    throw new Error("npm pack did not return a package filename");
+  }
+  return join(tempRoot, packResult.filename);
 }
 
 function consumerTypecheckSource() {
