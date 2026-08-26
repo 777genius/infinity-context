@@ -31,6 +31,7 @@ _INDEX_DEFINITIONS = {
 }
 _SEED_ROWS = 20_000
 _INSERTS_PER_INDEX = 3
+_DATABASE_PREFIX = "doc_idx_pg18"
 _ROLLBACK_TIMEOUT_SECONDS = 2
 _BUILDER_TIMEOUT_SECONDS = 20
 _BUILDER_CLEANUP_TIMEOUT_SECONDS = 2
@@ -50,7 +51,7 @@ async def _qualify_online_indexes(database_url: str) -> None:
     try:
         database = PostgresTestDatabase.from_url(
             database_url,
-            prefix="document_listing_online_indexes",
+            prefix=_DATABASE_PREFIX,
             asyncpg=asyncpg,
         )
     except ValueError:
@@ -383,6 +384,12 @@ async def _insert_document(writer, index_ordinal: int, insert_ordinal: int) -> N
         f"concurrent-source-{suffix}",
         f"concurrent-hash-{suffix}",
     )
+
+
+def test_qualification_database_name_fits_postgres_identifier_limit() -> None:
+    database_name = f"{_DATABASE_PREFIX}_{'0' * 32}"
+
+    assert len(database_name.encode("utf-8")) <= 63
 
 
 def test_polling_failure_cancels_builder_and_preserves_primary_error(
