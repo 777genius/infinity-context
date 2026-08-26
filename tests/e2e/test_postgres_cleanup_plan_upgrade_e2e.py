@@ -40,6 +40,7 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
             upgrade = await upgrade_schema(engine)
             assert upgrade.applied == (
                 "0033_benchmark_cleanup_plan",
+                "0033_document_scope_listing_indexes",
                 "0034_benchmark_generated_tombstone_fence",
                 "0035_projection_result_receipts",
                 "0036_memory_comparison_strict_v4_preparations",
