@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from infinity_context_contracts.features.document_ingestion import (
+    EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
     DocumentRetrievalProjectionV1Dto,
     IngestDocumentRequestDto,
 )
@@ -105,8 +106,26 @@ class LegacyIngestDocumentRequest(BaseModel):
     retrieval_projection: dict[str, Any] | None = None
 
 
+class ReconcileExactDocumentHttpRequest(BaseModel):
+    """Bounded exact lookup; scope ids and external identity are opaque."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str = Field(default=EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1)
+    space_id: str = Field(min_length=1, max_length=80)
+    memory_scope_id: str = Field(min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, max_length=80)
+    source_type: str = Field(min_length=1, max_length=80)
+    source_external_id: str = Field(min_length=1, max_length=240)
+    projection_generation: str | None = Field(default=None, min_length=1, max_length=256)
+    profile_generation: str | None = Field(default=None, min_length=1, max_length=160)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+    deadline_ms: int = Field(default=5_000, ge=50, le=10_000)
+
+
 __all__ = (
     "IngestDocumentHttpRequest",
     "LegacyDocumentSourceRefRequest",
     "LegacyIngestDocumentRequest",
+    "ReconcileExactDocumentHttpRequest",
 )

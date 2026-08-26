@@ -22,6 +22,9 @@ from infinity_context_sdk.context import (
     ContextEvidenceSelection,
     context_bundle_from_response,
 )
+from infinity_context_sdk.document_reconciliation import (
+    InfinityContextDocumentReconciliationMixin,
+)
 from infinity_context_sdk.errors import InfinityContextError
 from infinity_context_sdk.export import InfinityContextExportMixin
 from infinity_context_sdk.http_transport import InfinityContextHttpMixin
@@ -38,6 +41,7 @@ from infinity_context_sdk.thread_memory import InfinityContextThreadMemoryMixin
 @dataclass(frozen=True)
 class InfinityContextClient(
     InfinityContextHttpMixin,
+    InfinityContextDocumentReconciliationMixin,
     InfinityContextRetrievalV2Mixin,
     InfinityContextAnchorsMixin,
     InfinityContextAssetsMixin,

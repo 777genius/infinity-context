@@ -10,6 +10,9 @@ from infinity_context_core.features.document_ingestion.ports.projection_ownershi
     DocumentProjectionOwnershipDecisionV1,
     DocumentRetrievalProjectionOwnershipPortV1,
 )
+from infinity_context_core.features.document_ingestion.ports.reconciliation import (
+    ExactDocumentObservationPort,
+)
 from infinity_context_core.features.document_ingestion.ports.repositories import (
     DocumentChunkRepositoryPort,
     DocumentChunkUpsertResult,
@@ -25,5 +28,6 @@ __all__ = (
     "DocumentProjectionOwnershipClaimV1",
     "DocumentProjectionOwnershipDecisionV1",
     "DocumentRetrievalProjectionOwnershipPortV1",
+    "ExactDocumentObservationPort",
     "SourceDocumentRepositoryPort",
 )

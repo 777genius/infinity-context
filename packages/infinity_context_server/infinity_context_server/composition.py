@@ -7,6 +7,7 @@ import inspect
 from dataclasses import dataclass
 
 import infinity_context_core.features.context_building.public as context_building_feature
+import infinity_context_core.features.document_ingestion.public as document_ingestion_feature
 import infinity_context_core.features.memory_facts.public as memory_facts_feature
 from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
 from infinity_context_adapters.features.context_building import (
@@ -29,6 +30,9 @@ from infinity_context_adapters.postgres import (
 from infinity_context_adapters.postgres.context_candidates import (
     PostgresMemoryFactCandidateLookup,
     create_postgres_memory_fact_selection,
+)
+from infinity_context_adapters.postgres.document_reconciliation import (
+    PostgresExactDocumentObservationAdapter,
 )
 from infinity_context_adapters.postgres.locator_projection_maintenance import (
     PostgresLocatorProjectionMaintenance,
@@ -193,6 +197,7 @@ class Container:
     ingest_episode: IngestEpisodeUseCase
     ingest_document: IngestDocumentUseCase
     projected_document_ingestion: PostgresProjectedDocumentIngestor
+    reconcile_exact_document: document_ingestion_feature.ReconcileExactDocumentHandler
     get_document: GetDocumentUseCase
     list_documents: ListDocumentsUseCase
     list_document_chunks: ListDocumentChunksUseCase
@@ -633,6 +638,9 @@ def build_container(
         clock=clock,
         ids=ids,
     )
+    reconcile_exact_document = document_ingestion_feature.ReconcileExactDocumentHandler(
+        PostgresExactDocumentObservationAdapter(session_factory)
+    )
     run_asset_extraction = RunAssetExtractionUseCase(
         uow_factory=uow_factory,
         blob_storage=blob_storage,
@@ -855,6 +863,7 @@ def build_container(
         ingest_episode=ingest_episode,
         ingest_document=ingest_document,
         projected_document_ingestion=projected_document_ingestion,
+        reconcile_exact_document=reconcile_exact_document,
         get_document=get_document,
         list_documents=list_documents,
         list_document_chunks=list_document_chunks,

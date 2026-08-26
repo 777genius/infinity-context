@@ -261,4 +261,7 @@ export interface InfinityContextCapabilities extends JsonObject {
   readonly context?: JsonObject & {
     readonly retrieval?: JsonObject & import("./retrieval-v2-types.js").ContextRetrievalCapabilityV2;
   };
+  readonly documents?: JsonObject & {
+    readonly exact_reconciliation?: JsonObject & import("./document-reconciliation.js").ExactDocumentReconciliationCapabilityV1;
+  };
 }

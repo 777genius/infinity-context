@@ -113,5 +113,63 @@ class InfinityContextHttpMixin:
                 raise to_error(response)
             return response.content
 
+    def _request_bounded_json(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any],
+        max_response_bytes: int,
+        timeout: float,
+    ) -> dict[str, Any]:
+        """Read-only bounded JSON transport used by reconciliation contracts."""
+
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        with httpx.Client(
+            base_url=self.base_url.rstrip("/"),
+            timeout=min(self.timeout, timeout),
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            try:
+                response = client.request(method, path, json=json)
+            except httpx.TransportError as exc:
+                raise InfinityContextError(
+                    status_code=0,
+                    code="memory.network_error",
+                    message="Infinity Context bounded read failed",
+                    retryable=True,
+                    unknown_commit_state=False,
+                ) from exc
+            if response.is_error:
+                raise to_error(response, mutation=False)
+            if len(response.content) > max_response_bytes:
+                raise InfinityContextError(
+                    status_code=response.status_code,
+                    code="memory.response_byte_limit_exceeded",
+                    message="Infinity Context response exceeds the caller byte limit",
+                    retryable=False,
+                    unknown_commit_state=False,
+                )
+            try:
+                value = response.json()
+            except ValueError as exc:
+                raise InfinityContextError(
+                    status_code=response.status_code,
+                    code="memory.invalid_json",
+                    message="Infinity Context returned invalid JSON",
+                    retryable=False,
+                    unknown_commit_state=False,
+                ) from exc
+            if not isinstance(value, dict):
+                raise InfinityContextError(
+                    status_code=response.status_code,
+                    code="memory.invalid_json",
+                    message="Infinity Context returned an invalid JSON envelope",
+                    retryable=False,
+                    unknown_commit_state=False,
+                )
+            return value
+
 
 __all__ = ("InfinityContextHttpMixin",)

@@ -25,6 +25,14 @@ from infinity_context_core.features.document_ingestion.domain.feature import (
     FEATURE_ID,
     DocumentIngestionFeature,
 )
+from infinity_context_core.features.document_ingestion.domain.reconciliation import (
+    DocumentReconciliationState,
+    DocumentVisibilityEvidence,
+    ExactDocumentIdentity,
+    ExactDocumentObservation,
+    ExactDocumentReconciliation,
+    reconcile_exact_document,
+)
 from infinity_context_core.features.document_ingestion.domain.retrieval_projection import (
     DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
     DocumentRetrievalProjectionRelativeTimeIntervalV1,
@@ -63,11 +71,16 @@ __all__ = (
     "DocumentProjectionInvalidError",
     "DocumentProjectionLocatorConflictError",
     "DocumentProjectionOrdinalConflictError",
+    "DocumentReconciliationState",
     "DocumentRetrievalProjectionTimeIntervalV1",
     "DocumentRetrievalProjectionRelativeTimeIntervalV1",
     "DocumentRetrievalProjectionV1",
+    "DocumentVisibilityEvidence",
     "DocumentTextRange",
     "FEATURE_ID",
+    "ExactDocumentIdentity",
+    "ExactDocumentObservation",
+    "ExactDocumentReconciliation",
     "SourceDocument",
     "SourceDocumentClassification",
     "SourceDocumentContent",
@@ -78,4 +91,5 @@ __all__ = (
     "content_hash_for_text",
     "estimate_token_count",
     "normalize_document_text",
+    "reconcile_exact_document",
 )

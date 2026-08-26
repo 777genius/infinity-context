@@ -37,6 +37,7 @@ plans, research notes, and integration references for Infinity Context.
 - [ADR-0008 - Monotonic File-Size Budgets](adr/ADR-0008-monotonic-file-size-budgets.md)
 - [ADR-0009 - Provider-Neutral Cognitive Foundation](adr/ADR-0009-provider-neutral-cognitive-foundation.md)
 - [ADR-0011 - Locator-Only Retrieval V2 Boundary](adr/ADR-0011-locator-retrieval-v2-boundary.md)
+- [ADR-0012 - Exact Document Reconciliation And Visibility](adr/ADR-0012-exact-document-reconciliation-visibility.md)
 
 ## Documentation Scope
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from typing import Annotated, Any, Literal
@@ -11,6 +12,10 @@ from fastapi.responses import JSONResponse
 from infinity_context_contracts.features.context_building import (
     ContextRetrievalV2ErrorDto,
     ContextRetrievalV2ErrorEnvelopeDto,
+)
+from infinity_context_contracts.features.document_ingestion import (
+    EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+    ExactDocumentReconciliationResultDto,
 )
 from infinity_context_core.application import (
     DeleteDocumentCommand,
@@ -83,6 +88,68 @@ class DocumentListResponse(BaseModel):
 
     data: list[DocumentRecordResponse]
     next_cursor: str | None
+
+
+@router.post("/reconcile-exact")
+async def reconcile_exact_document(
+    request: document_ingestion_server.ReconcileExactDocumentHttpRequest,
+    container: Annotated[Container, Depends(get_container)],
+) -> dict[str, Any]:
+    if request.contract_version != EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "error": {
+                    "code": "memory.document_reconciliation_version_unsupported",
+                    "message": "Exact document reconciliation contract version is unsupported",
+                    "retryable": False,
+                }
+            },
+        )
+    identity = document_ingestion_server.ExactDocumentIdentity(
+        scope=document_ingestion_server.DocumentIngestionScope(
+            request.space_id,
+            request.memory_scope_id,
+            request.thread_id,
+        ),
+        origin=document_ingestion_server.SourceDocumentOrigin(
+            request.source_type,
+            request.source_external_id,
+        ),
+        projection_generation=request.projection_generation,
+        profile_generation=request.profile_generation,
+    )
+    try:
+        async with asyncio.timeout(request.deadline_ms / 1000):
+            result = await container.reconcile_exact_document.execute(
+                document_ingestion_server.ReconcileExactDocumentQuery(
+                    identity,
+                    request.idempotency_key,
+                )
+            )
+    except TimeoutError:
+        result = document_ingestion_server.ExactDocumentReconciliation(
+            "unavailable", identity, visibility="unavailable"
+        )
+    except Exception:
+        result = document_ingestion_server.ExactDocumentReconciliation(
+            "unavailable", identity, visibility="unavailable"
+        )
+    return ExactDocumentReconciliationResultDto(
+        contract_version=EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+        state=result.state,
+        source_type=identity.origin.source_type,
+        source_external_id=identity.origin.source_external_id,
+        space_id=identity.scope.space_id,
+        memory_scope_id=identity.scope.memory_scope_id,
+        thread_id=identity.scope.thread_id,
+        document_id=result.document_id,
+        canonical_status=result.canonical_status,
+        projection_generation=result.projection_generation,
+        profile_generation=result.profile_generation,
+        visibility=result.visibility,
+        idempotency_key_matches=result.idempotency_key_matches,
+    ).to_dict()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

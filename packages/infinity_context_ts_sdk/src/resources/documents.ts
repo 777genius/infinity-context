@@ -13,6 +13,15 @@ import {
   type DocumentRetrievalProjectionV1Input,
 } from "../document-retrieval-projection.js";
 import { contextRetrievalV2ErrorDecoder } from "../retrieval-v2-errors.js";
+import {
+  EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+  EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+  assertExactDocumentReconciliationCapabilityV1,
+  decodeExactDocumentReconciliationResponseV1,
+  exactDocumentReconciliationValidation,
+  type ExactDocumentReconciliationCapabilityV1,
+  type ExactDocumentReconciliationResultV1,
+} from "../document-reconciliation.js";
 
 export interface ListDocumentChunksInput extends RequestControls {
   readonly limit?: number;
@@ -54,8 +63,64 @@ export interface ListScopeDocumentsInput extends SingleScopeInput, RequestContro
   readonly cursor?: string;
 }
 
+export interface ReconcileExactDocumentInput extends RequestControls {
+  readonly capability: ExactDocumentReconciliationCapabilityV1;
+  readonly spaceId: string;
+  readonly memoryScopeId: string;
+  readonly threadId?: string | null;
+  readonly sourceType: string;
+  readonly sourceExternalId: string;
+  readonly projectionGeneration?: string;
+  readonly profileGeneration?: string;
+  readonly idempotencyKey?: string;
+  readonly deadlineMs?: number;
+}
+
 export class DocumentsClient {
   constructor(private readonly http: RequestExecutor) {}
+
+  async reconcileExactDocument(
+    input: ReconcileExactDocumentInput,
+  ): Promise<ExactDocumentReconciliationResultV1> {
+    assertExactDocumentReconciliationCapabilityV1(input.capability);
+    const validate = exactDocumentReconciliationValidation;
+    validate.text(input.spaceId, 80, "spaceId");
+    validate.text(input.memoryScopeId, 80, "memoryScopeId");
+    if (input.threadId != null) validate.text(input.threadId, 80, "threadId");
+    validate.text(input.sourceType, 80, "sourceType");
+    validate.text(input.sourceExternalId, 240, "sourceExternalId");
+    if (input.projectionGeneration !== undefined) validate.text(input.projectionGeneration, 256, "projectionGeneration");
+    if (input.profileGeneration !== undefined) validate.text(input.profileGeneration, 160, "profileGeneration");
+    if (input.idempotencyKey !== undefined) validate.text(input.idempotencyKey, 200, "idempotencyKey");
+    const deadlineMs = validate.integer(input.deadlineMs ?? 5_000, 50, Math.min(10_000, input.capability.max_deadline_ms), "deadlineMs");
+    const transportTimeoutMs = input.timeoutMs === undefined
+      ? deadlineMs + 250
+      : validate.integer(input.timeoutMs, 1, deadlineMs + 250, "timeoutMs");
+    const response = await this.http.request<Uint8Array | string>({
+      method: "POST",
+      path: "/v1/documents/reconcile-exact",
+      ...requestControls({
+        ...(input.headers === undefined ? {} : { headers: input.headers }),
+        ...(input.signal === undefined ? {} : { signal: input.signal }),
+        timeoutMs: transportTimeoutMs,
+      }),
+      responseType: "bytes",
+      maxResponseBytes: EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+      json: withoutUndefined({
+        contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+        space_id: input.spaceId,
+        memory_scope_id: input.memoryScopeId,
+        thread_id: input.threadId ?? undefined,
+        source_type: input.sourceType,
+        source_external_id: input.sourceExternalId,
+        projection_generation: input.projectionGeneration,
+        profile_generation: input.profileGeneration,
+        idempotency_key: input.idempotencyKey,
+        deadline_ms: deadlineMs,
+      }) as JsonObject,
+    });
+    return decodeExactDocumentReconciliationResponseV1(response, input);
+  }
 
   ingestDocument(input: IngestDocumentInput): Promise<ApiEnvelope<DocumentRecord>> {
     return this.http.request<ApiEnvelope<DocumentRecord>>({

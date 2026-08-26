@@ -15,6 +15,8 @@ from ._document_retrieval_projection_v1 import (
 )
 
 FEATURE_ID = "document_ingestion"
+EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1 = "document-reconciliation.v1"
+EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES = 65_536
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +233,88 @@ class IngestDocumentResultDto:
         return {"data": payload}
 
 
+@dataclass(frozen=True, slots=True)
+class ReconcileExactDocumentRequestDto:
+    """Exact canonical scope plus opaque source/document identity."""
+
+    space_id: str
+    memory_scope_id: str
+    source_type: str
+    source_external_id: str
+    thread_id: str | None = None
+    projection_generation: str | None = None
+    profile_generation: str | None = None
+    idempotency_key: str | None = None
+    deadline_ms: int = 5_000
+    contract_version: str = EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1
+
+    def __post_init__(self) -> None:
+        for name in ("space_id", "memory_scope_id", "source_type", "source_external_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        if self.contract_version != EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1:
+            raise ValueError("unsupported exact document reconciliation contract_version")
+        if not isinstance(self.deadline_ms, int) or isinstance(self.deadline_ms, bool):
+            raise ValueError("deadline_ms must be an integer")
+        if not 50 <= self.deadline_ms <= 10_000:
+            raise ValueError("deadline_ms must be between 50 and 10000")
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "contract_version": self.contract_version,
+            "scope": {
+                "space_id": self.space_id,
+                "memory_scope_id": self.memory_scope_id,
+                "thread_id": self.thread_id,
+            },
+            "source_type": self.source_type,
+            "source_external_id": self.source_external_id,
+            "projection_generation": self.projection_generation,
+            "profile_generation": self.profile_generation,
+            "idempotency_key": self.idempotency_key,
+            "deadline_ms": self.deadline_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ExactDocumentReconciliationResultDto:
+    contract_version: str
+    state: str
+    source_type: str
+    source_external_id: str
+    space_id: str
+    memory_scope_id: str
+    thread_id: str | None
+    document_id: str | None = None
+    canonical_status: str | None = None
+    projection_generation: str | None = None
+    profile_generation: str | None = None
+    visibility: str = "not_queryable"
+    idempotency_key_matches: bool | None = None
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "data": {
+                "contract_version": self.contract_version,
+                "state": self.state,
+                "scope": {
+                    "space_id": self.space_id,
+                    "memory_scope_id": self.memory_scope_id,
+                    "thread_id": self.thread_id,
+                },
+                "source_type": self.source_type,
+                "source_external_id": self.source_external_id,
+                "document_id": self.document_id,
+                "canonical_status": self.canonical_status,
+                "projection_generation": self.projection_generation,
+                "profile_generation": self.profile_generation,
+                "visibility": self.visibility,
+                "idempotency_key_matches": self.idempotency_key_matches,
+            }
+        }
+
+
 def _chunks_to_dicts(
     chunks: Sequence[DocumentChunkDto | Mapping[str, JsonValue]],
 ) -> JsonValue:
@@ -296,6 +380,8 @@ def _optional_source_text(value: JsonValue) -> str | None:
 
 __all__ = [
     "FEATURE_ID",
+    "EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1",
+    "EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES",
     "DocumentChunkDto",
     "DocumentIdentityDto",
     "DocumentSourceDto",
@@ -307,4 +393,6 @@ __all__ = [
     "IngestDocumentRequestDto",
     "IngestDocumentResultDto",
     "MemoryDocumentDto",
+    "ReconcileExactDocumentRequestDto",
+    "ExactDocumentReconciliationResultDto",
 ]

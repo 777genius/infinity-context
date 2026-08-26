@@ -47,6 +47,18 @@ export {
   DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
   documentRetrievalProjectionV1Payload,
 } from "./document-retrieval-projection.js";
+export {
+  EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+  EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+  assertExactDocumentReconciliationCapabilityV1,
+  decodeExactDocumentReconciliationResponseV1,
+} from "./document-reconciliation.js";
+export type {
+  ExactDocumentReconciliationCapabilityV1,
+  ExactDocumentReconciliationResultV1,
+  ExactDocumentReconciliationState,
+  ExactDocumentVisibilityEvidence,
+} from "./document-reconciliation.js";
 export type {
   DocumentRetrievalProjectionRelativeTimeIntervalV1Input,
   DocumentRetrievalProjectionTimeIntervalV1Input,

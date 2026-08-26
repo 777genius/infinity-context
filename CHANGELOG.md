@@ -2,6 +2,14 @@
 
 All notable public changes to Infinity Context are documented here.
 
+## Unreleased
+
+### Added
+
+- A versioned, capability-attested, read-only exact document reconciliation API in the
+  Python and TypeScript SDKs. It reports bounded canonical and indexed visibility states
+  without first-page scans or consumer-specific lifecycle policy.
+
 ## 0.1.0 - 2026-08-05
 
 First public alpha release.

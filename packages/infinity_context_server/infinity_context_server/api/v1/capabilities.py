@@ -88,6 +88,16 @@ async def capabilities(
                 container.settings.max_pending_suggestions_per_memory_scope
             ),
         },
+        "documents": {
+            "exact_reconciliation": {
+                "contract_version": "document-reconciliation.v1",
+                "endpoint": "/v1/documents/reconcile-exact",
+                "max_deadline_ms": 10000,
+                "max_response_bytes": 65536,
+                "visibility_evidence": ["accepted", "processing", "indexed"],
+                "read_only": True,
+            }
+        },
         "context": context_capability,
         "storage": _storage_payload(container),
         "extraction": build_extraction_capability_payload(container.settings),
