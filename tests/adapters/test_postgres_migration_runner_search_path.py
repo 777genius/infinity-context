@@ -350,6 +350,32 @@ def test_pending_script_starts_physical_transaction_before_raw_ddl(monkeypatch) 
     )
 
 
+def test_pending_staged_migration_is_an_out_of_transaction_boundary() -> None:
+    migrations = (
+        migration_runner._Migration("0038_before", "a" * 64, "SELECT 1"),
+        migration_runner._Migration(
+            "0039_locator_retrieval_attributes", "b" * 64, "SELECT 2"
+        ),
+        migration_runner._Migration("0041_after", "c" * 64, "SELECT 3"),
+    )
+    assert all(migration.transactional for migration in migrations)
+
+    boundary = migration_runner._first_pending_out_of_transaction(
+        migrations,
+        {"0038_before": migrations[0].checksum},
+    )
+
+    assert boundary == 1
+    with pytest.raises(RuntimeError, match="Staged migration entered transactional phase"):
+        asyncio.run(
+            migration_runner._apply_transactional_pending(
+                object(),
+                (migrations[1],),
+                {},
+            )
+        )
+
+
 def test_history_and_legacy_catalog_sql_cannot_resolve_hostile_shadows() -> None:
     async def scenario() -> tuple[str, ...]:
         connection = _RecordingConnection()

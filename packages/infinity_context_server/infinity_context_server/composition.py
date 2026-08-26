@@ -194,6 +194,7 @@ class Container:
     ingest_document: IngestDocumentUseCase
     projected_document_ingestion: PostgresProjectedDocumentIngestor
     get_document: GetDocumentUseCase
+    list_documents: ListDocumentsUseCase
     list_document_chunks: ListDocumentChunksUseCase
     process_document: ProcessDocumentUseCase
     delete_document: DeleteDocumentUseCase
@@ -656,6 +657,7 @@ def build_container(
     split_anchor = SplitAnchorUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     backfill_anchors = BackfillAnchorsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
+    list_documents = ListDocumentsUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
     process_document = ManagedBenchmarkDocumentMutationBlocker(
         uow_factory=uow_factory,
@@ -854,6 +856,7 @@ def build_container(
         ingest_document=ingest_document,
         projected_document_ingestion=projected_document_ingestion,
         get_document=get_document,
+        list_documents=list_documents,
         list_document_chunks=list_document_chunks,
         process_document=process_document,
         delete_document=delete_document,

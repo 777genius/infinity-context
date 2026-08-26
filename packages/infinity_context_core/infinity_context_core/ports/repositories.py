@@ -427,7 +427,21 @@ class DocumentRepositoryPort(Protocol):
         status: str | None,
         limit: int,
     ) -> list[MemoryDocument]:
-        """List documents for a single scope."""
+        """List documents visible from a scope."""
+
+    async def list_exact_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str,
+        limit: int,
+        source_external_id: str | None,
+        cursor_updated_at: datetime | None,
+        cursor_id: str | None,
+    ) -> list[MemoryDocument]:
+        """List documents owned by one exact scope using descending keyset order."""
 
     async def soft_delete_with_chunks(
         self,

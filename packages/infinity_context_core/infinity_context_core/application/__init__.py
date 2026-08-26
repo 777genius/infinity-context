@@ -56,6 +56,7 @@ from infinity_context_core.application.dto import (
     DeleteThreadMemoryResult,
     DocumentChunksQueryResult,
     DocumentQueryResult,
+    DocumentsQueryResult,
     EnsureScopeCommand,
     ExpireSuggestionCommand,
     ExportGraphQuery,
@@ -91,6 +92,7 @@ from infinity_context_core.application.dto import (
     ListContextLinksQuery,
     ListContextLinkSuggestionsQuery,
     ListDocumentChunksQuery,
+    ListDocumentsQuery,
     ListFactRelationsQuery,
     ListFactsQuery,
     ListSpaceMembershipsQuery,
@@ -270,6 +272,7 @@ from infinity_context_core.application.use_cases.purge_capture import PurgeCaptu
 from infinity_context_core.application.use_cases.query_documents import (
     GetDocumentUseCase,
     ListDocumentChunksUseCase,
+    ListDocumentsUseCase,
 )
 from infinity_context_core.application.use_cases.query_facts import (
     GetFactUseCase,
@@ -417,6 +420,7 @@ __all__ = [
     "DocumentChunksQueryResult",
     "DocumentIngestionUseCases",
     "DocumentQueryResult",
+    "DocumentsQueryResult",
     "EnsureScopeCommand",
     "EnsureScopeUseCase",
     "ExportGraphQuery",
@@ -470,6 +474,7 @@ __all__ = [
     "ListAssetExtractionsUseCase",
     "ListAssetsUseCase",
     "ListDocumentChunksQuery",
+    "ListDocumentsQuery",
     "ListCapturesQuery",
     "ListCapturesUseCase",
     "ListContextLinkSuggestionsQuery",
@@ -477,6 +482,7 @@ __all__ = [
     "ListContextLinksQuery",
     "ListContextLinksUseCase",
     "ListDocumentChunksUseCase",
+    "ListDocumentsUseCase",
     "ListFactsQuery",
     "ListFactsUseCase",
     "ListFactRelationsQuery",

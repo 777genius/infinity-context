@@ -7,7 +7,7 @@ from infinity_context_adapters.postgres.migration_runner import _load_migrations
 def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     migrations = _load_migrations()
     ids = tuple(migration.migration_id for migration in migrations)
-    assert ids[-13:] == (
+    assert ids[-14:] == (
         "0039_locator_retrieval_attributes",
         "0040_locator_profile_lifecycle",
         "0041_locator_profile_attestation_fence",
@@ -21,6 +21,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0049_reconciliation_runtime_generation",
         "0050_locator_profile_outbox_transaction_coalescing",
         "0051_locator_profile_acl_search_path_hardening",
+        "0052_document_scope_listing_indexes",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"

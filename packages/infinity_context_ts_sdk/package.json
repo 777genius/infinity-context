@@ -71,7 +71,7 @@
   "scripts": {
     "check:architecture": "node scripts/check-architecture.mjs",
     "build": "tsup src/index.ts src/instrumentation.ts src/pagination.ts src/runtime.ts src/canary.ts src/proof.ts src/workflows.ts --format esm,cjs --dts --sourcemap --clean",
-    "check:parity": "node scripts/check-api-parity.mjs",
+    "check:parity": "node scripts/check-api-parity-fixtures.mjs && node scripts/check-api-parity.mjs",
     "check:retrieval-v2-parity": "node scripts/check-retrieval-v2-parity.mjs",
     "check:exports": "node scripts/check-package-exports.mjs",
     "check:consumer": "node scripts/check-consumer-install.mjs",

@@ -20,6 +20,7 @@ from infinity_context_core.domain.entities import (
     ThreadId,
     TrustLevel,
 )
+from infinity_context_core.domain.errors import MemoryValidationError
 from infinity_context_core.ports.capabilities import ConsistencyMode as ConsistencyMode
 
 
@@ -230,6 +231,34 @@ class GetDocumentQuery:
 
 
 @dataclass(frozen=True)
+class ListDocumentsQuery:
+    space_id: SpaceId
+    memory_scope_id: MemoryScopeId
+    thread_id: ThreadId | None
+    limit: int
+    status: str = "active"
+    source_external_id: str | None = None
+    cursor_updated_at: datetime | None = None
+    cursor_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.status != "active":
+            raise MemoryValidationError("Document status must be active")
+        if not 1 <= self.limit <= 501:
+            raise MemoryValidationError("Document list limit must be between 1 and 501")
+        if self.source_external_id is not None:
+            if not self.source_external_id.strip():
+                raise MemoryValidationError("source_external_id cannot be blank")
+            if len(self.source_external_id) > 240:
+                raise MemoryValidationError("source_external_id exceeds 240 characters")
+        cursor_fields = (self.cursor_updated_at, self.cursor_id)
+        if (cursor_fields[0] is None) != (cursor_fields[1] is None):
+            raise MemoryValidationError("Document cursor fields must be supplied together")
+        if self.cursor_id is not None and not self.cursor_id.strip():
+            raise MemoryValidationError("Document cursor id cannot be blank")
+
+
+@dataclass(frozen=True)
 class ListDocumentChunksQuery:
     document_id: str
     limit: int
@@ -240,6 +269,11 @@ class ListDocumentChunksQuery:
 @dataclass(frozen=True)
 class DocumentQueryResult:
     document: MemoryDocument
+
+
+@dataclass(frozen=True)
+class DocumentsQueryResult:
+    documents: tuple[MemoryDocument, ...]
 
 
 @dataclass(frozen=True)
