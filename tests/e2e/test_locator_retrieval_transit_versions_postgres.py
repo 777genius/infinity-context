@@ -296,6 +296,16 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                 chunk.source_hash = "d" * 64
                 chunk.retrieval_version = 1
                 session.add(chunk)
+                await session.flush()
+                await session.execute(
+                    text(
+                        "INSERT INTO memory_locator_profile_projection_receipts "
+                        "(profile_id, chunk_id, canonical_version, canonical_watermark, "
+                        "payload_digest, projected_at) VALUES "
+                        "('profile-max', 'chunk-repair', 1, 0, :digest, :when)"
+                    ),
+                    {"digest": "e" * 64, "when": WHEN},
+                )
             async with engine.begin() as connection:
                 await connection.execute(
                     text(
