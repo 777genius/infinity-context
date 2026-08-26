@@ -84,21 +84,15 @@ async def _assert_outbox_matrix(database_url: str) -> None:
             target.status = "active"
             session.add(target)
 
-        # The real 0039/0051 trigger producers emit both current-version upserts.
+        # After 0053, the trigger produces only the active-profile upsert.
         upserts = await _trigger_rows(sessions, "chunk-target", version=1)
-        assert _shape(upserts["vector.upsert_chunk"]) == (
-            "locator_chunk",
-            "chunk-target",
-            1,
-            {"chunk_id": "chunk-target"},
-        )
         assert _shape(upserts["vector.upsert_locator_profile"]) == (
             "locator_profile_chunk",
             "chunk-target",
             1,
             {"chunk_id": "chunk-target", "profile_id": "profile-current"},
         )
-        for event_type in ("vector.upsert_chunk", "vector.upsert_locator_profile"):
+        for event_type in ("vector.upsert_locator_profile",):
             for status in (*ACTIVE_OUTBOX_STATUSES, *TERMINAL_OUTBOX_STATUSES):
                 await _select_only_status(sessions, upserts[event_type].id, status)
                 expected = (
@@ -113,22 +107,15 @@ async def _assert_outbox_matrix(database_url: str) -> None:
             assert chunk is not None
             chunk.status = "deleted"
 
-        # The same real trigger chain emits the reviewed locator_chunk delete shape
-        # and the profile-specific delete at the new current version.
+        # The same trigger emits only the profile-specific delete at the new version.
         deletes = await _trigger_rows(sessions, "chunk-target", version=2)
-        assert _shape(deletes["vector.delete_chunks"]) == (
-            "locator_chunk",
-            "chunk-target",
-            2,
-            {"chunk_ids": ["chunk-target"]},
-        )
         assert _shape(deletes["vector.delete_locator_profile"]) == (
             "locator_profile_chunk",
             "chunk-target",
             2,
             {"chunk_ids": ["chunk-target"], "profile_id": "profile-current"},
         )
-        for event_type in ("vector.delete_chunks", "vector.delete_locator_profile"):
+        for event_type in ("vector.delete_locator_profile",):
             for status in (*ACTIVE_OUTBOX_STATUSES, *TERMINAL_OUTBOX_STATUSES):
                 await _select_only_status(sessions, deletes[event_type].id, status)
                 expected = (
@@ -138,10 +125,8 @@ async def _assert_outbox_matrix(database_url: str) -> None:
                 )
                 assert await _state(observer, exact_generation) == expected, (event_type, status)
 
-        # A stale migration version never blocks, while the application runtime's
-        # deliberately unversioned chunk upsert remains independently recognized.
-        await _select_only_status(sessions, upserts["vector.upsert_chunk"].id, "pending")
-        assert await _state(observer, exact_generation) == ("present", "accepted")
+        # The application runtime's deliberately unversioned chunk upsert remains
+        # independently recognized; the retired trigger lane is no longer produced.
         await _replace_outbox(
             sessions,
             _outbox(
@@ -170,8 +155,17 @@ async def _assert_outbox_matrix(database_url: str) -> None:
         assert await _state(observer, exact_generation) == ("present", "accepted")
         async with sessions.begin() as session:
             session.add(_chunk("chunk-other", "doc-other", "other", "projection-other"))
-        other = await _trigger_rows(sessions, "chunk-other", version=1)
-        await _select_only_status(sessions, other["vector.delete_chunks"].id, "running")
+        await _replace_outbox(
+            sessions,
+            _outbox(
+                103,
+                "vector.delete_locator_profile",
+                "running",
+                document_id="doc-other",
+                chunk_id="chunk-other",
+                profile_id="profile-current",
+            ),
+        )
         assert await _state(observer, exact_generation) == ("present", "accepted")
 
         # Preserve the application document-level delete binding at zero active chunks.
@@ -224,7 +218,7 @@ async def _assert_atomic_snapshot(database_url: str, monkeypatch) -> None:
             chunk.status = "active"
             session.add(chunk)
         upserts = await _trigger_rows(sessions, "chunk-target", version=1)
-        target_id = upserts["vector.upsert_chunk"].id
+        target_id = upserts["vector.upsert_locator_profile"].id
         await _select_only_status(sessions, target_id, "done")
 
         reached_after_chunk_read = asyncio.Event()

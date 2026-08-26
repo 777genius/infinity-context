@@ -94,11 +94,11 @@ async def _assert_reconciliation_converges(database_url: str) -> None:
             maximum_retained=1,
         )
         service = ProfileAwareLocatorRetrievalService(
-            fallback=object(),
             registry=registry,
             projection=_Projection(),
             sessions=object(),
             query_embeddings=object(),
+            service_revision="1" * 40,
             runtime_owner=owner,
         )
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
-from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
 from postgres_test_database import PostgresTestDatabase
 from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
 
@@ -56,16 +56,16 @@ async def _scenario(database_url: str) -> None:
         finally:
             await raw.close()
 
-        engine = build_async_engine(database.app_url)
+        raw = await database.connect()
         try:
-            result = await upgrade_schema(engine)
-            assert result.applied == (
-                "0051_locator_profile_acl_search_path_hardening",
-                "0052_document_scope_listing_indexes",
-                "0052_reconciliation_outbox_binding_index",
+            migration = Path(__file__).resolve().parents[2] / (
+                "packages/infinity_context_adapters/infinity_context_adapters/postgres/"
+                "migrations/0051_locator_profile_acl_search_path_hardening.sql"
             )
+            async with raw.transaction():
+                await raw.execute(migration.read_text())
         finally:
-            await engine.dispose()
+            await raw.close()
 
         raw = await database.connect()
         try:

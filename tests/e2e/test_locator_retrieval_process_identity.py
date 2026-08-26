@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import errno
 
-import locator_retrieval_v2_process_identity as process_identity
+import locator_retrieval_process_identity as process_identity
 import pytest
 
 

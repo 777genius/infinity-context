@@ -67,7 +67,6 @@ def test_container_close_preserves_retirement_error_and_closes_resources() -> No
         adapters=(_FailingResource(events),),
         cognee_memory=None,
         vector_index=None,
-        locator_vector_index=None,
         graph_index=None,
         vector_projection_evidence=None,
         graph_projection_evidence=None,

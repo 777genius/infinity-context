@@ -44,7 +44,7 @@ async def upgrade() -> dict[str, object]:
 
 
 async def bootstrap_locator_indexes() -> dict[str, object]:
-    """Build and attest the required Retrieval V2 indexes."""
+    """Build and attest the required Retrieval indexes."""
 
     settings = Settings()
     settings.validate_for_startup()

@@ -74,7 +74,7 @@ def test_real_qdrant_acceptance_pins_services_resources_and_test_contract() -> N
     assert "sudo -E" not in job
     assert "timeout --signal=TERM --kill-after=30s 40m" in job
     assert (
-        "test_locator_retrieval_v2_qdrant_e2e.py::"
+        "test_locator_retrieval_qdrant_e2e.py::"
         "test_real_qdrant_large_profile_resumes_attests_and_physically_deletes" in job
     )
     assert "--junitxml=test-results/qdrant-locator-acceptance.xml" in job

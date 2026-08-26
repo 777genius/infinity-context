@@ -2,10 +2,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 
-from infinity_context_adapters.postgres.locator_models import (
-    MemoryChunkRow,
-    MemoryLocatorProjectionTombstoneRow,
-)
+from infinity_context_adapters.postgres.locator_models import MemoryChunkRow
 from infinity_context_adapters.postgres.migration_runner import (
     _load_migrations,
     _validate_history,
@@ -104,11 +101,11 @@ def test_published_locator_checksums_remain_upgrade_compatible() -> None:
 def test_locator_indexes_are_a_separately_fenced_concurrent_phase() -> None:
     path = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/maintenance/"
-        "locator_retrieval_v2_concurrent_indexes.sql"
+        "retrieval_concurrent_indexes.sql"
     )
     sql = path.read_text()
     assert sql.count("CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS") == 2
-    assert sql.count("CREATE INDEX CONCURRENTLY IF NOT EXISTS") == 2
+    assert sql.count("CREATE INDEX CONCURRENTLY IF NOT EXISTS") == 1
     assert "DROP INDEX" not in sql
 
 
@@ -128,9 +125,6 @@ def test_projected_ingestion_uses_exact_catalog_attestation() -> None:
 
 def test_locator_canonical_versions_use_bigint_in_sqlalchemy_models() -> None:
     assert isinstance(MemoryChunkRow.__table__.c.retrieval_version.type, BigInteger)
-    assert isinstance(
-        MemoryLocatorProjectionTombstoneRow.__table__.c.canonical_version.type, BigInteger
-    )
 
 
 def test_every_version_bearing_transit_column_uses_bigint() -> None:

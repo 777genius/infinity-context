@@ -334,7 +334,7 @@ jobs:
             timeout --signal=TERM --kill-after=30s 40m \
             .venv/bin/python -m pytest -q \
             --junitxml=test-results/qdrant-locator-acceptance.xml \
-            tests/e2e/test_locator_retrieval_v2_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
+            tests/e2e/test_locator_retrieval_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
           acceptance_status=$?
           set -e
           if test ! -s test-results/qdrant-locator-acceptance.xml; then

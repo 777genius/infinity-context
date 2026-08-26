@@ -69,6 +69,11 @@ class OutboxWorker:
     async def start(self) -> None:
         if self._runtime_started or not _should_run_projection_maintenance(self._filter):
             return
+        start_runtime = getattr(self._container, "start_retrieval_runtime", None)
+        if start_runtime is not None:
+            await start_runtime()
+            self._runtime_started = True
+            return
         start_runtime = getattr(self._container.locator_retrieval, "start_runtime", None)
         if start_runtime is not None:
             await start_runtime(now=self._container.clock.now())
@@ -76,6 +81,9 @@ class OutboxWorker:
 
     async def aclose(self) -> None:
         if not self._runtime_started:
+            return
+        if getattr(self._container, "start_retrieval_runtime", None) is not None:
+            self._runtime_started = False
             return
         close_runtime = getattr(self._container.locator_retrieval, "close_runtime", None)
         if close_runtime is not None:
@@ -386,7 +394,7 @@ async def _run(args: argparse.Namespace) -> None:
         await create_schema(container.engine)
     worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
     try:
-        await worker.start()
+        await container.start_retrieval_runtime()
         while True:
             count = await worker.run_once(limit=args.limit, concurrency=args.concurrency)
             print({"processed": count})
@@ -394,10 +402,7 @@ async def _run(args: argparse.Namespace) -> None:
                 return
             await asyncio.sleep(args.sleep_seconds)
     finally:
-        try:
-            await worker.aclose()
-        finally:
-            await container.aclose()
+        await container.aclose()
 
 
 def main() -> None:

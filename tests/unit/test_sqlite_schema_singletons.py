@@ -8,7 +8,7 @@ from infinity_context_adapters.postgres.locator_profile_reconciliation import (
 from sqlalchemy import text
 
 
-def test_create_schema_seeds_retrieval_v2_singletons_idempotently(tmp_path: Path) -> None:
+def test_create_schema_seeds_retrieval_singletons_idempotently(tmp_path: Path) -> None:
     async def run() -> tuple[tuple[object, ...], tuple[object, ...]]:
         engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'singletons.db'}")
         try:
@@ -63,7 +63,7 @@ def test_create_schema_seeds_retrieval_v2_singletons_idempotently(tmp_path: Path
     assert counts == (1, 1)
 
 
-def test_create_schema_preserves_existing_retrieval_v2_singletons(tmp_path: Path) -> None:
+def test_create_schema_preserves_existing_retrieval_singletons(tmp_path: Path) -> None:
     async def run() -> tuple[tuple[object, ...], tuple[object, ...]]:
         engine = build_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'existing.db'}")
         try:

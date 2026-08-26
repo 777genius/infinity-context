@@ -1,4 +1,4 @@
-"""Process-scoped lifecycle for the Retrieval V2 runtime fence owner."""
+"""Process-scoped lifecycle for the Retrieval runtime fence owner."""
 
 from __future__ import annotations
 

@@ -1,10 +1,10 @@
-"""Bootstrap Retrieval V2 singleton rows for non-Postgres runtime schemas."""
+"""Bootstrap Retrieval singleton rows for non-Postgres runtime schemas."""
 
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 
-def seed_retrieval_v2_schema_singletons(connection: Connection) -> None:
+def seed_retrieval_schema_singletons(connection: Connection) -> None:
     """Seed migration-0046 defaults without replacing existing singleton values."""
 
     statements = (
@@ -29,4 +29,4 @@ def seed_retrieval_v2_schema_singletons(connection: Connection) -> None:
         connection.execute(text(statement))
 
 
-__all__ = ("seed_retrieval_v2_schema_singletons",)
+__all__ = ("seed_retrieval_schema_singletons",)

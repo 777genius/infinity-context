@@ -71,7 +71,7 @@ def _isolate_index_work(monkeypatch) -> None:
 
     monkeypatch.setattr(locator_index_maintenance, "_require_expand_migration", require_expand)
     monkeypatch.setattr(locator_index_maintenance, "_maintenance_statements", lambda _sql: ())
-    monkeypatch.setattr(locator_index_maintenance, "attest_locator_retrieval_v2_catalog", attest)
+    monkeypatch.setattr(locator_index_maintenance, "attest_locator_retrieval_catalog", attest)
 
 
 @pytest.mark.parametrize(
@@ -140,7 +140,7 @@ def test_uncertain_unlock_preserves_application_error(
 
     monkeypatch.setattr(
         locator_index_maintenance,
-        "attest_locator_retrieval_v2_catalog",
+        "attest_locator_retrieval_catalog",
         fail_attestation,
     )
     connection = _Connection(unlock_result=unlock_result)

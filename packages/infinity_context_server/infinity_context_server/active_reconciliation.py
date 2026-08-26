@@ -1,4 +1,4 @@
-"""Result contract for active Retrieval V2 reconciliation."""
+"""Result contract for active Retrieval reconciliation."""
 
 from __future__ import annotations
 

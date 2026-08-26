@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 
 import pytest
 from infinity_context_adapters.postgres import (
@@ -24,6 +25,13 @@ def test_retrieval_cutover_upgrade_when_postgres_is_configured(starting_migratio
     asyncio.run(_assert_cutover_upgrade(database_url, starting_migration))
 
 
+def test_retrieval_cutover_refuses_running_work_and_is_idempotent_when_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_running_work_refusal_and_idempotence(database_url))
+
+
 async def _assert_cutover_upgrade(database_url: str, starting_migration: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
@@ -37,6 +45,7 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
         raw = await database.connect()
         try:
             if starting_migration == "0040_":
+                await _install_staged_watermark(raw)
                 await _seed_profile(raw)
             await _seed_chunk_and_queued_events(raw)
         finally:
@@ -45,7 +54,7 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
         engine = build_async_engine(database.app_url)
         try:
             upgraded = await upgrade_schema(engine)
-            assert upgraded.applied == (
+            expected = (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
@@ -63,6 +72,8 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
                 "0052_reconciliation_outbox_binding_index",
                 "0053_retrieval_default_lifecycle",
             )
+            installed_count = 1 if starting_migration == "0039_" else 2
+            assert upgraded.applied == expected[installed_count:]
             assert upgraded.current == "0053_retrieval_default_lifecycle"
             assert upgraded.applied[-1] == "0053_retrieval_default_lifecycle"
             assert len(await build_locator_retrieval_indexes(engine)) == 3
@@ -163,6 +174,54 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
         await database.drop()
 
 
+async def _assert_running_work_refusal_and_idempotence(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url, prefix="retrieval_cutover_running", asyncpg=asyncpg
+    )
+    await database.recreate()
+    try:
+        await _install_versioned_schema_through(database, "0050_")
+        connection = await database.connect()
+        try:
+            await connection.execute(
+                """
+                INSERT INTO memory_outbox (
+                    message_key, event_type, aggregate_type, aggregate_id,
+                    aggregate_version, workload_class, fairness_key, payload_json,
+                    status, attempt_count, next_attempt_at, created_at, updated_at
+                ) VALUES (
+                    'late-legacy-running', 'vector.delete_chunks', 'locator_chunk',
+                    'chunk-running', 5, 'projection', 'chunk:chunk-running',
+                    '{"chunk_ids":["chunk-running"]}'::jsonb,
+                    'running', 0, now(), now(), now()
+                )
+                """
+            )
+            migration = Path(__file__).resolve().parents[2] / (
+                "packages/infinity_context_adapters/infinity_context_adapters/postgres/"
+                "migrations/0053_retrieval_default_lifecycle.sql"
+            )
+            with pytest.raises(Exception, match="running events to drain"):
+                async with connection.transaction():
+                    await connection.execute(migration.read_text())
+
+            await connection.execute(
+                "UPDATE memory_outbox SET status='done' WHERE message_key='late-legacy-running'"
+            )
+            async with connection.transaction():
+                await connection.execute(migration.read_text())
+            async with connection.transaction():
+                await connection.execute(migration.read_text())
+            assert await connection.fetchval(
+                "SELECT to_regclass('memory_locator_projection_tombstones')"
+            ) is None
+        finally:
+            await connection.close()
+    finally:
+        await database.drop()
+
+
 async def _seed_profile(connection) -> None:
     empty = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     await connection.execute(
@@ -179,6 +238,17 @@ async def _seed_profile(connection) -> None:
         """,
         "a" * 64,
         empty,
+    )
+
+
+async def _install_staged_watermark(connection) -> None:
+    await connection.execute(
+        """
+        CREATE SEQUENCE memory_locator_commit_watermark_seq START 1;
+        ALTER TABLE memory_chunks
+          ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL
+          DEFAULT nextval('memory_locator_commit_watermark_seq');
+        """
     )
 
 

@@ -26,7 +26,7 @@ from infinity_context_core.features.context_building.public import (
 )
 from infinity_context_core.ports.adapters import EmbeddingResult, PortStatus
 from infinity_context_server.retrieval_profile_composition import _bounded_qdrant_attestation
-from locator_retrieval_v2_process_identity import enter_runtime_identity
+from locator_retrieval_process_identity import enter_runtime_identity
 from sqlalchemy import select
 
 

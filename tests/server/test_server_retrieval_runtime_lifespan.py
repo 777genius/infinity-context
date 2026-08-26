@@ -7,14 +7,13 @@ import pytest
 from infinity_context_server import main as main_module
 
 
-def test_lifespan_registers_runtime_after_schema_and_before_reconciliation(
+def test_lifespan_registers_runtime_after_schema_and_before_serving(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
     container = _Container(events)
     monkeypatch.setattr(main_module, "build_container", lambda _settings: container)
     monkeypatch.setattr(main_module, "create_schema", _record_schema(events))
-    monkeypatch.setattr(main_module, "ProjectionOutboxProcess", _Process)
 
     app = main_module.create_app()
 
@@ -24,7 +23,7 @@ def test_lifespan_registers_runtime_after_schema_and_before_reconciliation(
 
     asyncio.run(exercise())
 
-    assert events == ["schema", "register", "reconcile", "serve", "retire"]
+    assert events == ["schema", "register", "serve", "retire"]
 
 
 def test_registration_failure_prevents_serving_and_still_closes(
@@ -34,7 +33,6 @@ def test_registration_failure_prevents_serving_and_still_closes(
     container = _Container(events, start_error="runtime_generation_competing")
     monkeypatch.setattr(main_module, "build_container", lambda _settings: container)
     monkeypatch.setattr(main_module, "create_schema", _record_schema(events))
-    monkeypatch.setattr(main_module, "ProjectionOutboxProcess", _Process)
 
     app = main_module.create_app()
 
@@ -67,15 +65,6 @@ class _Container:
 
     async def aclose(self) -> None:
         self.events.append("retire")
-
-
-class _Process:
-    def __init__(self, container: _Container):
-        self.events = container.events
-
-    async def reconcile_vector_tombstones(self, *, limit: int) -> None:
-        assert limit == 100
-        self.events.append("reconcile")
 
 
 def _record_schema(events: list[str]):
