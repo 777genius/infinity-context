@@ -10,7 +10,6 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
     STRICT_V4_CAPABILITY_ROLES,
-    STRICT_V4_PROTECTED_RELATIONS,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
 )
@@ -44,6 +43,39 @@ PROTECTED_SEQUENCES = (
     "memory_fact_versions_id_seq",
     "memory_outbox_id_seq",
     "memory_idempotency_records_id_seq",
+)
+STRICT_V4_0036_PROTECTED_RELATIONS = (
+    "memory_comparison_benchmark_runs",
+    "memory_cleanup_v3_context_authorities",
+    "memory_comparison_strict_v4_preparations",
+    "memory_spaces",
+    "memory_scopes",
+    "memory_threads",
+    "memory_facts",
+    "memory_episodes",
+    "memory_documents",
+    "memory_chunks",
+    "memory_fact_operation_receipts",
+    "memory_idempotency_records",
+    "memory_anchors",
+    "memory_assets",
+    "memory_asset_extraction_jobs",
+    "memory_fact_relations",
+    "memory_fact_temporal_decisions",
+    "memory_suggestions",
+    "memory_captures",
+    "memory_context_links",
+    "memory_context_link_suggestions",
+    "memory_projection_result_receipts",
+    "memory_projection_receipt_claims",
+    "memory_projection_target_identities",
+    "memory_projection_receipt_identity_links",
+    "memory_cleanup_inventory_materializations",
+    "memory_cleanup_inventory_keys",
+    "memory_source_refs",
+    "memory_fact_versions",
+    "memory_outbox",
+    *PROTECTED_SEQUENCES,
 )
 _CHILD_READ_TABLES = (
     "memory_scopes",
@@ -152,7 +184,7 @@ async def assert_capability_roles_are_safe(connection) -> None:
 async def assert_exact_0036_acls(connection) -> None:
     protected_tables = tuple(
         relation
-        for relation in STRICT_V4_PROTECTED_RELATIONS
+        for relation in STRICT_V4_0036_PROTECTED_RELATIONS
         if relation not in PROTECTED_SEQUENCES
     )
     relation_inventory = await connection.fetch(
@@ -165,7 +197,7 @@ async def assert_exact_0036_acls(connection) -> None:
           AND relation.relname=ANY($1::pg_catalog.text[])
         ORDER BY relation.relname
         """,
-        list(STRICT_V4_PROTECTED_RELATIONS),
+        list(STRICT_V4_0036_PROTECTED_RELATIONS),
     )
     assert [(row["relname"], row["relkind"]) for row in relation_inventory] == sorted(
         [(table, "r") for table in protected_tables]
@@ -211,7 +243,7 @@ async def assert_exact_0036_acls(connection) -> None:
           AND relation.relname=ANY($1::pg_catalog.text[])
           AND acl.grantee=0
         """,
-        list(STRICT_V4_PROTECTED_RELATIONS),
+        list(STRICT_V4_0036_PROTECTED_RELATIONS),
     )
     assert public_table_acl == 0
 
@@ -401,6 +433,7 @@ __all__ = (
     "MIGRATION_0036_SQL",
     "PROTECTED_SEQUENCES",
     "PROVISIONING_SQL",
+    "STRICT_V4_0036_PROTECTED_RELATIONS",
     "apply_0036",
     "assert_capability_roles_are_safe",
     "assert_exact_0036_acls",

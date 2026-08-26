@@ -7,15 +7,16 @@ import hashlib
 import json
 import os
 from dataclasses import replace
+from unittest.mock import patch
 
 import pytest
+from infinity_context_adapters.postgres import strict_v4_database_roles
 from infinity_context_adapters.postgres.benchmark_writer_fence import (
     BENCHMARK_WRITER_FENCE_CONSTRAINT,
 )
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
     STRICT_V4_CAPABILITY_ROLES,
-    STRICT_V4_PROTECTED_RELATIONS,
     STRICT_V4_REGISTRAR_ROLE,
     STRICT_V4_SEALER_ROLE,
     assert_strict_v4_runtime_capability,
@@ -26,6 +27,7 @@ from sqlalchemy.engine import make_url
 from strict_v4_0036_security_support import (
     PROTECTED_SEQUENCES,
     PROVISIONING_SQL,
+    STRICT_V4_0036_PROTECTED_RELATIONS,
     apply_0036,
     apply_0037_0038,
     assert_capability_roles_are_safe,
@@ -55,7 +57,12 @@ def test_0036_hostile_upgrade_and_runtime_roles_on_postgres18_when_configured() 
     database_url = os.getenv(_POSTGRES_URL)
     if not database_url:
         pytest.skip(f"{_POSTGRES_URL} is not configured")
-    asyncio.run(_hostile_scenario(database_url))
+    with patch.object(
+        strict_v4_database_roles,
+        "STRICT_V4_PROTECTED_RELATIONS",
+        STRICT_V4_0036_PROTECTED_RELATIONS,
+    ):
+        asyncio.run(_hostile_scenario(database_url))
 
 
 async def _fresh_scenario(database_url: str) -> None:
@@ -395,7 +402,7 @@ async def _seed_hostile_acls(*, admin, owner, runtime_roles: tuple[str, ...]) ->
           AND relation.relname=ANY($1::pg_catalog.text[])
         ORDER BY relation.relname
         """,
-        list(STRICT_V4_PROTECTED_RELATIONS),
+        list(STRICT_V4_0036_PROTECTED_RELATIONS),
     )
     for row in table_rows:
         table = quote_identifier(row["relname"])
