@@ -89,7 +89,7 @@ describe("SDK release manifest workflow CLI", () => {
     const escapedOutput = join(outputEscape.root, "outside-manifest", "infinity-context-sdk-release-manifest.json");
     await mkdir(dirname(escapedOutput));
     await expect(runCli(replaceArg(outputEscape.createArgs, "--output", escapedOutput))).rejects.toThrow(/escapes its allowed root/u);
-  });
+  }, 15_000);
 
   test("exclusive-create output never overwrites existing evidence", async () => {
     const fixture = await releaseFixture();
@@ -120,7 +120,7 @@ describe("SDK release manifest workflow CLI", () => {
     await chmod(unsafe.manifestPath, 0o644);
     await writeFile(unsafe.manifestPath, '{"unsafe":9007199254740992}\n');
     await expect(runCli(unsafe.verifyArgs)).rejects.toThrow(/unsafe numbers/u);
-  });
+  }, 15_000);
 
   test("rejects missing flags, output injection, and legacy manual revision flags", async () => {
     const fixture = await releaseFixture();

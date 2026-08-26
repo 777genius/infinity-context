@@ -7,6 +7,11 @@ on:
         description: Exact dispatched protected annotated sdk-vX.Y.Z tag/ref
         required: true
         type: string
+      reconcile_only:
+        description: Verify and retain a receipt for an exact existing published release; never publish
+        required: true
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -108,13 +113,6 @@ jobs:
             exit 1
           fi
 
-          existing="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
-          if jq -e --arg tag "${SDK_TAG}" 'any(.[][]; .tag_name == $tag)' \
-            <<<"${existing}" >/dev/null; then
-            echo "A release or draft already exists for ${SDK_TAG}; refusing to resume" >&2
-            exit 1
-          fi
           {
             echo "commit=${commit}"
             echo "tag=${SDK_TAG}"
@@ -247,15 +245,51 @@ jobs:
           overwrite: false
           retention-days: 1
 
-  publish:
-    name: Publish protected immutable SDK release
+  policy_preflight:
+    name: Confirm protected immutable-release policy
     needs: build
     if: github.repository == '777genius/infinity-context'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
     environment:
-      name: sdk-release
-      url: ${{ steps.publish.outputs.url }}
+      name: sdk-release-policy
+    permissions: {}
+    steps:
+      - name: Read immutable-release policy with isolated administration token
+        shell: bash
+        env:
+          ADMIN_READ_TOKEN: ${{ secrets.SDK_RELEASE_ADMIN_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REPOSITORY}" != "777genius/infinity-context" ]; then
+            echo "Release repository identity is not 777genius/infinity-context" >&2
+            exit 1
+          fi
+          if [ -z "${ADMIN_READ_TOKEN:-}" ]; then
+            echo "SDK_RELEASE_ADMIN_READ_TOKEN is required in sdk-release-policy" >&2
+            exit 1
+          fi
+          if ! immutable_releases="$(curl --fail-with-body --silent --show-error \
+            --request GET \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${ADMIN_READ_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2026-03-10" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/immutable-releases")"; then
+            echo "Administration-read immutable-releases policy request was denied" >&2
+            exit 1
+          fi
+          if ! jq -e 'type == "object" and .enabled == true' \
+            <<<"${immutable_releases}" >/dev/null; then
+            echo "Immutable releases are disabled or the policy response is malformed" >&2
+            exit 1
+          fi
+
+  publish:
+    name: Publish protected immutable SDK release
+    needs: [build, policy_preflight]
+    if: github.repository == '777genius/infinity-context'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
@@ -312,144 +346,28 @@ jobs:
           verify_help="$(gh release verify --help)"
           grep -Fq 'gh release verify [<tag>] [flags]' <<<"${verify_help}"
           grep -Eq -- '(^|[[:space:]])(-R, )?--repo[ =]' <<<"${verify_help}"
+          grep -Eq -- '(^|[[:space:]])--format[ =]' <<<"${verify_help}"
           verify_asset_help="$(gh release verify-asset --help)"
           grep -Fq 'gh release verify-asset [<tag>] <file-path> [flags]' \
             <<<"${verify_asset_help}"
           grep -Eq -- '(^|[[:space:]])(-R, )?--repo[ =]' <<<"${verify_asset_help}"
+          grep -Eq -- '(^|[[:space:]])--format[ =]' <<<"${verify_asset_help}"
 
-      - name: Refuse pre-existing release state
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.build.outputs.tag }}
-        run: |
-          set -euo pipefail
-          existing="$(gh api --paginate --slurp -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/releases?per_page=100")"
-          if jq -e --arg tag "${RELEASE_TAG}" 'any(.[][]; .tag_name == $tag)' \
-            <<<"${existing}" >/dev/null; then
-            echo "A release or draft already exists; this workflow never resumes" >&2
-            exit 1
-          fi
-
-      - name: Confirm immutable-release policy with administration-read token
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.SDK_RELEASE_ADMIN_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "SDK_RELEASE_ADMIN_READ_TOKEN is required in the protected sdk-release environment" >&2
-            exit 1
-          fi
-          if ! immutable_releases="$(gh api \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "repos/${GITHUB_REPOSITORY}/immutable-releases")"; then
-            echo "Administration-read immutable-releases policy request was denied" >&2
-            exit 1
-          fi
-          if ! jq -e 'type == "object" and .enabled == true' \
-            <<<"${immutable_releases}" >/dev/null; then
-            echo "Immutable releases are disabled or the policy response is malformed" >&2
-            exit 1
-          fi
-
-      - name: Create one draft, upload exact assets, verify, and publish once
+      - name: Publish once or reconcile exact published evidence
         id: publish
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          RECONCILE_ONLY: ${{ inputs.reconcile_only }}
           RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
           SDK_ARTIFACT: ${{ needs.build.outputs.artifact_name }}
           SDK_VERSION: ${{ needs.build.outputs.version }}
           TAG_OBJECT: ${{ needs.build.outputs.tag_object }}
+          WORKFLOW_SHA256: ${{ needs.build.outputs.workflow_sha256 }}
         run: |
           set -euo pipefail
-          revalidate_tag_and_ruleset() {
-            local item ref ruleset_id ruleset_summaries rulesets tag_json
-            ref="$(gh api -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")"
-            test "$(jq -er '.object.type' <<<"${ref}")" = tag
-            test "$(jq -er '.object.sha' <<<"${ref}")" = "${TAG_OBJECT}"
-            tag_json="$(gh api -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/git/tags/${TAG_OBJECT}")"
-            test "$(jq -er '.object.type' <<<"${tag_json}")" = commit
-            test "$(jq -er '.object.sha' <<<"${tag_json}")" = "${RELEASE_COMMIT}"
-
-            ruleset_summaries="$(gh api --paginate --slurp \
-              -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/rulesets?targets=tag&per_page=100")"
-            rulesets='[]'
-            while IFS= read -r ruleset_id; do
-              [ -n "${ruleset_id}" ] || continue
-              item="$(gh api -H "Accept: application/vnd.github+json" \
-                "repos/${GITHUB_REPOSITORY}/rulesets/${ruleset_id}?includes_parents=true")"
-              rulesets="$(jq --argjson item "${item}" '. + [$item]' <<<"${rulesets}")"
-            done < <(jq -er '.[][] | .id' <<<"${ruleset_summaries}")
-            jq -e --arg ref "refs/tags/${RELEASE_TAG}" '
-              [ .[]
-                | select(.target == "tag" and .enforcement == "active")
-                | select((([.rules[].type] | index("creation")) != null) and
-                         (([.rules[].type] | index("update")) != null) and
-                         (([.rules[].type] | index("deletion")) != null))
-                | .conditions.ref_name as $names
-                | select(($names.exclude | length) == 0)
-                | select(any($names.include[]?;
-                    . == "~ALL" or . == $ref or
-                    (. == "refs/tags/sdk-v*" and ($ref | startswith("refs/tags/sdk-v")))))
-              ] | length > 0
-            ' <<<"${rulesets}" >/dev/null
-          }
-
-          assets=("${SDK_ARTIFACT}" infinity-context-sdk-release-manifest.json)
-          revalidate_tag_and_ruleset
-          gh release create "${RELEASE_TAG}" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --draft --latest=false --notes-from-tag \
-            --title "Infinity Context TypeScript SDK ${SDK_VERSION}" --verify-tag
-          for asset in "${assets[@]}"; do
-            gh release upload "${RELEASE_TAG}" "release-bundle/${asset}" \
-              --repo "${GITHUB_REPOSITORY}"
-          done
-          draft="$(gh api -H "Accept: application/vnd.github+json" \
-            "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
-          test "$(jq -r '.draft' <<<"${draft}")" = true
-          expected="$(printf '%s\n' "${assets[@]}" | sort)"
-          test "$(jq -r '.assets[].name' <<<"${draft}" | sort)" = "${expected}"
-          cold_dir="$(mktemp -d)"
-          for asset in "${assets[@]}"; do
-            gh release download "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" \
-              --pattern "${asset}" --dir "${cold_dir}"
-            cmp "release-bundle/${asset}" "${cold_dir}/${asset}"
-          done
-          revalidate_tag_and_ruleset
-          gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
-          for attempt in 1 2 3 4 5 6; do
-            published="$(gh api -H "Accept: application/vnd.github+json" \
-              "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}")"
-            if [ "$(jq -r '.immutable' <<<"${published}")" = true ]; then
-              break
-            fi
-            if [ "${attempt}" -eq 6 ]; then
-              echo "Published release did not become immutable" >&2
-              exit 1
-            fi
-            sleep 5
-          done
-          test "$(jq -r '.draft' <<<"${published}")" = false
-          test "$(jq -r '.immutable' <<<"${published}")" = true
-          test "$(jq -r '.assets[].name' <<<"${published}" | sort)" = "${expected}"
-          gh release verify "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}"
-          for asset in "${assets[@]}"; do
-            gh release verify-asset "${RELEASE_TAG}" "${cold_dir}/${asset}" \
-              --repo "${GITHUB_REPOSITORY}"
-          done
-          mkdir verification-receipt
-          cp "${cold_dir}/"* verification-receipt/
-          printf '%s\n' "${published}" >verification-receipt/release.json
-          echo "url=$(jq -r '.html_url' <<<"${published}")" >>"${GITHUB_OUTPUT}"
+          bash packages/infinity_context_ts_sdk/scripts/sdk-release-publish.sh
 
       - name: Create non-release verification receipt
         shell: bash
@@ -458,15 +376,13 @@ jobs:
         run: |
           set -euo pipefail
           node packages/infinity_context_ts_sdk/scripts/sdk-release-receipt.mjs \
-            --asset-attestations-verified \
             --asset-dir "${GITHUB_WORKSPACE}/verification-receipt" \
             --output "${GITHUB_WORKSPACE}/verification-receipt/infinity-context-sdk-release-verification-receipt.json" \
             --output-root "${GITHUB_WORKSPACE}/verification-receipt" \
-            --release-attestation-verified \
+            --release-attestation-json "${GITHUB_WORKSPACE}/verification-receipt/release-attestation.json" \
+            --release-commit "${{ needs.build.outputs.commit }}" \
             --release-json "${GITHUB_WORKSPACE}/verification-receipt/release.json" \
             --repository "${GITHUB_REPOSITORY}" \
-            --run-attempt "${GITHUB_RUN_ATTEMPT}" \
-            --run-id "${GITHUB_RUN_ID}" \
             --tag "${RELEASE_TAG}"
 
       - name: Retain verification receipt for Discord and operations custody

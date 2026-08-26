@@ -10,14 +10,12 @@ const MAX_BYTES = 100 * 1024 * 1024;
 const { values } = parseArgs({
   options: {
     "asset-dir": { type: "string" },
-    "asset-attestations-verified": { type: "boolean" },
     output: { type: "string" },
     "output-root": { type: "string" },
+    "release-attestation-json": { type: "string" },
+    "release-commit": { type: "string" },
     repository: { type: "string" },
-    "release-attestation-verified": { type: "boolean" },
     "release-json": { type: "string" },
-    "run-attempt": { type: "string" },
-    "run-id": { type: "string" },
     tag: { type: "string" },
   },
   strict: true,
@@ -29,9 +27,7 @@ const assetDir = resolve(required("asset-dir"));
 const outputRoot = resolve(required("output-root"));
 const output = resolve(required("output"));
 const releaseJsonPath = resolve(required("release-json"));
-if (values["release-attestation-verified"] !== true || values["asset-attestations-verified"] !== true) {
-  throw new Error("successful release and asset attestation verification flags are required");
-}
+const releaseAttestationPath = resolve(required("release-attestation-json"));
 await assertDirectory(assetDir, assetDir, "asset directory");
 await assertDirectory(outputRoot, outputRoot, "output root");
 const release = parseObject(await safeRead(releaseJsonPath, outputRoot, "release JSON"), "release JSON");
@@ -40,6 +36,8 @@ if (release.tag_name !== tag || release.draft !== false || release.immutable !==
   throw new Error("published release identity/state drift");
 }
 const repository = required("repository");
+const releaseCommit = required("release-commit");
+if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(releaseCommit)) throw new Error("release commit is malformed");
 const manifestBytes = await safeRead(resolve(assetDir, EXPECTED_MANIFEST), assetDir, "release manifest");
 const manifest = parseObject(manifestBytes, "release manifest");
 const expectedNames = [manifest.artifact_name, EXPECTED_MANIFEST].sort();
@@ -47,6 +45,11 @@ if (!expectedNames[0] || expectedNames.length !== 2) throw new Error("release ma
 const assets = Array.isArray(release.assets) ? release.assets : [];
 const names = assets.map((asset) => asset.name).sort();
 if (canonicalJson(names) !== canonicalJson(expectedNames)) throw new Error("release must contain exactly two assets");
+const releaseAttestation = parseAttestation(
+  await safeRead(releaseAttestationPath, outputRoot, "release attestation JSON"),
+  "release attestation JSON",
+);
+validateReleaseAttestation(releaseAttestation, { assets, release, releaseCommit, repository, tag });
 const receiptAssets = [];
 for (const name of expectedNames) {
   const asset = assets.find((item) => item.name === name);
@@ -54,6 +57,17 @@ for (const name of expectedNames) {
   const digest = `sha256:${sha256(bytes)}`;
   if (!Number.isSafeInteger(asset.id) || asset.id <= 0 || asset.digest !== digest) {
     throw new Error(`release API binding drift for ${name}`);
+  }
+  const assetAttestation = parseAttestation(
+    await safeRead(resolve(assetDir, `${name}.attestation.json`), assetDir, `attestation for ${name}`),
+    `attestation for ${name}`,
+  );
+  if (canonicalJson(assetAttestation.statement) !== canonicalJson(releaseAttestation.statement)) {
+    throw new Error(`asset attestation statement drift for ${name}`);
+  }
+  const subject = assetAttestation.statement.subject.find((item) => item.name === name);
+  if (!subject || canonicalJson(subject.digest) !== canonicalJson({ sha256: sha256(bytes) })) {
+    throw new Error(`asset attestation digest drift for ${name}`);
   }
   receiptAssets.push({ id: asset.id, name, sha256_hex: sha256(bytes), attestation_verified: true });
 }
@@ -63,8 +77,8 @@ const receipt = {
   release_id: positiveInteger(release.id, "release id"),
   release_url: requiredString(release.html_url, "release URL"),
   repository,
-  run_attempt: positiveIntegerString(required("run-attempt"), "run attempt"),
-  run_id: positiveIntegerString(required("run-id"), "run id"),
+  run_attempt: positiveInteger(manifest.build_workflow_run_attempt, "manifest run attempt"),
+  run_id: positiveInteger(manifest.build_workflow_run_id, "manifest run id"),
   schema_version: "infinity-context-typescript-sdk-release-verification-receipt.v1",
   tag,
 };
@@ -107,6 +121,53 @@ function parseObject(bytes, label) {
   return value;
 }
 
+function parseAttestation(bytes, label) {
+  const value = parseObject(bytes, label);
+  if (value.attestation === null || Array.isArray(value.attestation) || typeof value.attestation !== "object") {
+    throw new Error(`${label} lacks the verified attestation bundle`);
+  }
+  const verification = value.verificationResult;
+  if (verification === null || Array.isArray(verification) || typeof verification !== "object") {
+    throw new Error(`${label} lacks a verification result`);
+  }
+  const statement = verification.statement;
+  if (statement === null || Array.isArray(statement) || typeof statement !== "object") {
+    throw new Error(`${label} lacks a verified statement`);
+  }
+  if (verification.signature?.certificate === null || typeof verification.signature?.certificate !== "object") {
+    throw new Error(`${label} lacks a verified certificate result`);
+  }
+  if (!Array.isArray(statement.subject) || statement.subject.length !== 3) {
+    throw new Error(`${label} must bind one commit and exactly two assets`);
+  }
+  return { statement };
+}
+
+function validateReleaseAttestation(attestation, expected) {
+  const { statement } = attestation;
+  if (statement.predicateType !== "https://in-toto.io/attestation/release/v0.1") {
+    throw new Error("unexpected release attestation predicate type");
+  }
+  const predicate = statement.predicate;
+  if (predicate === null || Array.isArray(predicate) || typeof predicate !== "object" ||
+      predicate.tag !== expected.tag || predicate.repository !== expected.repository ||
+      String(predicate.releaseId) !== String(expected.release.id)) {
+    throw new Error("release attestation predicate identity drift");
+  }
+  const commitAlgorithm = expected.releaseCommit.length === 40 ? "sha1" : "sha256";
+  const commitSubjects = statement.subject.filter((item) =>
+    item !== null && !Array.isArray(item) && typeof item === "object" &&
+    item.name === undefined && canonicalJson(item.digest) === canonicalJson({ [commitAlgorithm]: expected.releaseCommit }));
+  if (commitSubjects.length !== 1) throw new Error("release attestation commit drift");
+  for (const asset of expected.assets) {
+    const digest = asset.digest.slice("sha256:".length);
+    const subjects = statement.subject.filter((item) =>
+      item !== null && !Array.isArray(item) && typeof item === "object" &&
+      item.name === asset.name && canonicalJson(item.digest) === canonicalJson({ sha256: digest }));
+    if (subjects.length !== 1) throw new Error(`release attestation asset drift for ${asset.name}`);
+  }
+}
+
 function canonicalJson(value) {
   if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number") {
@@ -128,5 +189,4 @@ function positiveInteger(value, label) {
   return value;
 }
 
-function positiveIntegerString(value, label) { return positiveInteger(Number(value), label); }
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
