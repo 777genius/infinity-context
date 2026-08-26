@@ -28,7 +28,7 @@ def test_real_qdrant_acceptance_is_exact_head_and_mandatory() -> None:
     assert "actions/setup-python@v7.0.0" in job
     assert "actions/upload-artifact@v7.0.1" in job
     assert '"uv==0.11.28"' in job
-    assert "uv sync --extra dev --extra qdrant --frozen" in job
+    assert "uv sync --extra dev --extra qdrant --frozen --link-mode copy" in job
     assert "--all-extras" not in job
     assert job.count("${{ github.event.pull_request.head.sha || github.sha }}") == 3
     assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"' in job
@@ -82,6 +82,22 @@ def test_real_qdrant_acceptance_pins_services_resources_and_test_contract() -> N
     assert 'exit "$acceptance_status"' in job
     assert "if: always()" in job
     assert "if-no-files-found: error" in job
+
+
+def test_real_qdrant_acceptance_exposes_only_copied_runtime_artifacts() -> None:
+    job = _workflow_job("qdrant-locator-acceptance")
+
+    assert 'chmod -R o+rX "$GITHUB_WORKSPACE/.venv"' in job
+    assert 'sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"' in job
+    assert (
+        'sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \\\n'
+        '            "from importlib.metadata import version; '
+        "assert version('qdrant-client')\""
+    ) in job
+    assert "--link-mode copy" in job
+    assert "chmod -R o+rX \"$GITHUB_WORKSPACE\"" not in job
+    assert job.index("--link-mode copy") < job.index("chmod -R o+rX")
+    assert job.index("chmod -R o+rX") < job.index("Wait for real Qdrant")
 
 
 def test_real_qdrant_acceptance_scrubs_provider_credentials() -> None:

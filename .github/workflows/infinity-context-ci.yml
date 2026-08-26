@@ -278,7 +278,14 @@ jobs:
       - name: Install locked test dependencies
         run: |
           python -m pip install --disable-pip-version-check "uv==0.11.28"
-          uv sync --extra dev --extra qdrant --frozen
+          uv sync --extra dev --extra qdrant --frozen --link-mode copy
+
+      - name: Prepare locked environment for the disposable runtime
+        run: |
+          chmod -R o+rX "$GITHUB_WORKSPACE/.venv"
+          sudo -u nobody test -x "$GITHUB_WORKSPACE/.venv/bin/python"
+          sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c \
+            "from importlib.metadata import version; assert version('qdrant-client')"
 
       - name: Wait for real Qdrant
         run: |
