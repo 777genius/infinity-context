@@ -44,6 +44,16 @@ from infinity_context_server.processes.outbox import ClaimedOutboxJob
 
 
 @dataclass(frozen=True, slots=True)
+class ActiveReconciliationResult:
+    complete: bool
+    renewed: bool
+    runtime_instance_id: str | None = None
+    runtime_generation: str | None = None
+    release_identity_sha256: str | None = None
+    lifecycle_identity_sha256: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class RetrievalProfileOutboxCoordinator:
     registry: PostgresRetrievalProfileRegistry
     source: PostgresCanonicalProjectionSource
@@ -165,15 +175,18 @@ class ProfileAwareLocatorRetrievalService:
         now: datetime,
         lease_ttl: timedelta = timedelta(seconds=30),
         renew_before: timedelta = timedelta(seconds=15),
-    ) -> bool:
+    ) -> ActiveReconciliationResult:
         """Renew the active lease from a bounded, restart-safe physical observation."""
 
+        owner = self.runtime_owner
+        if not isinstance(owner, RuntimeFenceOwner):
+            raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
         active = await self.registry.active()
         if active is None:
-            return False
+            return ActiveReconciliationResult(False, False)
         current = await self.registry.active_lease(now=now)
         if current is not None and current.expires_at > now + renew_before:
-            return True
+            return ActiveReconciliationResult(True, False)
         operation = await self.registry.reconciliation_operation(active.profile_id)
         coverage = await self.registry.coverage(active.profile_id)
         await self.registry.update_lane(
@@ -197,14 +210,14 @@ class ProfileAwareLocatorRetrievalService:
             )
         except RuntimeError as exc:
             if _attestation_in_progress(exc):
-                return False
+                return ActiveReconciliationResult(False, False)
             try:
                 await self.registry.mark_reconciliation_drift(
                     active.profile_id, operation=operation, now=now
                 )
             except RuntimeError as mark_exc:
                 if str(mark_exc) == "retrieval_profile_reconciliation_superseded":
-                    return False
+                    return ActiveReconciliationResult(False, False)
                 raise
             raise
         capability = await self.projection.adapter_for(active).capabilities()
@@ -234,12 +247,20 @@ class ProfileAwareLocatorRetrievalService:
             active.profile_id,
             evidence,
             operation=operation,
+            runtime_owner=owner,
             now=now,
             expires_at=now + lease_ttl,
             drifted=not decision.accepted,
             mutation_epoch=mutation_epoch,
         )
-        return decision.accepted
+        return ActiveReconciliationResult(
+            decision.accepted,
+            True,
+            owner.instance_id,
+            owner.generation,
+            owner.installed_release.digest(),
+            owner.lifecycle_identity_sha256(),
+        )
 
     async def _delegate(self) -> LocatorRetrievalService:
         active = await self.registry.active()

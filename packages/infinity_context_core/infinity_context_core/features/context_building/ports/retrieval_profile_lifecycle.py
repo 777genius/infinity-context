@@ -549,6 +549,7 @@ class RetrievalProfileRegistryPort(Protocol):
         evidence: ProfileActivationEvidence,
         *,
         operation: ProfileReconciliationOperation,
+        runtime_owner: RuntimeFenceOwner | None,
         now: datetime,
         expires_at: datetime,
         drifted: bool,

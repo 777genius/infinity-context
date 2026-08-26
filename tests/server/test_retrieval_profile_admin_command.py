@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from infinity_context_server.admin_retrieval_profiles import (
     retrieval_profile_lifecycle_command,
 )
+from infinity_context_server.retrieval_profile_composition import ActiveReconciliationResult
 
 
 def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> None:
@@ -14,7 +15,15 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
 
     async def reconcile_active(*, now):
         calls.append(now)
-        return len(calls) > 1
+        complete = len(calls) > 1
+        return ActiveReconciliationResult(
+            complete,
+            complete,
+            "runtime-a" if complete else None,
+            "generation-a" if complete else None,
+            "a" * 64 if complete else None,
+            "b" * 64 if complete else None,
+        )
 
     async def dispose():
         return None
@@ -43,6 +52,15 @@ def test_active_reconcile_operator_reports_bounded_continuation(monkeypatch) -> 
 
     assert first["status"] == "pending"
     assert first["phase"] == "in_progress"
+    assert first["renewed"] is False
+    assert "provenance" not in first
     assert second["status"] == "ok"
     assert second["phase"] == "complete"
+    assert second["renewed"] is True
+    assert second["provenance"] == {
+        "runtime_instance_id": "runtime-a",
+        "runtime_generation": "generation-a",
+        "release_identity_sha256": "a" * 64,
+        "lifecycle_identity_sha256": "b" * 64,
+    }
     assert len(calls) == 2

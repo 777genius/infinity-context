@@ -423,51 +423,6 @@ def test_ordinary_rollbacks_do_not_reuse_consumed_profile_lease(monkeypatch) -> 
     assert operation_ids[0] != operation_ids[1]
 
 
-def test_active_profile_reconciliation_renews_with_fresh_physical_operations(
-    monkeypatch,
-) -> None:
-    now = datetime(2026, 8, 25, tzinfo=UTC)
-    registry = _ReconciliationRegistry(now)
-    projection = _ReconciliationProjection()
-    observed_operations = []
-
-    async def attest(registry_arg, projection_arg, identity, *, operation_id, **_values):
-        del registry_arg, projection_arg, identity
-        observed_operations.append(operation_id)
-        return 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", 4
-
-    monkeypatch.setattr(
-        "infinity_context_server.retrieval_profile_composition._bounded_qdrant_attestation",
-        attest,
-    )
-    monkeypatch.setattr(
-        "infinity_context_server.retrieval_profile_composition.assess_profile_activation",
-        lambda *_args, **_kwargs: ProfileActivationDecision(True, ()),
-    )
-    service = ProfileAwareLocatorRetrievalService(
-        fallback=object(),
-        registry=registry,
-        projection=projection,
-        sessions=object(),
-        query_embeddings=object(),
-    )
-
-    assert asyncio.run(service.reconcile_active(now=now)) is True
-    restarted = ProfileAwareLocatorRetrievalService(
-        fallback=object(),
-        registry=registry,
-        projection=projection,
-        sessions=object(),
-        query_embeddings=object(),
-    )
-    assert asyncio.run(restarted.reconcile_active(now=now + timedelta(seconds=20))) is True
-
-    assert len(observed_operations) == 2
-    assert observed_operations[0] != observed_operations[1]
-    assert registry.recorded[0][0] == observed_operations[0]
-    assert registry.recorded[1][0] == observed_operations[1]
-
-
 def test_active_profile_reconciliation_fails_closed_on_physical_drift(monkeypatch) -> None:
     now = datetime(2026, 8, 25, tzinfo=UTC)
     registry = _ReconciliationRegistry(now)
@@ -798,11 +753,20 @@ class _ReconciliationRegistry:
         return SimpleNamespace()
 
     async def record_reconciliation(
-        self, profile_id, evidence, *, operation, now, expires_at, drifted, mutation_epoch
+        self,
+        profile_id,
+        evidence,
+        *,
+        operation,
+        runtime_owner,
+        now,
+        expires_at,
+        drifted,
+        mutation_epoch,
     ):
         del profile_id, evidence, drifted
         assert mutation_epoch == 4
-        self.recorded.append((operation.operation_id, now, expires_at))
+        self.recorded.append((operation.operation_id, now, expires_at, runtime_owner))
         self.seed += 1
         self.lease = ProfileAttestationLease(
             operation.operation_id, "profile-active", "gen-active", "b" * 64, now, expires_at

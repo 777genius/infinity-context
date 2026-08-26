@@ -208,15 +208,25 @@ class PostgresRetrievalProfileReconciliationMixin:
         evidence: ProfileActivationEvidence,
         *,
         operation: ProfileReconciliationOperation,
+        runtime_owner: RuntimeFenceOwner | None,
         now: datetime,
         expires_at: datetime,
         drifted: bool,
         mutation_epoch: int = 0,
     ) -> None:
+        if not isinstance(runtime_owner, RuntimeFenceOwner):
+            raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
+        lifecycle_digest = runtime_owner.lifecycle_identity_sha256()
         raced = False
         async with self.sessions() as session, session.begin():
             await _lock_admission(session)
             evidence_version = await _lock_profile_evidence(session)
+            await _register_runtime(
+                session,
+                runtime_owner,
+                now=now,
+                supervisor_trust=self.supervisor_trust,
+            )
             row = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
             if row is None or row.state != "active":
                 raise RuntimeError("retrieval_profile_active_missing")
@@ -227,10 +237,17 @@ class PostgresRetrievalProfileReconciliationMixin:
             if persisted is None or _operation(persisted) != operation:
                 raise RuntimeError("retrieval_profile_reconciliation_operation_invalid")
             if row.activation_lease_id == operation.operation_id:
+                audit = await _reconciliation_audit(session, operation.operation_id)
                 if (
                     row.generation != operation.predecessor_generation
                     or row.activation_evidence_digest != evidence.digest()
                     or row.reconciliation_drifted != drifted
+                    or not _audit_matches_owner(
+                        audit,
+                        runtime_owner,
+                        evidence_digest=evidence.digest(),
+                        lifecycle_digest=lifecycle_digest,
+                    )
                 ):
                     raise RuntimeError("retrieval_profile_reconciliation_replay_drift")
                 return
@@ -264,6 +281,18 @@ class PostgresRetrievalProfileReconciliationMixin:
                 row.activation_lease_expires_at = expires_at
                 row.activation_evidence_version = evidence_version
                 row.activation_mutation_epoch = mutation_epoch
+            session.add(
+                MemoryLocatorProfileTransitionAuditRow(
+                    profile_id=profile_id,
+                    previous_active_profile_id=None,
+                    lease_id=operation.operation_id,
+                    evidence_digest=evidence.digest(),
+                    runtime_instance_id=runtime_owner.instance_id,
+                    runtime_generation=runtime_owner.generation,
+                    lifecycle_identity_sha256=lifecycle_digest,
+                    occurred_at=now,
+                )
+            )
             await compact_reconciliation_evidence(
                 session, profile_id=profile_id, operation_id=operation.operation_id
             )
@@ -605,6 +634,32 @@ async def _lock_maintenance(session) -> None:
         raise RuntimeError("retrieval_profile_maintenance_fence_missing")
 
 
+async def _reconciliation_audit(session, lease_id: str):
+    return (
+        await session.execute(
+            select(MemoryLocatorProfileTransitionAuditRow).where(
+                MemoryLocatorProfileTransitionAuditRow.lease_id == lease_id
+            )
+        )
+    ).scalar_one_or_none()
+
+
+def _audit_matches_owner(
+    audit,
+    owner: RuntimeFenceOwner,
+    *,
+    evidence_digest: str,
+    lifecycle_digest: str,
+) -> bool:
+    return bool(
+        audit is not None
+        and audit.runtime_instance_id == owner.instance_id
+        and audit.runtime_generation == owner.generation
+        and audit.evidence_digest == evidence_digest
+        and audit.lifecycle_identity_sha256 == lifecycle_digest
+    )
+
+
 async def _lock_admission(session) -> None:
     await _lock_maintenance(session)
     row = await session.get(MemoryLocatorProfileMaintenanceFenceRow, True)
@@ -638,6 +693,15 @@ async def _register_runtime(
         with_for_update=True,
     )
     if row is None:
+        launch_owner = (
+            await session.execute(
+                select(MemoryLocatorRuntimeIncarnationRow).where(
+                    MemoryLocatorRuntimeIncarnationRow.launch_token == owner.launch_token
+                ).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if launch_owner is not None:
+            raise RuntimeError("retrieval_profile_runtime_supervisor_conflict")
         session.add(
             MemoryLocatorRuntimeIncarnationRow(
                 instance_id=owner.instance_id,

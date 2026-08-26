@@ -49,13 +49,22 @@ async def retrieval_profile_lifecycle_command(
                 reconcile_active = getattr(container.locator_retrieval, "reconcile_active", None)
                 if reconcile_active is None:
                     raise RuntimeError("retrieval_profile_reconciliation_unavailable")
-                complete = await reconcile_active(now=now)
-                return {
-                    "status": "ok" if complete else "pending",
+                result = await reconcile_active(now=now)
+                response = {
+                    "status": "ok" if result.complete else "pending",
                     "operation": operation,
                     "target": target,
-                    "phase": "complete" if complete else "in_progress",
+                    "phase": "complete" if result.complete else "in_progress",
+                    "renewed": result.renewed,
                 }
+                if result.renewed:
+                    response["provenance"] = {
+                        "runtime_instance_id": result.runtime_instance_id,
+                        "runtime_generation": result.runtime_generation,
+                        "release_identity_sha256": result.release_identity_sha256,
+                        "lifecycle_identity_sha256": result.lifecycle_identity_sha256,
+                    }
+                return response
             result = await lifecycle.reconcile(now=now, limit=limit)
             return {
                 "status": "ok" if result.failed == 0 else "degraded",

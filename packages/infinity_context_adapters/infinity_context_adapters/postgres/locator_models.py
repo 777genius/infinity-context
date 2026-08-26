@@ -547,7 +547,7 @@ class MemoryLocatorProfileOperatorRebuildRow(Base):
 
 
 class MemoryLocatorProfileTransitionAuditRow(Base):
-    """Append-only evidence for every active-profile pointer transition."""
+    """Append-only evidence for active-profile pointer and attestation-lease transitions."""
 
     __tablename__ = "memory_locator_profile_transition_audit"
     event_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

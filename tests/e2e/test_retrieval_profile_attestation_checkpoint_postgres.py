@@ -16,6 +16,7 @@ from infinity_context_adapters.postgres import (
 from infinity_context_core.features.context_building.public import (
     ProfileAttestationPageReceipt,
     RetrievalProfileIdentity,
+    RuntimeFenceOwner,
 )
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import text
@@ -36,6 +37,11 @@ async def _assert_manifest(database_url: str) -> None:
     await database.recreate()
     engine = build_async_engine(database.app_url)
     now = datetime(2026, 8, 25, tzinfo=UTC)
+    owner = RuntimeFenceOwner.unrecoverable_current(
+        instance_id="attestation-checkpoint-runtime",
+        generation="generation-a",
+        key_id="test-unrecoverable",
+    )
     try:
         await upgrade_schema(engine)
         registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
@@ -161,6 +167,7 @@ async def _assert_manifest(database_url: str) -> None:
                 "profile-a",
                 evidence,
                 operation=operation,
+                runtime_owner=owner,
                 now=now + timedelta(seconds=renewal),
                 expires_at=now + timedelta(minutes=2, seconds=renewal),
                 drifted=False,
