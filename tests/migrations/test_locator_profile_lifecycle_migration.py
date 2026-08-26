@@ -7,7 +7,7 @@ from infinity_context_adapters.postgres.migration_runner import _load_migrations
 def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     migrations = _load_migrations()
     ids = tuple(migration.migration_id for migration in migrations)
-    assert ids[-14:] == (
+    assert ids[-15:] == (
         "0039_locator_retrieval_attributes",
         "0040_locator_profile_lifecycle",
         "0041_locator_profile_attestation_fence",
