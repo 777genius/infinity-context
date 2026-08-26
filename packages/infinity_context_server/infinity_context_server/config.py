@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 
 class DeployProfile(StrEnum):
@@ -198,6 +200,15 @@ class Settings(BaseSettings):
         return self
 
     def validate_for_startup(self) -> None:
+        if self.deploy_profile in {DeployProfile.CANARY, DeployProfile.SERVER}:
+            try:
+                database_backend = make_url(self.database_url).get_backend_name()
+            except ArgumentError:
+                database_backend = ""
+            if database_backend != "postgresql":
+                raise RuntimeError(
+                    "MEMORY_DATABASE_URL must use PostgreSQL for canary/server deploy profiles"
+                )
         if self.deploy_profile == DeployProfile.SERVER and not self.service_token:
             raise RuntimeError("MEMORY_SERVICE_TOKEN is required for server deploy profile")
         if self.deploy_profile == DeployProfile.SERVER and self.auto_create_schema:

@@ -35,22 +35,22 @@ def test_local_provider_free_runtime_starts_without_postgres_runtime_fence(
 
 @pytest.mark.parametrize("deploy_profile", [DeployProfile.CANARY, DeployProfile.SERVER])
 def test_production_profile_never_selects_provider_free_runtime(
-    tmp_path: Path,
     deploy_profile: DeployProfile,
 ) -> None:
-    container = build_container(
-        Settings(
-            deploy_profile=deploy_profile,
-            database_url=f"sqlite+aiosqlite:///{tmp_path / 'production-like.db'}",
-            service_token="test-token",
-            qdrant_enabled=False,
-            graphiti_enabled=False,
-            embeddings_enabled=False,
+    with pytest.raises(
+        RuntimeError,
+        match="MEMORY_DATABASE_URL must use PostgreSQL for canary/server deploy profiles",
+    ):
+        build_container(
+            Settings(
+                deploy_profile=deploy_profile,
+                database_url="sqlite+aiosqlite:///:memory:",
+                service_token="test-token",
+                qdrant_enabled=False,
+                graphiti_enabled=False,
+                embeddings_enabled=False,
+            )
         )
-    )
-
-    assert isinstance(container.retrieval_runtime_lifecycle, RetrievalRuntimeLifecycle)
-    asyncio.run(container.aclose())
 
 
 def test_postgres_runtime_keeps_fail_closed_lifecycle() -> None:
