@@ -37,4 +37,15 @@ class RetrievalRuntimeLifecycle:
             self._retired = True
 
 
-__all__ = ("RetrievalRuntimeLifecycle",)
+@dataclass(frozen=True, slots=True)
+class ProviderFreeRetrievalRuntimeLifecycle:
+    """No-op lifecycle for local runtimes with no derived retrieval provider."""
+
+    async def start(self, *, now: datetime) -> None:
+        del now
+
+    async def close(self, *, now: datetime) -> None:
+        del now
+
+
+__all__ = ("ProviderFreeRetrievalRuntimeLifecycle", "RetrievalRuntimeLifecycle")

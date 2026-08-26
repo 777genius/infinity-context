@@ -99,7 +99,10 @@ from infinity_context_server.retrieval_profile_composition import (
     RetrievalProfileOutboxCoordinator,
     build_retrieval_profile_lifecycle,
 )
-from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    ProviderFreeRetrievalRuntimeLifecycle,
+    RetrievalRuntimeLifecycle,
+)
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
     build_verified_serving_profile,
@@ -202,7 +205,9 @@ class Container:
     locator_projection_maintenance: PostgresLocatorProjectionMaintenance
     retrieval_profile_lifecycle: object
     retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
-    retrieval_runtime_lifecycle: RetrievalRuntimeLifecycle
+    retrieval_runtime_lifecycle: (
+        RetrievalRuntimeLifecycle | ProviderFreeRetrievalRuntimeLifecycle
+    )
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
     memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
@@ -385,9 +390,20 @@ def build_container(
         query_embeddings=query_embeddings,
         diagnostics=runtime_metrics,
     )
-    retrieval_runtime_lifecycle = RetrievalRuntimeLifecycle(
-        retrieval_profile_outbox.registry,
-        retrieval_profile_outbox.projection.runtime_owner,
+    provider_free_local_runtime = engine.dialect.name != "postgresql" and not any(
+        (
+            resolved_settings.qdrant_enabled,
+            resolved_settings.graphiti_enabled,
+            resolved_settings.embeddings_enabled,
+        )
+    )
+    retrieval_runtime_lifecycle = (
+        ProviderFreeRetrievalRuntimeLifecycle()
+        if provider_free_local_runtime
+        else RetrievalRuntimeLifecycle(
+            retrieval_profile_outbox.registry,
+            retrieval_profile_outbox.projection.runtime_owner,
+        )
     )
     if locator_retrieval is not None:
         locator_retrieval = ProfileAwareLocatorRetrievalService(
