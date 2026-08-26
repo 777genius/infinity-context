@@ -105,7 +105,7 @@ services:
   infinity_context_server:
     <<: *infinity-context-server-common
     profiles: ["lite"]
-    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev}]\" && python -m infinity_context_server.db upgrade && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
+    command: sh -c "pip install -e \".[${INFINITY_CONTEXT_LITE_RUNTIME_EXTRAS:-dev}]\" && python -m infinity_context_server.db upgrade && python -m infinity_context_server.db bootstrap-locator-indexes && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
     environment:
       <<: *infinity-context-server-base-env
       MEMORY_QDRANT_ENABLED: "false"
@@ -165,7 +165,7 @@ services:
   infinity_context_server_full:
     <<: *infinity-context-server-common
     profiles: ["full"]
-    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti,docling]' && python -m infinity_context_server.db upgrade && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
+    command: sh -c "pip install -e '.[dev,qdrant,openai,graphiti,docling]' && python -m infinity_context_server.db upgrade && python -m infinity_context_server.db bootstrap-locator-indexes && python -m infinity_context_server.admin seed-defaults && python -m infinity_context_server.main"
     environment:
       <<: *infinity-context-server-base-env
       MEMORY_QDRANT_ENABLED: "true"
