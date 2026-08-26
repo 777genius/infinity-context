@@ -63,12 +63,14 @@ async def _insert_outbox(connection: object, key: str, event_type: str) -> str |
           (message_key,event_type,aggregate_type,aggregate_id,aggregate_version,
            workload_class,fairness_key,payload_json,status,attempt_count,
            next_attempt_at,created_at,updated_at)
-        VALUES ($1,$2,'probe',$1,1,'projection','probe:'||$1,'{}'::jsonb,
+        VALUES ($1,$2,'probe',$3,1,'projection','probe:'||$4,'{}'::jsonb,
                 'pending',0,clock_timestamp(),clock_timestamp(),clock_timestamp())
         RETURNING message_key
         """,
         key,
         event_type,
+        key,
+        key,
     )
 
 
