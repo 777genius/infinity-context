@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import importlib.util
+import io
 import os
 import re
 import tarfile
@@ -17,6 +18,12 @@ from infinity_context_server.processes.outbox import ClaimedOutboxJob
 from infinity_context_server.processes.projections import (
     OutboxProjectionError,
     ProjectionOutboxProcess,
+)
+
+import tests.architecture.retrieval_archive_guard as archive_guard
+from tests.architecture.retrieval_archive_guard import (
+    ArchiveSourceGuardError,
+    inspect_source_archive,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -416,6 +423,100 @@ def test_retrieval_boundary_guard_allows_exact_frozen_fixture_identifier() -> No
         assert _source_boundary_violations(relative, text) == [], relative
 
 
+@pytest.mark.parametrize(
+    "name",
+    ["hostile.whl", "hostile.zip", "hostile.tar", "hostile.tar.gz", "hostile.tgz"],
+)
+def test_retrieval_archive_guard_fails_closed_on_malformed_supported_archives(
+    tmp_path: Path, name: str
+) -> None:
+    archive = tmp_path / name
+    archive.write_bytes(b"not a supported archive")
+    with pytest.raises(ArchiveSourceGuardError, match="unreadable or malformed"):
+        inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+
+def test_retrieval_archive_guard_fails_closed_on_unreadable_wheel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = tmp_path / "supported.whl"
+    with zipfile.ZipFile(archive, "w") as wheel:
+        wheel.writestr("packages/example/source.py", "safe = True\n")
+
+    def unreadable(*_args: object, **_kwargs: object) -> object:
+        raise OSError("hostile unreadable mutation")
+
+    monkeypatch.setattr(archive_guard.zipfile, "ZipFile", unreadable)
+    with pytest.raises(ArchiveSourceGuardError, match="unreadable or malformed"):
+        inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+
+def test_retrieval_archive_guard_detects_hostile_wheel_source(tmp_path: Path) -> None:
+    archive = tmp_path / "hostile.whl"
+    member = Path("packages/example/hostile.py")
+    with zipfile.ZipFile(archive, "w") as wheel:
+        wheel.writestr(member.as_posix(), "runtime = 'locator_v2_runtime'\n")
+    inventory = inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+    assert _source_boundary_violations(member, inventory.text_members[0][1])
+
+
+def test_retrieval_archive_guard_enforces_member_name_and_byte_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    traversal = tmp_path / "traversal.whl"
+    with zipfile.ZipFile(traversal, "w") as wheel:
+        wheel.writestr("../packages/example/source.py", "safe = True\n")
+    with pytest.raises(ArchiveSourceGuardError, match="unsafe archive member name"):
+        inspect_source_archive(traversal, text_suffixes=TEXT_SUFFIXES)
+
+    oversized = tmp_path / "oversized.whl"
+    with zipfile.ZipFile(oversized, "w") as wheel:
+        wheel.writestr("packages/example/source.py", "safe = True\n")
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_MEMBER_BYTES", 8)
+    with pytest.raises(ArchiveSourceGuardError, match="member byte limit"):
+        inspect_source_archive(oversized, text_suffixes=TEXT_SUFFIXES)
+
+
+def test_retrieval_archive_guard_enforces_archive_entry_and_total_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = tmp_path / "bounded.tar.gz"
+    with tarfile.open(archive, "w:gz") as bundle:
+        for name in ("one.py", "two.py"):
+            payload = b"safe = True\n"
+            member = tarfile.TarInfo(name)
+            member.size = len(payload)
+            bundle.addfile(member, io.BytesIO(payload))
+
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_BYTES", 8)
+    with pytest.raises(ArchiveSourceGuardError, match="archive byte limit"):
+        inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_BYTES", 100 * 1024 * 1024)
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_ENTRIES", 1)
+    with pytest.raises(ArchiveSourceGuardError, match="entry limit"):
+        inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_ENTRIES", 4_096)
+    monkeypatch.setattr(archive_guard, "MAX_ARCHIVE_TEXT_BYTES", 8)
+    with pytest.raises(ArchiveSourceGuardError, match="text byte limit"):
+        inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+
+def test_retrieval_archive_guard_rejects_tar_links_and_special_members(tmp_path: Path) -> None:
+    for kind, configure in (
+        ("link", lambda member: setattr(member, "type", tarfile.SYMTYPE)),
+        ("fifo", lambda member: setattr(member, "type", tarfile.FIFOTYPE)),
+    ):
+        archive = tmp_path / f"{kind}.tar"
+        with tarfile.open(archive, "w") as bundle:
+            member = tarfile.TarInfo("packages/example/source.py")
+            configure(member)
+            bundle.addfile(member)
+        with pytest.raises(ArchiveSourceGuardError, match="archive member"):
+            inspect_source_archive(archive, text_suffixes=TEXT_SUFFIXES)
+
+
 def test_all_chunk_delete_aggregate_families_are_version_fenced() -> None:
     class Vector:
         def __init__(self) -> None:
@@ -526,59 +627,24 @@ def test_drained_retrieval_runtime_has_no_dynamic_or_packaged_consumer() -> None
     }
     for path in sorted(archive_paths):
         try:
-            if zipfile.is_zipfile(path):
-                with zipfile.ZipFile(path) as archive:
-                    violations.extend(
-                        f"{path.relative_to(REPO_ROOT)}:{name}"
-                        for name in archive.namelist()
-                        if any(name.endswith(member) for member in removed_members)
-                    )
-                    for name in archive.namelist():
-                        member = Path(name)
-                        if member.suffix in TEXT_SUFFIXES:
-                            source = archive.read(name).decode("utf-8")
-                            violations.extend(
-                                f"{path.relative_to(REPO_ROOT)}:{violation}"
-                                for violation in _source_boundary_violations(
-                                    _archive_member_relative(member), source
-                                )
-                            )
-                        if (
-                            name.endswith("retrieval_profile_composition.py")
-                            and "fallback" in source
-                        ):
-                            violations.append(
-                                f"{path.relative_to(REPO_ROOT)}:{name}:drained fallback"
-                            )
-            elif path.name.endswith((".tar", ".tar.gz", ".tgz")) and tarfile.is_tarfile(path):
-                with tarfile.open(path) as archive:
-                    violations.extend(
-                        f"{path.relative_to(REPO_ROOT)}:{member.name}"
-                        for member in archive.getmembers()
-                        if any(member.name.endswith(name) for name in removed_members)
-                    )
-                    for member in archive.getmembers():
-                        source: str | None = None
-                        if member.isfile() and Path(member.name).suffix in TEXT_SUFFIXES:
-                            extracted = archive.extractfile(member)
-                            if extracted is not None:
-                                source = extracted.read().decode("utf-8")
-                                violations.extend(
-                                    f"{path.relative_to(REPO_ROOT)}:{violation}"
-                                    for violation in _source_boundary_violations(
-                                        _archive_member_relative(Path(member.name)), source
-                                    )
-                                )
-                        if (
-                            member.name.endswith("retrieval_profile_composition.py")
-                            and source is not None
-                            and "fallback" in source
-                        ):
-                            violations.append(
-                                f"{path.relative_to(REPO_ROOT)}:{member.name}:drained fallback"
-                            )
-        except OSError:
+            inventory = inspect_source_archive(path, text_suffixes=TEXT_SUFFIXES)
+        except ArchiveSourceGuardError as error:
+            violations.append(f"{path.relative_to(REPO_ROOT)}:{error}")
             continue
+        violations.extend(
+            f"{path.relative_to(REPO_ROOT)}:{name}"
+            for name in inventory.member_names
+            if any(name.endswith(member) for member in removed_members)
+        )
+        for member, source in inventory.text_members:
+            violations.extend(
+                f"{path.relative_to(REPO_ROOT)}:{violation}"
+                for violation in _source_boundary_violations(
+                    _archive_member_relative(member), source
+                )
+            )
+            if member.name == "retrieval_profile_composition.py" and "fallback" in source:
+                violations.append(f"{path.relative_to(REPO_ROOT)}:{member}:drained fallback")
     assert violations == []
 
 
