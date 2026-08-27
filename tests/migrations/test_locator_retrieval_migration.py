@@ -75,7 +75,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0056_fact_outbox_receipt_trigger_scope"
+    assert migrations[-1].migration_id == "0057_unmanaged_document_trigger_scope"
 
 
 def test_published_locator_checksums_remain_upgrade_compatible() -> None:

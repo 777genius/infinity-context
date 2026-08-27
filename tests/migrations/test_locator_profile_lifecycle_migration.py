@@ -7,7 +7,7 @@ from infinity_context_adapters.postgres.migration_runner import _load_migrations
 def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     migrations = _load_migrations()
     ids = tuple(migration.migration_id for migration in migrations)
-    assert ids[-19:] == (
+    assert ids[-20:] == (
         "0039_locator_retrieval_attributes",
         "0040_locator_profile_lifecycle",
         "0041_locator_profile_attestation_fence",
@@ -27,6 +27,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0054_locator_profile_exact_delete_generation",
         "0055_generic_vector_rebuild_operations",
         "0056_fact_outbox_receipt_trigger_scope",
+        "0057_unmanaged_document_trigger_scope",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
@@ -65,6 +66,27 @@ def test_fact_receipt_trigger_ignores_non_fact_outbox_events() -> None:
     assert "WHEN (NEW.aggregate_type = 'fact')" in sql
     assert "memory_comparison_verify_benchmark_fact_outbox_receipt()" in sql
 
+
+def test_unmanaged_document_triggers_do_not_require_strict_capability() -> None:
+    migration = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0057_unmanaged_document_trigger_scope.sql"
+    )
+    sql = migration.read_text()
+
+    assert "SET LOCAL lock_timeout = '5s'" in sql
+    for function_name in (
+        "memory_comparison_enforce_benchmark_document_child_fence",
+        "memory_comparison_enforce_benchmark_document_idempotency",
+        "memory_comparison_verify_benchmark_document_receipt",
+    ):
+        start = sql.index(f"CREATE OR REPLACE FUNCTION {function_name}()")
+        end = sql.find("CREATE OR REPLACE FUNCTION", start + 1)
+        body = sql[start:] if end == -1 else sql[start:end]
+        assert body.index("pg_catalog.pg_has_role") < body.index(
+            "public.memory_comparison_is_strict_v4_canonical_writer()"
+        )
+    assert "TO infinity_context_runtime" not in sql
 
 def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> None:
     helper = Path(__file__).resolve().parents[2] / (
