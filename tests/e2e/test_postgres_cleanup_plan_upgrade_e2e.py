@@ -50,8 +50,10 @@ async def _assert_pr57_history_upgrade(database_url: str) -> None:
                 "0053_retrieval_default_lifecycle",
                 "0054_locator_profile_exact_delete_generation",
                 "0055_generic_vector_rebuild_operations",
+                "0056_fact_outbox_receipt_trigger_scope",
+                "0057_unmanaged_document_trigger_scope",
             )
-            assert upgrade.current == "0055_generic_vector_rebuild_operations"
+            assert upgrade.current == "0057_unmanaged_document_trigger_scope"
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_cleanup_plan_schema(engine)
         finally:
@@ -102,6 +104,8 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0053_retrieval_default_lifecycle",
                 "0054_locator_profile_exact_delete_generation",
                 "0055_generic_vector_rebuild_operations",
+                "0056_fact_outbox_receipt_trigger_scope",
+                "0057_unmanaged_document_trigger_scope",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)

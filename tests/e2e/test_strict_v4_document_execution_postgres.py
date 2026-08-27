@@ -112,7 +112,7 @@ async def _assert_authenticated_document_execution(
         migration_engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(migration_engine)
-            assert result.current == "0055_generic_vector_rebuild_operations"
+            assert result.current == "0057_unmanaged_document_trigger_scope"
         finally:
             await migration_engine.dispose()
         phase("schema-upgraded")
