@@ -192,6 +192,8 @@ class GenericVectorRebuildProcess:
             await uow.commit()
 
     async def _record_processed(self, page: _RebuildPage, chunk: MemoryChunkRow) -> None:
+        position = (int(chunk.retrieval_commit_watermark), str(chunk.id))
+        commit_error: Exception | None = None
         async with AsyncSession(self._container.engine) as session:
             operation = await session.get(
                 MemoryVectorRebuildOperationRow,
@@ -200,13 +202,45 @@ class GenericVectorRebuildProcess:
             )
             if operation is None or not _operation_matches(operation, page):
                 raise OutboxProjectionError(EVENT_TYPE, "vector.rebuild_operation_invalid")
-            position = (int(chunk.retrieval_commit_watermark), str(chunk.id))
             current = (operation.cursor_watermark, operation.cursor_chunk_id or "")
             if position > current:
                 operation.cursor_watermark, operation.cursor_chunk_id = position
                 operation.processed_count += 1
                 operation.updated_at = self._container.clock.now()
+            try:
+                await session.commit()
+            except Exception as error:
+                commit_error = error
+        if commit_error is None:
+            return
+        try:
+            committed = await self._reconcile_processed_commit(page, position)
+        except Exception as reconciliation_error:
+            raise commit_error from reconciliation_error
+        if committed:
+            return
+        raise commit_error
+
+    async def _reconcile_processed_commit(
+        self,
+        page: _RebuildPage,
+        position: tuple[int, str],
+    ) -> bool:
+        async with AsyncSession(self._container.engine) as session:
+            operation = await session.get(
+                MemoryVectorRebuildOperationRow,
+                page.operation_id,
+                with_for_update=True,
+            )
+            if operation is None or not _operation_matches(operation, page):
+                raise OutboxProjectionError(EVENT_TYPE, "vector.rebuild_operation_invalid")
+            current = (operation.cursor_watermark, operation.cursor_chunk_id or "")
+            if current >= position:
+                return True
+            operation.failed_count += 1
+            operation.updated_at = self._container.clock.now()
             await session.commit()
+            return False
 
     async def _record_failure(self, page: _RebuildPage) -> None:
         async with AsyncSession(self._container.engine) as session:

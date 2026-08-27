@@ -32,6 +32,7 @@ from infinity_context_server.processes.vector_rebuild import (
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 
@@ -55,6 +56,15 @@ def test_generic_rebuild_uses_commit_watermark_snapshot_when_postgres_is_configu
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_rebuild_commit_watermark_snapshot(database_url))
+
+
+def test_rebuild_processed_commit_reconciliation_when_postgres_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_rebuild_processed_commit_reconciliation(database_url, monkeypatch))
 
 
 async def _assert_document_delete_row_locks(database_url: str) -> None:
@@ -243,6 +253,142 @@ async def _assert_rebuild_commit_watermark_snapshot(database_url: str) -> None:
     finally:
         await engine.dispose()
         await database.drop()
+
+
+async def _assert_rebuild_processed_commit_reconciliation(
+    database_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="generic_rebuild_commit",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_document())
+        async with sessions.begin() as session:
+            session.add(_chunk("chunk-reconcile"))
+        async with sessions() as session:
+            chunk = await session.get(MemoryChunkRow, "chunk-reconcile")
+            assert chunk is not None
+            session.expunge(chunk)
+
+        watermark = int(chunk.retrieval_commit_watermark)
+        process = GenericVectorRebuildProcess(SimpleNamespace(engine=engine, clock=SystemClock()))
+        original_commit = AsyncSession.commit
+
+        definite_page = _rebuild_page("definite-operation", watermark)
+        async with sessions.begin() as session:
+            session.add(_rebuild_operation("definite-operation", watermark))
+
+        definite_calls = 0
+
+        async def fail_first_commit(session: AsyncSession) -> None:
+            nonlocal definite_calls
+            definite_calls += 1
+            if definite_calls == 1:
+                raise RuntimeError("definite processed cursor failure")
+            await original_commit(session)
+
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSession, "commit", fail_first_commit)
+            with pytest.raises(RuntimeError, match="definite processed cursor failure"):
+                await process._record_processed(definite_page, chunk)
+
+        async with sessions() as session:
+            operation = await session.get(
+                MemoryVectorRebuildOperationRow,
+                "definite-operation",
+            )
+            assert operation is not None
+            assert operation.cursor_watermark == 0
+            assert operation.cursor_chunk_id is None
+            assert operation.processed_count == 0
+            assert operation.failed_count == 1
+
+        await process._record_processed(definite_page, chunk)
+        await process._record_processed(definite_page, chunk)
+        async with sessions() as session:
+            operation = await session.get(
+                MemoryVectorRebuildOperationRow,
+                "definite-operation",
+            )
+            assert operation is not None
+            assert (operation.cursor_watermark, operation.cursor_chunk_id) == (
+                watermark,
+                "chunk-reconcile",
+            )
+            assert operation.processed_count == 1
+            assert operation.failed_count == 1
+
+        ambiguous_page = _rebuild_page("ambiguous-operation", watermark)
+        async with sessions.begin() as session:
+            session.add(_rebuild_operation("ambiguous-operation", watermark))
+
+        ambiguous_calls = 0
+
+        async def commit_then_raise(session: AsyncSession) -> None:
+            nonlocal ambiguous_calls
+            ambiguous_calls += 1
+            await original_commit(session)
+            if ambiguous_calls == 1:
+                raise RuntimeError("ambiguous processed cursor failure")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(AsyncSession, "commit", commit_then_raise)
+            await process._record_processed(ambiguous_page, chunk)
+
+        async with sessions() as session:
+            operation = await session.get(
+                MemoryVectorRebuildOperationRow,
+                "ambiguous-operation",
+            )
+            assert operation is not None
+            assert (operation.cursor_watermark, operation.cursor_chunk_id) == (
+                watermark,
+                "chunk-reconcile",
+            )
+            assert operation.processed_count == 1
+            assert operation.failed_count == 0
+    finally:
+        await engine.dispose()
+        await database.drop()
+
+
+def _rebuild_page(operation_id: str, watermark: int) -> _RebuildPage:
+    return _RebuildPage(
+        operation_id=operation_id,
+        space_id="space",
+        memory_scope_id="scope",
+        canonical_watermark=watermark,
+        dead_event_watermark=0,
+        batch_size=10,
+    )
+
+
+def _rebuild_operation(operation_id: str, watermark: int) -> MemoryVectorRebuildOperationRow:
+    return MemoryVectorRebuildOperationRow(
+        operation_id=operation_id,
+        space_id="space",
+        memory_scope_id="scope",
+        status="running",
+        canonical_watermark=watermark,
+        dead_event_watermark=0,
+        cursor_watermark=0,
+        cursor_chunk_id=None,
+        processed_count=0,
+        failed_count=0,
+        batch_size=10,
+        created_at=NOW,
+        updated_at=NOW,
+        completed_at=None,
+    )
 
 
 def _document() -> MemoryDocumentRow:
