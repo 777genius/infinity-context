@@ -292,6 +292,7 @@ def _safe_profile_metric_key(value: str) -> bool:
 
 def _safe_profile_metric_event(value: str) -> bool:
     exact = {
+        "activation_lease_issued",
         "backfill_projected",
         "coverage_expected",
         "coverage_projected",

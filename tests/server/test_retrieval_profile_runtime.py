@@ -32,8 +32,10 @@ def test_profile_metrics_reject_raw_or_high_cardinality_labels() -> None:
     metrics.record("profile-a", "request_outcome:available")
     metrics.record("profile-a", "profile_cleanup:collection_deleted")
     metrics.record("profile-a", "profile_cleanup_failed")
+    metrics.record("profile-a", "activation_lease_issued")
     assert metrics.retrieval_profile_snapshot() == {
         "profile-a": {
+            "activation_lease_issued": 1.0,
             "profile_cleanup:collection_deleted": 1.0,
             "profile_cleanup_failed": 1.0,
             "request_outcome:available": 1.0,
