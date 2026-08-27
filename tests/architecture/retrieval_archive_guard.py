@@ -24,9 +24,7 @@ class ArchiveSourceInventory:
     text_members: tuple[tuple[Path, str], ...]
 
 
-def inspect_source_archive(
-    path: Path, *, text_suffixes: Set[str]
-) -> ArchiveSourceInventory:
+def inspect_source_archive(path: Path, *, text_suffixes: Set[str]) -> ArchiveSourceInventory:
     try:
         if path.name.endswith((".whl", ".zip")):
             _bounded_archive(path)

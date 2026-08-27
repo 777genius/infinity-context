@@ -283,6 +283,7 @@ class QdrantVectorMemoryAdapter(QdrantVectorMutationMixin):
             raise RuntimeError("qdrant.observe_canonical_version_failed") from exc
         finally:
             await _close_client(client)
+
     @property
     def target_commitment_sha256(self) -> str:
         return self._identity_evidence.target_commitment_sha256
