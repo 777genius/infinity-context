@@ -27,7 +27,7 @@ invents credentials.
 - Enable repository immutable releases.
 - Create a fine-grained `SDK_RELEASE_ADMIN_READ_TOKEN` secret scoped only to this
   repository with **Administration: read-only** permission. Store it only in the
-  protected `sdk-release-policy` environment. That environment is used by a separate
+  dedicated `sdk-release-policy` environment. That environment is used by a separate
   one-step job with `permissions: {}`. It has no checkout, action, setup, downloaded
   artifact, or repository-controlled runtime step before the authenticated policy
   GET, and it exports no token or policy contents. The downstream publish job has no
@@ -35,10 +35,12 @@ invents credentials.
 - Create an active tag ruleset covering `refs/tags/sdk-v*` that restricts creation,
   update, and deletion. Release tags are existing annotated tags pointing directly to
   a commit.
-- Create the protected `sdk-release-policy` environment with required independent
-  review, self-review prevention, deployment restrictions for protected SDK tags,
-  and only the administration-read secret. Its successful reviewed preflight gates
-  the downstream contents-write job, which starts automatically to minimize delay.
+- Create the dedicated `sdk-release-policy` environment with deployment restrictions
+  for protected `sdk-v*` tags and only the administration-read secret. While the
+  repository has one administrator, configure no required reviewers or self-review
+  prevention: no independent eligible reviewer exists. Its successful machine
+  preflight gates the downstream contents-write job, which starts automatically.
+  Human approval can be added after a second eligible release operator exists.
 - Restrict manual Actions dispatch and tag bypass authority to release operators.
 - Keep the repository identity `777genius/infinity-context` and permit the protected
   publish job to write contents.
@@ -102,14 +104,17 @@ rejects default-branch dispatch, resolves the tag object and commit, and require
 `github.workflow_sha` to equal that commit. Consequently the manifest hashes the
 workflow file from the same reviewed commit that GitHub executed.
 
-Approve `sdk-release-policy` only after the build job succeeds. The isolated policy
-job uses the administration-read secret to confirm
-the immutable-release setting. It runs after the expensive build to shorten the gap
-to publication. GitHub offers no transaction spanning this administration read and a
-later release write, so a privileged administrator could still disable the setting
-between them. The publish job minimizes the remaining interval, requires the release
-it observes after publication to be immutable, and fails closed if the policy/effect
-race is lost; operators must investigate that terminal state rather than edit it.
+After the build succeeds, `sdk-release-policy` starts automatically. Under the
+current sole-admin policy it does not wait for human approval. The isolated policy
+job uses the administration-read secret to confirm the immutable-release setting. It
+runs after the expensive build to shorten the gap to publication. GitHub offers no
+transaction spanning this administration read and a later release write, so a
+privileged administrator could still disable the setting between them. The publish
+job minimizes the remaining interval, requires the release it observes after
+publication to be immutable, and fails closed if the policy/effect race is lost;
+operators must investigate that terminal state rather than edit it. No workflow can
+make the sole administrator independent from their own release. This is an explicit
+governance limitation, not a claimed security guarantee.
 
 The publish job rehashes and semantically revalidates both transported files and first
 requires the installed

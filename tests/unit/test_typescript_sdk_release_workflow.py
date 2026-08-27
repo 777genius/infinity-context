@@ -534,6 +534,7 @@ def test_receipt_rejects_hostile_attestation_output(tmp_path: Path, tamper: str)
 
 def test_runbook_and_retention_contract() -> None:
     runbook = (ROOT / "docs/typescript-sdk-release.md").read_text(encoding="utf-8")
+    normalized = " ".join(runbook.split())
     assert "--ref sdk-v0.2.1" in runbook
     assert "--ref <DEFAULT_BRANCH>" not in runbook
     assert "sdk-release-policy" in runbook
@@ -541,6 +542,10 @@ def test_runbook_and_retention_contract() -> None:
     assert "reconcile_only=true" in runbook
     assert "90-day receipt" in runbook
     assert "retention-days: 90" in _workflow()
+    assert "configure no required reviewers or self-review prevention" in normalized
+    assert "does not wait for human approval" in normalized
+    assert "required independent review" not in normalized
+    assert "Approve `sdk-release-policy`" not in runbook
 
 
 def test_release_files_do_not_reintroduce_service_quality_or_public_api_changes() -> None:
