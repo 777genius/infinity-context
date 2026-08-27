@@ -33,6 +33,7 @@ DECLARE
         'memory_locator_profile_recovery_receipts',
         'memory_locator_profile_projection_receipts', 'memory_locator_profile_tombstones',
         'memory_locator_profile_reconciliation_operations',
+        'memory_locator_profile_tombstone_replays',
         'memory_locator_profile_transition_audit', 'memory_locator_profiles',
         'memory_projection_receipt_identity_links', 'memory_projection_result_receipts',
         'memory_projection_target_identities', 'memory_scopes', 'memory_service_tokens',
