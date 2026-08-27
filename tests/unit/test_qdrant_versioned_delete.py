@@ -11,7 +11,10 @@ from infinity_context_adapters.qdrant.vector_adapter import (
     QdrantVectorMemoryAdapter,
     qdrant_point_id_for_chunk,
 )
-from infinity_context_core.features.context_building.public import RetrievalProfileIdentity
+from infinity_context_core.features.context_building.public import (
+    ProfileTombstoneDeleteAuthorization,
+    RetrievalProfileIdentity,
+)
 from infinity_context_core.ports.adapters import PortStatus
 
 
@@ -125,16 +128,22 @@ def test_profile_projection_versioned_delete_preserves_exact_port_arguments() ->
         )
         projection._adapters["profile-a"] = adapter
         identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
+        authorization = ProfileTombstoneDeleteAuthorization(identity, "chunk-2", 8, 0)
 
         proof = await projection.delete_profile_if_version(
-            identity, ("chunk-2", "chunk-1"), canonical_version=7
+            identity,
+            ("chunk-2",),
+            canonical_version=7,
+            tombstone_authorization=authorization,
         )
 
-        assert calls == [(("chunk-2", "chunk-1"), 7)]
-        assert proof.canonical_ids == ("chunk-2", "chunk-1")
+        assert calls == [(("chunk-2",), 7)]
+        assert proof.canonical_ids == ("chunk-2",)
         assert proof.canonical_version == 7
-        assert proof.remaining_canonical_versions == (None, None)
+        assert proof.remaining_canonical_versions == (None,)
+        assert proof.provider_mutation_epoch == 2
         assert [event[0] for event in fence.events] == ["begin", "finish"]
+        assert fence.events[0][3]["tombstone_authorization"] == authorization
         assert await projection.attestation_epoch(identity, now=datetime.now(UTC)) == 2
 
     asyncio.run(run())

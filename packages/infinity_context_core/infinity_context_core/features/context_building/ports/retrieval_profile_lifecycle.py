@@ -189,6 +189,7 @@ class ExactVersionDeletionProof:
     canonical_ids: tuple[str, ...]
     canonical_version: int
     remaining_canonical_versions: tuple[int | None, ...]
+    provider_mutation_epoch: int | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -215,6 +216,12 @@ class ExactVersionDeletionProof:
                 or not 1 <= value <= 9_007_199_254_740_991
             ):
                 raise ValueError("Exact deletion proof readback version is invalid")
+        if self.provider_mutation_epoch is not None and (
+            not isinstance(self.provider_mutation_epoch, int)
+            or isinstance(self.provider_mutation_epoch, bool)
+            or self.provider_mutation_epoch < 1
+        ):
+            raise ValueError("Exact deletion proof provider mutation epoch is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,15 +247,25 @@ class ProfileTombstoneDeleteAuthorization:
     """Canonical authorization binding deletion to the current lifecycle fence."""
 
     identity: RetrievalProfileIdentity
+    canonical_id: str
     canonical_version: int
+    provider_mutation_epoch: int
 
     def __post_init__(self) -> None:
+        if not isinstance(self.canonical_id, str) or not self.canonical_id:
+            raise ValueError("Profile tombstone canonical_id is invalid")
         if (
             not isinstance(self.canonical_version, int)
             or isinstance(self.canonical_version, bool)
             or not 1 <= self.canonical_version <= 9_007_199_254_740_991
         ):
             raise ValueError("Profile tombstone canonical_version is invalid")
+        if (
+            not isinstance(self.provider_mutation_epoch, int)
+            or isinstance(self.provider_mutation_epoch, bool)
+            or self.provider_mutation_epoch < 0
+        ):
+            raise ValueError("Profile tombstone provider mutation epoch is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -557,6 +574,8 @@ class RetrievalProfileRegistryPort(Protocol):
         chunk_id: str,
         *,
         canonical_version: int,
+        authorized_mutation_epoch: int,
+        completed_mutation_epoch: int,
         deleted_canonical_version: int | None,
         provider_observed_at: datetime,
         completed_at: datetime,
@@ -702,6 +721,7 @@ class RetrievalProfileRegistryPort(Protocol):
         owner: RuntimeFenceOwner,
         now: datetime,
         expires_at: datetime,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
     ) -> int: ...
 
     async def finish_provider_mutation(
@@ -761,6 +781,7 @@ class RetrievalProfileProjectionPort(Protocol):
         canonical_ids: tuple[str, ...],
         *,
         canonical_version: int,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
     ) -> ExactVersionDeletionProof:
         """Prove points carrying the exact stale canonical version are absent."""
 

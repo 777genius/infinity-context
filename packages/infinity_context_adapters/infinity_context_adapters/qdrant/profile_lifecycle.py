@@ -12,6 +12,7 @@ from infinity_context_core.features.context_building.public import (
     CanonicalProjectionItem,
     ExactVersionDeletionProof,
     ProfileCollectionDeleteAuthorization,
+    ProfileTombstoneDeleteAuthorization,
     ProjectedGenerationObservation,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
@@ -110,8 +111,17 @@ class QdrantRetrievalProfileProjection:
         canonical_ids: tuple[str, ...],
         *,
         canonical_version: int,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
     ) -> ExactVersionDeletionProof:
-        async with self._mutation(identity) as mutation:
+        if tombstone_authorization is not None and (
+            tombstone_authorization.identity != identity
+            or canonical_ids != (tombstone_authorization.canonical_id,)
+            or canonical_version > tombstone_authorization.canonical_version
+        ):
+            raise RuntimeError("retrieval_profile_tombstone_delete_fenced")
+        async with self._mutation(
+            identity, tombstone_authorization=tombstone_authorization
+        ) as mutation:
             async with asyncio.timeout(50):
                 result = await self._adapter(identity).delete_chunks_if_version(
                     canonical_ids, canonical_version=canonical_version
@@ -120,7 +130,12 @@ class QdrantRetrievalProfileProjection:
                 raise RuntimeError("retrieval_profile_qdrant_delete_failed")
             remaining = await self._adapter(identity).observe_chunk_versions(canonical_ids)
             mutation.complete()
-        return ExactVersionDeletionProof(canonical_ids, canonical_version, remaining)
+        return ExactVersionDeletionProof(
+            canonical_ids,
+            canonical_version,
+            remaining,
+            mutation.finished_epoch,
+        )
 
     async def observe_profile_generation(
         self,
@@ -235,17 +250,36 @@ class QdrantRetrievalProfileProjection:
                     if hasattr(result, "__await__"):
                         await result
 
-    def _mutation(self, identity: RetrievalProfileIdentity):
-        return _ProviderMutation(self.mutation_registry, identity.profile_id, self.runtime_owner)
+    def _mutation(
+        self,
+        identity: RetrievalProfileIdentity,
+        *,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+    ):
+        return _ProviderMutation(
+            self.mutation_registry,
+            identity.profile_id,
+            self.runtime_owner,
+            tombstone_authorization=tombstone_authorization,
+        )
 
 
 class _ProviderMutation:
-    def __init__(self, registry, profile_id: str, owner: RuntimeFenceOwner) -> None:
+    def __init__(
+        self,
+        registry,
+        profile_id: str,
+        owner: RuntimeFenceOwner,
+        *,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+    ) -> None:
         self.registry = registry
         self.profile_id = profile_id
         self.owner = owner
         self.operation_id = f"qdrant-write-{uuid4()}"
         self.started_epoch: int | None = None
+        self.finished_epoch: int | None = None
+        self.tombstone_authorization = tombstone_authorization
         self._completed = False
         self._stop = asyncio.Event()
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -261,6 +295,7 @@ class _ProviderMutation:
             owner=self.owner,
             now=now,
             expires_at=now + timedelta(seconds=15),
+            tombstone_authorization=self.tombstone_authorization,
         )
         self._heartbeat_task = asyncio.create_task(self._heartbeat())
         return self
@@ -270,7 +305,7 @@ class _ProviderMutation:
         if self._heartbeat_task is not None:
             await self._heartbeat_task
         if exc_type is None and self._completed and self._heartbeat_error is None:
-            await self.registry.finish_provider_mutation(
+            self.finished_epoch = await self.registry.finish_provider_mutation(
                 self.profile_id,
                 self.operation_id,
                 owner=self.owner,

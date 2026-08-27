@@ -14,6 +14,7 @@ from infinity_context_core.features.context_building.public import (
     ProfileQueueHealth,
     ProfileReconciliationOperation,
     ProfileReconciliationWriteOutcome,
+    ProfileTombstoneDeleteAuthorization,
     ProfileTombstoneHealth,
     RuntimeFenceOwner,
 )
@@ -31,6 +32,9 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
 )
 from infinity_context_adapters.postgres.locator_profile_queryability import (
     is_profile_canonically_queryable,
+)
+from infinity_context_adapters.postgres.locator_profile_tombstone_replay import (
+    schedule_pending_tombstone_replay,
 )
 from infinity_context_adapters.postgres.locator_runtime_identity import (
     lock_runtime_instance as _lock_runtime_instance,
@@ -494,6 +498,7 @@ class PostgresRetrievalProfileReconciliationMixin:
         owner: RuntimeFenceOwner,
         now: datetime,
         expires_at: datetime,
+        tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
     ) -> int:
         async with self.sessions() as session, session.begin():
             await _lock_admission(session)
@@ -526,6 +531,53 @@ class PostgresRetrievalProfileReconciliationMixin:
                 if existing.expires_at <= now:
                     raise RuntimeError("retrieval_profile_provider_mutation_stale")
                 return int(existing.started_epoch)
+            active_writers = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(MemoryLocatorProfileProviderMutationRow)
+                    .where(MemoryLocatorProfileProviderMutationRow.profile_id == profile_id)
+                )
+                or 0
+            )
+            if active_writers:
+                raise RuntimeError("retrieval_profile_provider_mutation_active")
+            authorized_tombstones = tuple(
+                (
+                    await session.execute(
+                        select(MemoryLocatorProfileTombstoneRow).where(
+                            MemoryLocatorProfileTombstoneRow.profile_id == profile_id,
+                            MemoryLocatorProfileTombstoneRow.completed_at.is_(None),
+                            MemoryLocatorProfileTombstoneRow.delete_authorized_mutation_epoch.is_not(
+                                None
+                            ),
+                        )
+                    )
+                ).scalars()
+            )
+            if tombstone_authorization is None:
+                if authorized_tombstones:
+                    raise RuntimeError("retrieval_profile_tombstone_delete_active")
+            else:
+                matching_tombstone = next(
+                    (
+                        tombstone
+                        for tombstone in authorized_tombstones
+                        if tombstone.chunk_id == tombstone_authorization.canonical_id
+                    ),
+                    None,
+                )
+                if (
+                    tombstone_authorization.identity.profile_id != profile_id
+                    or tombstone_authorization.identity != _identity(row)
+                    or tombstone_authorization.provider_mutation_epoch
+                    != row.provider_mutation_epoch
+                    or matching_tombstone is None
+                    or matching_tombstone.canonical_version
+                    != tombstone_authorization.canonical_version
+                    or matching_tombstone.delete_authorized_mutation_epoch
+                    != tombstone_authorization.provider_mutation_epoch
+                ):
+                    raise RuntimeError("retrieval_profile_tombstone_delete_fenced")
             row.provider_mutation_epoch += 1
             if row.state == "active":
                 row.reconciliation_drifted = True
@@ -613,6 +665,12 @@ class PostgresRetrievalProfileReconciliationMixin:
                 raise RuntimeError("retrieval_profile_provider_mutation_fenced")
             await session.delete(mutation)
             row.provider_mutation_epoch += 1
+            await schedule_pending_tombstone_replay(
+                session,
+                profile_id=profile_id,
+                provider_mutation_epoch=int(row.provider_mutation_epoch),
+                now=now,
+            )
             return int(row.provider_mutation_epoch)
 
 
@@ -735,9 +793,7 @@ async def _reconciliation_evidence(owner, session, row, *, now: datetime):
 
 async def _lock_profile_evidence(session) -> int:
     dialect_name = session.get_bind().dialect.name
-    value = await session.scalar(
-        text(_profile_evidence_lock_sql(dialect_name))
-    )
+    value = await session.scalar(text(_profile_evidence_lock_sql(dialect_name)))
     if value is None:
         raise RuntimeError("retrieval_profile_evidence_version_missing")
     return int(value)

@@ -74,15 +74,26 @@ class RetrievalProfileOutboxCoordinator:
             raise RuntimeError("retrieval_profile_delete_observation_mismatch")
         observed_version = observation.canonical_version
         if observed_version is not None and observed_version > authorization.canonical_version:
-            return
+            if (
+                await self.registry.authorize_tombstone(
+                    profile_id,
+                    job.aggregate_id,
+                    canonical_version=authorization.canonical_version,
+                )
+                is None
+            ):
+                return
+            raise RuntimeError("retrieval_profile_newer_generation_requires_reconciliation")
 
         deleted_version = observed_version
         remaining_version = None
+        completed_mutation_epoch = authorization.provider_mutation_epoch
         if deleted_version is not None:
             proof = await self.projection.delete_profile_if_version(
                 authorization.identity,
                 (job.aggregate_id,),
                 canonical_version=deleted_version,
+                tombstone_authorization=authorization,
             )
             if (
                 proof.canonical_ids != (job.aggregate_id,)
@@ -90,20 +101,45 @@ class RetrievalProfileOutboxCoordinator:
                 or len(proof.remaining_canonical_versions) != 1
             ):
                 raise RuntimeError("retrieval_profile_delete_proof_mismatch")
+            if proof.provider_mutation_epoch is None:
+                raise RuntimeError("retrieval_profile_delete_epoch_proof_missing")
+            completed_mutation_epoch = proof.provider_mutation_epoch
             remaining_version = proof.remaining_canonical_versions[0]
 
         if remaining_version is not None:
             if remaining_version > authorization.canonical_version:
-                return
+                if (
+                    await self.registry.authorize_tombstone(
+                        profile_id,
+                        job.aggregate_id,
+                        canonical_version=authorization.canonical_version,
+                    )
+                    is None
+                ):
+                    return
+                raise RuntimeError("retrieval_profile_newer_generation_requires_reconciliation")
             raise RuntimeError("retrieval_profile_forbidden_generation_remains")
-        await self.registry.complete_tombstone(
+        completed = await self.registry.complete_tombstone(
             profile_id,
             job.aggregate_id,
             canonical_version=authorization.canonical_version,
+            authorized_mutation_epoch=authorization.provider_mutation_epoch,
+            completed_mutation_epoch=completed_mutation_epoch,
             deleted_canonical_version=deleted_version,
             provider_observed_at=now,
             completed_at=now,
         )
+        if completed:
+            return
+        if (
+            await self.registry.authorize_tombstone(
+                profile_id,
+                job.aggregate_id,
+                canonical_version=authorization.canonical_version,
+            )
+            is not None
+        ):
+            raise RuntimeError("retrieval_profile_tombstone_completion_fenced")
 
 
 def _profile_id(job: ClaimedOutboxJob) -> str:

@@ -329,6 +329,18 @@ deleted generation, provider-observation time and completion only after the same
 canonical fence is revalidated. Missing receipts, crashed upserts and historical
 completion therefore never authorize an inferred `N-1` generation.
 
+Tombstone authorization also persists the exact quiescent provider-mutation epoch.
+Provider mutations are exclusive per profile, and an ordinary writer cannot begin while
+any current tombstone authorization is held. The exact-version delete is admitted only
+under its matching tombstone authorization; completion requires its exact closed epoch
+and no active writer. A writer that was already active blocks authorization even after
+heartbeat expiry. Its exact close or operator reconciliation advances the epoch and
+enqueues bounded cleanup for every still-pending tombstone. A changed epoch reauthorizes
+and replays observation/deletion instead of accepting temporary absence. Canonical
+supersession removes the older authorization before its newer writer is admitted, and
+the exact-version predicate still prevents an older cleanup from deleting that newer
+active generation.
+
 Every composed Qdrant mutation durably opens and closes a PostgreSQL-owned provider
 mutation epoch and heartbeats its exact operation/epoch while bounded provider I/O is
 in flight. Heartbeat expiry is diagnostic only: it never deletes or steals the durable

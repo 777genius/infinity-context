@@ -68,6 +68,23 @@ async def assert_locator_retrieval_schema(connection, tables: set[str]) -> None:
     assert "trg_memory_chunk_retrieval_fence_v2" in retrieval_objects
     assert "trg_memory_chunk_locator_profile_events_v2" in retrieval_objects
     assert "trg_memory_chunk_locator_projection_events_v2" not in retrieval_objects
+    tombstone_columns = set(
+        (
+            await connection.execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() "
+                    "AND table_name = 'memory_locator_profile_tombstones'"
+                )
+            )
+        ).scalars()
+    )
+    assert {
+        "delete_canonical_version",
+        "provider_observed_at",
+        "delete_authorized_mutation_epoch",
+        "delete_completed_mutation_epoch",
+    } <= tombstone_columns
     document_columns = set(
         (
             await connection.execute(

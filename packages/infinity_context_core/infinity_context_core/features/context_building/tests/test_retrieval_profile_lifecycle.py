@@ -34,12 +34,15 @@ NOW = datetime(2026, 8, 23, tzinfo=UTC)
 
 def test_tombstone_authority_and_readback_proof_bind_exact_observed_generation() -> None:
     identity = RetrievalProfileIdentity("profile-a", "generation-a", "a" * 64, "locator")
-    authorization = ProfileTombstoneDeleteAuthorization(identity, 8)
-    proof = ExactVersionDeletionProof(("chunk-a",), 7, (None,))
+    authorization = ProfileTombstoneDeleteAuthorization(identity, "chunk-a", 8, 4)
+    proof = ExactVersionDeletionProof(("chunk-a",), 7, (None,), 6)
 
+    assert authorization.canonical_id == "chunk-a"
     assert authorization.canonical_version == 8
+    assert authorization.provider_mutation_epoch == 4
     assert proof.canonical_version == 7
     assert proof.remaining_canonical_versions == (None,)
+    assert proof.provider_mutation_epoch == 6
     with pytest.raises(ValueError):
         ExactVersionDeletionProof(("chunk-a",), True, (None,))  # type: ignore[arg-type]
     with pytest.raises(ValueError):

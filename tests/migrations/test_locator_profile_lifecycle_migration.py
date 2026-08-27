@@ -296,8 +296,14 @@ def test_exact_delete_generation_migration_requires_observed_provider_evidence()
     sql = path.read_text()
     assert "ADD COLUMN delete_canonical_version BIGINT" in sql
     assert "ADD COLUMN provider_observed_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN delete_authorized_mutation_epoch BIGINT" in sql
+    assert "ADD COLUMN delete_completed_mutation_epoch BIGINT" in sql
     assert "delete_canonical_version = NULL" in sql
     assert "provider_observed_at = NULL" in sql
+    assert "delete_authorized_mutation_epoch = NULL" in sql
+    assert "delete_completed_mutation_epoch = NULL" in sql
+    assert "ck_locator_profile_tombstone_authorized_epoch" in sql
+    assert "ck_locator_profile_tombstone_completed_epoch" in sql
     assert "locator-profile-delete-observe:" in sql
     assert "completed_at = NULL" in sql
     assert "canonical_version - 1" not in sql

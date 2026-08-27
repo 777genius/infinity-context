@@ -73,6 +73,7 @@ def test_profile_outbox_absence_after_false_completion_needs_no_generation_guess
 
 def test_profile_outbox_preserves_newer_superseding_generation() -> None:
     registry = _Registry()
+    registry.invalidate_on_reauthorize = True
     projection = _Projection(current_version=4)
 
     asyncio.run(_coordinator(registry, projection).delete(_delete_job(3), now=NOW))
@@ -95,6 +96,7 @@ def test_profile_outbox_delete_ineffective_keeps_tombstone_pending() -> None:
 
 def test_profile_outbox_newer_generation_racing_delete_is_preserved() -> None:
     registry = _Registry()
+    registry.invalidate_on_reauthorize = True
     projection = _Projection(current_version=1, remaining_after_delete=4)
 
     asyncio.run(_coordinator(registry, projection).delete(_delete_job(3), now=NOW))
@@ -140,6 +142,28 @@ def test_profile_outbox_rejects_unbound_absence_proof_without_completion() -> No
     assert registry.completed == []
 
 
+def test_profile_outbox_rejects_delete_without_provider_epoch_proof() -> None:
+    registry = _Registry()
+    projection = _Projection(current_version=1, omit_mutation_epoch=True)
+
+    with pytest.raises(RuntimeError, match="retrieval_profile_delete_epoch_proof_missing"):
+        asyncio.run(_coordinator(registry, projection).delete(_delete_job(3), now=NOW))
+
+    assert registry.completed == []
+
+
+def test_profile_outbox_retries_when_epoch_changes_before_completion() -> None:
+    registry = _Registry()
+    registry.complete_result = False
+    projection = _Projection(current_version=1)
+
+    with pytest.raises(RuntimeError, match="retrieval_profile_tombstone_completion_fenced"):
+        asyncio.run(_coordinator(registry, projection).delete(_delete_job(3), now=NOW))
+
+    assert registry.completed == []
+    assert registry.authorization_calls == 2
+
+
 def test_profile_outbox_upsert_cleans_up_a_canonical_race_by_version() -> None:
     registry = _Registry()
     registry.stale_upsert = True
@@ -160,6 +184,9 @@ class _Registry:
         self.completed: list[tuple[str, str, int, int | None, datetime]] = []
         self.authorized = True
         self.stale_upsert = False
+        self.invalidate_on_reauthorize = False
+        self.authorization_calls = 0
+        self.complete_result = True
 
     async def routable(self):
         return (self.identity,)
@@ -173,9 +200,12 @@ class _Registry:
         )
 
     async def authorize_tombstone(self, profile_id, chunk_id, *, canonical_version):
-        del profile_id, chunk_id
+        del profile_id
+        self.authorization_calls += 1
+        if self.invalidate_on_reauthorize and self.authorization_calls > 1:
+            return None
         return (
-            ProfileTombstoneDeleteAuthorization(self.identity, canonical_version)
+            ProfileTombstoneDeleteAuthorization(self.identity, chunk_id, canonical_version, 4)
             if self.authorized
             else None
         )
@@ -186,11 +216,17 @@ class _Registry:
         chunk_id,
         *,
         canonical_version,
+        authorized_mutation_epoch,
+        completed_mutation_epoch,
         deleted_canonical_version,
         provider_observed_at,
         completed_at,
     ):
         assert provider_observed_at == completed_at
+        assert authorized_mutation_epoch == 4
+        assert completed_mutation_epoch == (4 if deleted_canonical_version is None else 6)
+        if not self.complete_result:
+            return False
         self.completed.append(
             (
                 profile_id,
@@ -231,6 +267,7 @@ class _Projection:
         remaining_after_delete: int | None = None,
         observation_error: bool = False,
         crash_after_effect: bool = False,
+        omit_mutation_epoch: bool = False,
     ) -> None:
         self.current_version = current_version
         self.proof_version = proof_version
@@ -238,6 +275,7 @@ class _Projection:
         self.remaining_after_delete = remaining_after_delete
         self.observation_error = observation_error
         self.crash_after_effect = crash_after_effect
+        self.omit_mutation_epoch = omit_mutation_epoch
         self.upserts: list[tuple[str, str, int]] = []
         self.deletes: list[tuple[str, tuple[str, ...], int]] = []
         self.observations: list[tuple[str, str]] = []
@@ -253,7 +291,14 @@ class _Projection:
         self.observations.append((identity.profile_id, canonical_id))
         return ProjectedGenerationObservation(canonical_id, self.current_version)
 
-    async def delete_profile_if_version(self, identity, canonical_ids, *, canonical_version):
+    async def delete_profile_if_version(
+        self,
+        identity,
+        canonical_ids,
+        *,
+        canonical_version,
+        tombstone_authorization=None,
+    ):
         self.deletes.append((identity.profile_id, canonical_ids, canonical_version))
         if self.current_version == canonical_version and not self.ineffective_delete:
             self.current_version = self.remaining_after_delete
@@ -264,6 +309,13 @@ class _Projection:
             canonical_ids,
             canonical_version if self.proof_version is None else self.proof_version,
             tuple(self.current_version for _ in canonical_ids),
+            None
+            if self.omit_mutation_epoch
+            else (
+                tombstone_authorization.provider_mutation_epoch + 2
+                if tombstone_authorization is not None
+                else None
+            ),
         )
 
 

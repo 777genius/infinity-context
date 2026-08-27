@@ -226,6 +226,8 @@ async def _aba_scenario(database_url: str) -> None:
                 "profile-max",
                 "chunk-aba",
                 canonical_version=3,
+                authorized_mutation_epoch=first.provider_mutation_epoch,
+                completed_mutation_epoch=first.provider_mutation_epoch + 2,
                 deleted_canonical_version=1,
                 provider_observed_at=WHEN,
                 completed_at=WHEN,
@@ -250,7 +252,9 @@ async def _aba_scenario(database_url: str) -> None:
                 "profile-max",
                 "chunk-aba",
                 canonical_version=5,
-                deleted_canonical_version=4,
+                authorized_mutation_epoch=successor.provider_mutation_epoch,
+                completed_mutation_epoch=successor.provider_mutation_epoch,
+                deleted_canonical_version=None,
                 provider_observed_at=WHEN,
                 completed_at=WHEN,
             )
@@ -266,7 +270,7 @@ async def _aba_scenario(database_url: str) -> None:
                         )
                     )
                 ).one()
-            assert tuple(durable) == (4, WHEN, WHEN, 0)
+            assert tuple(durable) == (None, WHEN, WHEN, 0)
         finally:
             await engine.dispose()
     finally:
@@ -342,7 +346,8 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                     await connection.execute(
                         text(
                             "SELECT canonical_version, delete_canonical_version, "
-                            "provider_observed_at, completed_at, "
+                            "provider_observed_at, delete_authorized_mutation_epoch, "
+                            "delete_completed_mutation_epoch, completed_at, "
                             "(SELECT count(*) FROM memory_locator_profile_projection_receipts "
                             "WHERE profile_id='profile-max' AND chunk_id='chunk-repair') "
                             "AS receipt_count "
@@ -360,7 +365,7 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                         )
                     )
                 ).one()
-            assert tuple(tombstone) == (3, None, None, None, 0)
+            assert tuple(tombstone) == (3, None, None, None, None, None, 0)
             assert repair.aggregate_version == 3
             assert "delete_canonical_version" not in repair.payload_json
         finally:
@@ -374,6 +379,8 @@ async def _assert_transit_column_types(engine) -> None:
         ("memory_chunks", "retrieval_version"),
         ("memory_locator_profile_tombstones", "canonical_version"),
         ("memory_locator_profile_tombstones", "delete_canonical_version"),
+        ("memory_locator_profile_tombstones", "delete_authorized_mutation_epoch"),
+        ("memory_locator_profile_tombstones", "delete_completed_mutation_epoch"),
         ("memory_outbox", "aggregate_version"),
         ("memory_projection_result_receipts", "aggregate_version"),
     }
@@ -389,6 +396,10 @@ async def _assert_transit_column_types(engine) -> None:
                         ('memory_chunks', 'retrieval_version'),
                         ('memory_locator_profile_tombstones', 'canonical_version'),
                         ('memory_locator_profile_tombstones', 'delete_canonical_version'),
+                        ('memory_locator_profile_tombstones',
+                         'delete_authorized_mutation_epoch'),
+                        ('memory_locator_profile_tombstones',
+                         'delete_completed_mutation_epoch'),
                         ('memory_outbox', 'aggregate_version'),
                         ('memory_projection_result_receipts', 'aggregate_version')
                       )

@@ -14,14 +14,13 @@ from infinity_context_core.features.context_building.public import (
     ProfileCoverageAttestation,
     ProfileLaneHealth,
     ProfileQueueHealth,
-    ProfileTombstoneDeleteAuthorization,
     ProfileTombstoneHealth,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
     accumulate_attestation_digest,
     finalize_attestation_digest,
 )
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infinity_context_adapters.postgres.locator_profile_attestation_checkpoints import (
@@ -65,6 +64,9 @@ from infinity_context_adapters.postgres.locator_profile_reconciliation import (
 )
 from infinity_context_adapters.postgres.locator_profile_recovery import (
     PostgresRetrievalProfileRecoveryMixin,
+)
+from infinity_context_adapters.postgres.locator_profile_tombstones import (
+    PostgresRetrievalProfileTombstoneMixin,
 )
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
@@ -134,6 +136,7 @@ class PostgresCanonicalProjectionSource:
 
 @dataclass(frozen=True, slots=True)
 class PostgresRetrievalProfileRegistry(
+    PostgresRetrievalProfileTombstoneMixin,
     PostgresRetrievalProfileOperatorReceiptMixin,
     PostgresRetrievalProfileRecoveryMixin,
     PostgresRetrievalProfileReconciliationMixin,
@@ -807,79 +810,6 @@ class PostgresRetrievalProfileRegistry(
                 row.checked_at = checked_at
                 row.observed_count = observed_count
                 row.observed_digest = observed_digest
-
-    async def complete_tombstone(
-        self,
-        profile_id: str,
-        chunk_id: str,
-        *,
-        canonical_version: int,
-        deleted_canonical_version: int | None,
-        provider_observed_at: datetime,
-        completed_at: datetime,
-    ) -> bool:
-        async with self.sessions() as session, session.begin():
-            await _lock_maintenance(session)
-            await _lock_profile_evidence(session)
-            profile = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
-            if profile is None:
-                raise RuntimeError("retrieval_profile_missing")
-            row = await session.get(
-                MemoryLocatorProfileTombstoneRow, (profile_id, chunk_id), with_for_update=True
-            )
-            if (
-                row is None
-                or row.canonical_version != canonical_version
-                or row.completed_at is not None
-            ):
-                return False
-            if deleted_canonical_version is not None and not (
-                1 <= deleted_canonical_version <= canonical_version
-            ):
-                return False
-            chunk = await session.get(MemoryChunkRow, chunk_id)
-            if chunk is not None and (
-                chunk.retrieval_version != canonical_version or all(_eligible_value(chunk))
-            ):
-                return False
-            row.delete_canonical_version = deleted_canonical_version
-            row.provider_observed_at = provider_observed_at
-            row.completed_at = completed_at
-            row.updated_at = completed_at
-            await session.execute(
-                delete(MemoryLocatorProfileProjectionReceiptRow).where(
-                    MemoryLocatorProfileProjectionReceiptRow.profile_id == profile_id,
-                    MemoryLocatorProfileProjectionReceiptRow.chunk_id == chunk_id,
-                    MemoryLocatorProfileProjectionReceiptRow.canonical_version <= canonical_version,
-                )
-            )
-            return True
-
-    async def authorize_tombstone(
-        self, profile_id: str, chunk_id: str, *, canonical_version: int
-    ) -> ProfileTombstoneDeleteAuthorization | None:
-        async with self.sessions() as session, session.begin():
-            await _lock_maintenance(session)
-            await _lock_profile_evidence(session)
-            tombstone = await session.get(MemoryLocatorProfileTombstoneRow, (profile_id, chunk_id))
-            profile = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
-            if (
-                tombstone is None
-                or profile is None
-                or profile.state not in _ROUTABLE_STATES
-                or tombstone.canonical_version != canonical_version
-                or tombstone.completed_at is not None
-            ):
-                return None
-            chunk = await session.get(MemoryChunkRow, chunk_id)
-            if chunk is not None and (
-                chunk.retrieval_version != canonical_version or all(_eligible_value(chunk))
-            ):
-                return None
-            return ProfileTombstoneDeleteAuthorization(
-                _identity(profile),
-                tombstone.canonical_version,
-            )
 
     async def _refresh_attestation(
         self, session: AsyncSession, profile: MemoryLocatorProfileRow

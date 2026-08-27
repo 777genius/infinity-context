@@ -566,8 +566,20 @@ class MemoryLocatorProfileTombstoneRow(Base):
             name="ck_locator_profile_tombstone_delete_version",
         ),
         CheckConstraint(
-            "(completed_at IS NULL AND provider_observed_at IS NULL) OR "
-            "(completed_at IS NOT NULL AND provider_observed_at IS NOT NULL)",
+            "delete_authorized_mutation_epoch IS NULL OR delete_authorized_mutation_epoch >= 0",
+            name="ck_locator_profile_tombstone_authorized_epoch",
+        ),
+        CheckConstraint(
+            "delete_completed_mutation_epoch IS NULL "
+            "OR delete_completed_mutation_epoch >= delete_authorized_mutation_epoch",
+            name="ck_locator_profile_tombstone_completed_epoch",
+        ),
+        CheckConstraint(
+            "(completed_at IS NULL AND provider_observed_at IS NULL "
+            "AND delete_completed_mutation_epoch IS NULL) OR "
+            "(completed_at IS NOT NULL AND provider_observed_at IS NOT NULL "
+            "AND delete_authorized_mutation_epoch IS NOT NULL "
+            "AND delete_completed_mutation_epoch IS NOT NULL)",
             name="ck_locator_profile_tombstone_observation",
         ),
         Index(
@@ -585,6 +597,8 @@ class MemoryLocatorProfileTombstoneRow(Base):
     chunk_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     canonical_version: Mapped[int] = mapped_column(BigInteger, nullable=False)
     delete_canonical_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    delete_authorized_mutation_epoch: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    delete_completed_mutation_epoch: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     provider_observed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

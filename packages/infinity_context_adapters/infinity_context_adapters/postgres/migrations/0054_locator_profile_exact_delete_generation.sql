@@ -6,11 +6,23 @@ SET LOCAL statement_timeout = '5min';
 
 ALTER TABLE public.memory_locator_profile_tombstones
     ADD COLUMN delete_canonical_version BIGINT,
-    ADD COLUMN provider_observed_at TIMESTAMPTZ;
+    ADD COLUMN provider_observed_at TIMESTAMPTZ,
+    ADD COLUMN delete_authorized_mutation_epoch BIGINT,
+    ADD COLUMN delete_completed_mutation_epoch BIGINT;
 
 ALTER TABLE public.memory_locator_profile_tombstones
     ADD CONSTRAINT ck_locator_profile_tombstone_delete_version
-        CHECK (delete_canonical_version IS NULL OR delete_canonical_version > 0);
+        CHECK (delete_canonical_version IS NULL OR delete_canonical_version > 0),
+    ADD CONSTRAINT ck_locator_profile_tombstone_authorized_epoch
+        CHECK (
+            delete_authorized_mutation_epoch IS NULL
+            OR delete_authorized_mutation_epoch >= 0
+        ),
+    ADD CONSTRAINT ck_locator_profile_tombstone_completed_epoch
+        CHECK (
+            delete_completed_mutation_epoch IS NULL
+            OR delete_completed_mutation_epoch >= delete_authorized_mutation_epoch
+        );
 
 -- No pre-0054 completion contains a provider observation.  Reopen every
 -- historical tombstone and let the application observe the deterministic
@@ -19,13 +31,18 @@ UPDATE public.memory_locator_profile_tombstones
 SET completed_at = NULL,
     delete_canonical_version = NULL,
     provider_observed_at = NULL,
+    delete_authorized_mutation_epoch = NULL,
+    delete_completed_mutation_epoch = NULL,
     updated_at = CURRENT_TIMESTAMP;
 
 ALTER TABLE public.memory_locator_profile_tombstones
     ADD CONSTRAINT ck_locator_profile_tombstone_observation
         CHECK (
-            (completed_at IS NULL AND provider_observed_at IS NULL)
-            OR (completed_at IS NOT NULL AND provider_observed_at IS NOT NULL)
+            (completed_at IS NULL AND provider_observed_at IS NULL
+                AND delete_completed_mutation_epoch IS NULL)
+            OR (completed_at IS NOT NULL AND provider_observed_at IS NOT NULL
+                AND delete_authorized_mutation_epoch IS NOT NULL
+                AND delete_completed_mutation_epoch IS NOT NULL)
         );
 
 INSERT INTO public.memory_outbox (
@@ -105,14 +122,17 @@ BEGIN
         ELSE
             INSERT INTO public.memory_locator_profile_tombstones AS tombstones (
                 profile_id, chunk_id, canonical_version, delete_canonical_version,
-                provider_observed_at, created_at, updated_at
+                provider_observed_at, delete_authorized_mutation_epoch,
+                delete_completed_mutation_epoch, created_at, updated_at
             ) VALUES (
                 profile.profile_id, chunk_key, chunk_version, NULL,
-                NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                NULL, NULL, NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             ) ON CONFLICT (profile_id, chunk_id) DO UPDATE SET
                 canonical_version = EXCLUDED.canonical_version,
                 delete_canonical_version = NULL,
                 provider_observed_at = NULL,
+                delete_authorized_mutation_epoch = NULL,
+                delete_completed_mutation_epoch = NULL,
                 completed_at = NULL,
                 updated_at = EXCLUDED.updated_at
             WHERE tombstones.canonical_version < EXCLUDED.canonical_version;
