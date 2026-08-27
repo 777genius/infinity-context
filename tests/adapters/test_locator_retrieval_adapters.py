@@ -11,7 +11,10 @@ from infinity_context_adapters.features.context_building.qdrant_candidate_provid
     QdrantContextCandidateProvider,
     translate_qdrant_locator_filters,
 )
-from infinity_context_adapters.postgres.locator_retrieval import _canonical_rows
+from infinity_context_adapters.postgres.locator_retrieval import (
+    _candidate_statement,
+    _canonical_rows,
+)
 from infinity_context_adapters.postgres.mappers import chunk_row_to_domain
 from infinity_context_adapters.postgres.retrieval_projection_mapping import (
     typed_retrieval_projection,
@@ -27,6 +30,7 @@ from infinity_context_core.ports.adapters import (
     PortStatus,
     VectorUpsertItem,
 )
+from sqlalchemy.dialects import postgresql
 
 
 def _request() -> core.LocatorRetrievalRequest:
@@ -90,6 +94,17 @@ def test_qdrant_filter_preserves_null_thread_scope_exactly() -> None:
     translated = translate_qdrant_locator_filters(request)
     thread = next(item for item in translated["must"] if item["key"] == "thread_id")
     assert thread == {"key": "thread_id", "is_null": True}
+
+
+def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
+    statement = str(
+        _candidate_statement(_request(), "bounded query").compile(dialect=postgresql.dialect())
+    )
+
+    assert "CAST(memory_chunks.retrieval_tags_json AS JSONB) @>" in statement
+    assert "CAST(memory_chunks.retrieval_actor_keys_json AS JSONB) @>" in statement
+    assert "memory_chunks.retrieval_tags_json LIKE" not in statement
+    assert "memory_chunks.retrieval_actor_keys_json LIKE" not in statement
 
 
 def test_qdrant_provider_preserves_raw_score_rank_and_version() -> None:

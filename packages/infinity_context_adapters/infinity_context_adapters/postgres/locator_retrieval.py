@@ -13,7 +13,8 @@ from infinity_context_core.features.context_building.public import (
     LocatorProviderResult,
     LocatorRetrievalRequest,
 )
-from sqlalchemy import case, func, not_, or_, select, text
+from sqlalchemy import case, cast, func, not_, or_, select, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from infinity_context_adapters.postgres.models import MemoryChunkRow
@@ -162,17 +163,22 @@ def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]
         conditions.append(MemoryChunkRow.retrieval_category == filters.category)
     if filters.tags_any:
         conditions.append(
-            or_(*(MemoryChunkRow.retrieval_tags_json.contains([tag]) for tag in filters.tags_any))
+            or_(
+                *(
+                    _jsonb_contains(MemoryChunkRow.retrieval_tags_json, [tag])
+                    for tag in filters.tags_any
+                )
+            )
         )
     for tag in filters.tags_all:
-        conditions.append(MemoryChunkRow.retrieval_tags_json.contains([tag]))
+        conditions.append(_jsonb_contains(MemoryChunkRow.retrieval_tags_json, [tag]))
     for tag in filters.tags_none:
-        conditions.append(not_(MemoryChunkRow.retrieval_tags_json.contains([tag])))
+        conditions.append(not_(_jsonb_contains(MemoryChunkRow.retrieval_tags_json, [tag])))
     if filters.actor_keys:
         conditions.append(
             or_(
                 *(
-                    MemoryChunkRow.retrieval_actor_keys_json.contains([actor])
+                    _jsonb_contains(MemoryChunkRow.retrieval_actor_keys_json, [actor])
                     for actor in filters.actor_keys
                 )
             )
@@ -196,6 +202,12 @@ def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]
             )
         )
     return tuple(conditions)
+
+
+def _jsonb_contains(column: object, values: list[str]):
+    """Use PostgreSQL JSONB containment instead of generic JSON string LIKE."""
+
+    return cast(column, JSONB).contains(values)
 
 
 async def _load_rows(
