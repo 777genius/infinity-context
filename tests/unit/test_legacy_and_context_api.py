@@ -1486,8 +1486,8 @@ def test_delete_document_hides_chunks_and_enqueues_vector_delete(tmp_path: Path)
     assert deleted.json()["data"]["status"] == "deleted"
     assert deleted.json()["data"]["deleted_chunks"] == 1
     assert deleted.json()["data"]["deleted_facts"] == 2
-    assert chunks.status_code == 200
-    assert chunks.json()["data"] == []
+    assert chunks.status_code == 404
+    assert chunks.json()["error"]["code"] == "memory.not_found"
     assert "DELETE_DOC_MARKER" not in after.json()["data"]["rendered_text"]
     assert "DELETE_DOC_FACT_MARKER" not in after.json()["data"]["rendered_text"]
     assert "DELETE_DOC_WIDE_FACT_MARKER" not in after.json()["data"]["rendered_text"]

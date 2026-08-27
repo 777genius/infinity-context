@@ -313,7 +313,8 @@ def _require_versioned_vector_job(
         "cleanup_run_id_sha256": record.run_id_sha256,
     }
     if (
-        row.event_type != "vector.delete_chunks"
+        row.status != "done"
+        or row.event_type != "vector.delete_chunks"
         or row.aggregate_type != "benchmark_run"
         or row.aggregate_id != record.run_id_sha256
         or {key: value for key, value in payload.items() if key != "chunk_versions"}

@@ -623,6 +623,10 @@ async def _run_contract() -> None:
     adapter = _adapter(qdrant_url, collection, _GENERATION)
     target = _item("chunk-target", "space-a", "scope-a", "thread-a", 1)
     foreign_scope = _item("chunk-foreign", "space-b", "scope-b", "thread-b", 2)
+    foreign_scope = replace(
+        foreign_scope,
+        metadata={**foreign_scope.metadata, "canonical_version": "2"},
+    )
     try:
         written = await adapter.upsert_chunks((target, foreign_scope))
         assert written.status == PortStatus.OK, written.diagnostics
@@ -653,7 +657,14 @@ async def _run_contract() -> None:
         assert await adapter.locator_profile_complete(
             (
                 _row("chunk-target", "space-a", "scope-a", "thread-a", 1),
-                _row("chunk-foreign", "space-b", "scope-b", "thread-b", 2),
+                    _row(
+                        "chunk-foreign",
+                        "space-b",
+                        "scope-b",
+                        "thread-b",
+                        2,
+                        version=2,
+                    ),
             )
         )
 
@@ -787,7 +798,15 @@ def _item(
     )
 
 
-def _row(chunk: str, space: str, scope: str, thread: str, ordinal: int) -> object:
+def _row(
+    chunk: str,
+    space: str,
+    scope: str,
+    thread: str,
+    ordinal: int,
+    *,
+    version: int = 1,
+) -> object:
     return SimpleNamespace(
         id=chunk,
         document_id=f"document-{space}",
@@ -806,5 +825,5 @@ def _row(chunk: str, space: str, scope: str, thread: str, ordinal: int) -> objec
         retrieval_kind="record",
         retrieval_category="generic",
         retrieval_tags_json=["accepted", "decision"],
-        retrieval_version=1,
+        retrieval_version=version,
     )

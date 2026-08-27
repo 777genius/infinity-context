@@ -537,7 +537,10 @@ def test_replay_cli_rejects_done_status(monkeypatch, capsys) -> None:
 
 
 def test_installed_admin_help_publishes_bounded_qdrant_rebuild_flags() -> None:
-    executable = shutil.which("infinity-context-admin")
+    sibling_executable = Path(sys.executable).with_name("infinity-context-admin")
+    executable = shutil.which("infinity-context-admin") or (
+        str(sibling_executable) if sibling_executable.is_file() else None
+    )
     assert executable is not None
     result = subprocess.run(
         [executable, "reindex-qdrant", "--help"],

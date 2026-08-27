@@ -177,7 +177,7 @@ async def _run(configuration: dict[str, object]) -> dict[str, object]:
                 lease,
                 await registry.activation_evidence(identity.profile_id, now=datetime.now(UTC)),
                 now=datetime.now(UTC),
-                maximum_queue_lag=timedelta(minutes=5),
+                maximum_queue_lag=timedelta(minutes=30),
                 maximum_retained=2,
                 runtime_owner=owner,
             )
