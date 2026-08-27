@@ -210,6 +210,14 @@ class _Registry:
             else None
         )
 
+    async def reopen_stale_projection_tombstone(self, profile_id, chunk_id, *, stale_version, now):
+        del profile_id, chunk_id, now
+        return stale_version
+
+    async def continue_tombstone_replay(self, profile_id, *, now):
+        del profile_id, now
+        return 0
+
     async def complete_tombstone(
         self,
         profile_id,

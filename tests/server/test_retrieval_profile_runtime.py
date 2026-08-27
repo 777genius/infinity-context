@@ -8,11 +8,14 @@ from types import SimpleNamespace
 import pytest
 from infinity_context_core.features.context_building.public import (
     CanonicalProjectionItem,
+    ExactVersionDeletionProof,
     ProfileActivationDecision,
     ProfileAttestationCheckpoint,
     ProfileAttestationLease,
     ProfileReconciliationOperation,
     ProfileReconciliationWriteOutcome,
+    ProfileTombstoneDeleteAuthorization,
+    ProjectedGenerationObservation,
     RetrievalProfileIdentity,
     RuntimeFenceOwner,
 )
@@ -413,6 +416,77 @@ def test_atomic_rebuild_replays_exact_provider_page_after_commit_crash() -> None
     assert source.cursors == [None, None, None]
 
 
+def test_atomic_rebuild_journal_drift_compensates_prior_exact_effect() -> None:
+    now = datetime(2026, 8, 25, tzinfo=UTC)
+    registry = _CompensatingAtomicRebuildRegistry()
+    source = _AtomicRebuildSource()
+    projection = _CompensatingAtomicRebuildProjection()
+    composed = ComposedRetrievalProfileLifecycle(
+        lifecycle=SimpleNamespace(source=source, projection=projection, page_size=256),
+        registry=registry,
+        projection=projection,
+        sessions=object(),
+        retirement=object(),
+    )
+    arguments = {
+        "profile_id": registry.identity.profile_id,
+        "idempotency_key": "rebuild-stale-crash",
+        "request_fingerprint": "e" * 64,
+        "page_limit": 1,
+        "now": now,
+    }
+    with pytest.raises(RuntimeError, match="injected_commit_crash"):
+        asyncio.run(composed.rebuild_profile_page_atomic(**arguments))
+    assert projection.current_version == 7
+
+    source.item = CanonicalProjectionItem(
+        "chunk-rebuild",
+        8,
+        12,
+        "c" * 64,
+        "space-a",
+        "scope-a",
+        None,
+        "new active version",
+        (),
+    )
+    with pytest.raises(RuntimeError, match="rebuild_journal_drift"):
+        asyncio.run(composed.rebuild_profile_page_atomic(**arguments))
+
+    assert projection.deletes == [("chunk-rebuild", 7)]
+    assert projection.current_version is None
+
+
+def test_atomic_rebuild_admission_rejection_compensates_prior_exact_effect() -> None:
+    now = datetime(2026, 8, 25, tzinfo=UTC)
+    registry = _CompensatingAtomicRebuildRegistry()
+    source = _AtomicRebuildSource()
+    projection = _CompensatingAtomicRebuildProjection()
+    composed = ComposedRetrievalProfileLifecycle(
+        lifecycle=SimpleNamespace(source=source, projection=projection, page_size=256),
+        registry=registry,
+        projection=projection,
+        sessions=object(),
+        retirement=object(),
+    )
+    arguments = {
+        "profile_id": registry.identity.profile_id,
+        "idempotency_key": "rebuild-admission-crash",
+        "request_fingerprint": "d" * 64,
+        "page_limit": 1,
+        "now": now,
+    }
+    with pytest.raises(RuntimeError, match="injected_commit_crash"):
+        asyncio.run(composed.rebuild_profile_page_atomic(**arguments))
+    projection.reject_writes = True
+
+    with pytest.raises(RuntimeError, match="tombstone_projection_rejected"):
+        asyncio.run(composed.rebuild_profile_page_atomic(**arguments))
+
+    assert projection.deletes == [("chunk-rebuild", 7)]
+    assert projection.current_version is None
+
+
 def test_activation_waits_for_complete_fresh_promotion_validation(monkeypatch) -> None:
     now = datetime(2026, 8, 25, tzinfo=UTC)
     registry = _ActivationRegistry()
@@ -753,6 +827,63 @@ class _AtomicRebuildProjection:
     async def upsert_profile(self, identity, items):
         assert identity.profile_id == "profile-rebuild"
         self.upserts.extend((item.canonical_identity, item.canonical_version) for item in items)
+
+
+class _CompensatingAtomicRebuildRegistry(_AtomicRebuildRegistry):
+    async def reopen_stale_projection_tombstone(
+        self, profile_id, canonical_id, *, stale_version, now
+    ):
+        assert profile_id == self.identity.profile_id
+        del canonical_id, stale_version, now
+        return 8
+
+    async def authorize_tombstone(self, profile_id, canonical_id, *, canonical_version):
+        assert profile_id == self.identity.profile_id
+        return ProfileTombstoneDeleteAuthorization(
+            self.identity, canonical_id, canonical_version, 4
+        )
+
+    async def complete_tombstone(self, *_args, **_values):
+        return True
+
+
+class _CompensatingAtomicRebuildProjection(_AtomicRebuildProjection):
+    def __init__(self):
+        super().__init__()
+        self.current_version = None
+        self.deletes = []
+        self.reject_writes = False
+
+    async def upsert_profile(self, identity, items):
+        if self.reject_writes:
+            raise RuntimeError("retrieval_profile_tombstone_projection_rejected")
+        await super().upsert_profile(identity, items)
+        self.current_version = items[0].canonical_version
+
+    async def delete_profile_if_version(
+        self,
+        identity,
+        canonical_ids,
+        *,
+        canonical_version,
+        tombstone_authorization,
+    ):
+        assert identity == self.runtime_identity
+        del tombstone_authorization
+        self.deletes.append((canonical_ids[0], canonical_version))
+        if self.current_version == canonical_version:
+            self.current_version = None
+        return ExactVersionDeletionProof(
+            canonical_ids, canonical_version, (self.current_version,), 6
+        )
+
+    async def observe_profile_generation(self, identity, canonical_id):
+        assert identity == self.runtime_identity
+        return ProjectedGenerationObservation(canonical_id, self.current_version)
+
+    @property
+    def runtime_identity(self):
+        return _AtomicRebuildRegistry.identity
 
 
 class _ActivationRegistry:

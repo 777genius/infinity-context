@@ -304,6 +304,9 @@ def test_exact_delete_generation_migration_requires_observed_provider_evidence()
     assert "delete_completed_mutation_epoch = NULL" in sql
     assert "ck_locator_profile_tombstone_authorized_epoch" in sql
     assert "ck_locator_profile_tombstone_completed_epoch" in sql
+    assert "CREATE TABLE public.memory_locator_profile_tombstone_replays" in sql
+    assert "requested_epoch BIGINT NOT NULL" in sql
+    assert "cursor_chunk_id VARCHAR(80)" in sql
     assert "locator-profile-delete-observe:" in sql
     assert "completed_at = NULL" in sql
     assert "canonical_version - 1" not in sql
