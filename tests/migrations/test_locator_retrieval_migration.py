@@ -75,7 +75,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0054_locator_profile_exact_delete_generation"
+    assert migrations[-1].migration_id == "0055_generic_vector_rebuild_operations"
 
 
 def test_published_locator_checksums_remain_upgrade_compatible() -> None:

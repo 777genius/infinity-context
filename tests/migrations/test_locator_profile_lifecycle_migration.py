@@ -25,6 +25,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0052_reconciliation_outbox_binding_index",
         "0053_retrieval_default_lifecycle",
         "0054_locator_profile_exact_delete_generation",
+        "0055_generic_vector_rebuild_operations",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"

@@ -163,6 +163,7 @@ async def _scenario(database_url: str) -> None:
                 "0052_reconciliation_outbox_binding_index",
                 "0053_retrieval_default_lifecycle",
                 "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
             )
         finally:
             await engine.dispose()
@@ -276,9 +277,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0054_locator_profile_exact_delete_generation"
+            assert result.current == "0055_generic_vector_rebuild_operations"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0054_locator_profile_exact_delete_generation"
+            assert result.applied[-1] == "0055_generic_vector_rebuild_operations"
         finally:
             await engine.dispose()
 

@@ -38,6 +38,7 @@ async def _assert_upgrade_and_coalescing(database_url: str) -> None:
                 "0052_reconciliation_outbox_binding_index",
                 "0053_retrieval_default_lifecycle",
                 "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
             )
             assert (await upgrade_schema(engine)).applied == ()
         finally:
