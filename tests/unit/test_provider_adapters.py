@@ -1,3 +1,6 @@
+"""Provider adapter contracts that still share the legacy test fixture surface."""
+# Provider-free startup fencing is covered in its focused configuration module.
+
 import asyncio
 import importlib.util
 import json
@@ -1723,19 +1726,3 @@ def test_capture_openai_extractor_requires_supported_provider_and_api_key() -> N
         assert "MEMORY_OPENAI_API_KEY" in str(exc)
     else:
         raise AssertionError("Expected missing OpenAI key validation to fail")
-
-
-def test_real_provider_disabled_in_test_memory_scope() -> None:
-    settings = Settings(
-        deploy_profile="test",
-        embeddings_enabled=True,
-        embeddings_provider="openai",
-        openai_api_key="test-key",
-    )
-
-    try:
-        settings.validate_for_startup()
-    except RuntimeError as exc:
-        assert "test deploy profile cannot use external adapters" in str(exc)
-    else:
-        raise AssertionError("Expected test deploy profile external provider validation to fail")
