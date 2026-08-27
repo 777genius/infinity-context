@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from asyncio import timeout
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from time import monotonic
+from typing import TypeVar
 from uuid import uuid4
 
 from infinity_context_adapters.features.context_building.qdrant_candidate_provider import (
@@ -56,6 +58,26 @@ from infinity_context_server.retrieval_profile_attestation import (
 from infinity_context_server.retrieval_profile_outbox import RetrievalProfileOutboxCoordinator
 from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
 
+_T = TypeVar("_T")
+
+
+async def _complete_despite_cancellation(
+    awaitable: Awaitable[_T],
+) -> tuple[_T, asyncio.CancelledError | None]:
+    """Resolve an idempotent durable phase before propagating task cancellation."""
+
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancellation = cancellation or exc
+            current = asyncio.current_task()
+            if current is not None:
+                current.uncancel()
+    return task.result(), cancellation
+
 
 @dataclass(frozen=True, slots=True)
 class ProfileAwareLocatorRetrievalService:
@@ -101,51 +123,44 @@ class ProfileAwareLocatorRetrievalService:
         now = datetime.now(UTC)
         if self.runtime_lifecycle is not None:
             await self.runtime_lifecycle.start(now=now)
-        admission = await self.registry.begin_profile_query(
-            operation_id,
-            owner=self.runtime_owner,
-            now=now,
-            expires_at=now + timedelta(seconds=5),
+        admission, admission_cancellation = await _complete_despite_cancellation(
+            self.registry.begin_profile_query(
+                operation_id,
+                owner=self.runtime_owner,
+                now=now,
+                expires_at=now + timedelta(seconds=5),
+            )
         )
         if admission.status in {
             ProfileQueryAdmissionStatus.NO_PROFILE,
             ProfileQueryAdmissionStatus.UNAVAILABLE,
         }:
+            if admission_cancellation is not None:
+                raise admission_cancellation
             raise RuntimeError("retrieval_profile_query_unavailable")
         active = admission.identity
         activation_lease_id = admission.activation_lease_id
         if active is None or activation_lease_id is None:
             raise RuntimeError("retrieval_profile_query_admission_invalid")
         try:
+            if admission_cancellation is not None:
+                raise admission_cancellation
             return await self._service_for_active(active, admission_proven=True).execute(request)
         finally:
-            close_task = asyncio.create_task(
-                self.registry.finish_profile_query(
-                    active.profile_id,
-                    operation_id,
-                    owner=self.runtime_owner,
-                    activation_lease_id=activation_lease_id,
-                )
-            )
-            cancellation: asyncio.CancelledError | None = None
             try:
-                while not close_task.done():
-                    try:
-                        await asyncio.shield(close_task)
-                    except asyncio.CancelledError as exc:
-                        # A deadline and disconnect can cancel this task more
-                        # than once. Consume each request until the independent
-                        # durable close finishes, then propagate cancellation.
-                        cancellation = cancellation or exc
-                        current = asyncio.current_task()
-                        if current is not None:
-                            current.uncancel()
-                close_task.result()
+                _, close_cancellation = await _complete_despite_cancellation(
+                    self.registry.finish_profile_query(
+                        active.profile_id,
+                        operation_id,
+                        owner=self.runtime_owner,
+                        activation_lease_id=activation_lease_id,
+                    )
+                )
             except BaseException:
                 self._record_query_fence_close_failure(active.profile_id)
                 raise
-            if cancellation is not None:
-                raise cancellation
+            if close_cancellation is not None:
+                raise close_cancellation
 
     def _record_query_fence_close_failure(self, profile_id: str) -> None:
         record = getattr(self.diagnostics, "record", None)

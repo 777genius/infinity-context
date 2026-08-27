@@ -92,6 +92,38 @@ def test_query_cancellation_waits_for_durable_fence_close(monkeypatch) -> None:
     asyncio.run(scenario())
 
 
+def test_query_cancellation_during_admission_still_closes_committed_fence(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        events: list[str] = []
+        registry = _SlowAdmissionRegistry(events)
+        service = ProfileAwareLocatorRetrievalService(
+            registry=registry,
+            projection=object(),
+            sessions=object(),
+            query_embeddings=object(),
+            service_revision="1" * 40,
+        )
+        monkeypatch.setattr(
+            ProfileAwareLocatorRetrievalService,
+            "_service_for_active",
+            lambda _self, _active, **_kwargs: _UnexpectedQueryDelegate(),
+        )
+
+        query = asyncio.create_task(service.execute(object()))
+        await registry.admission_started.wait()
+        query.cancel()
+        await asyncio.sleep(0)
+        query.cancel()
+        registry.allow_admission.set()
+        with pytest.raises(asyncio.CancelledError):
+            await query
+        assert events == ["begin", "finish:lease-active"]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "status",
     [ProfileQueryAdmissionStatus.NO_PROFILE, ProfileQueryAdmissionStatus.UNAVAILABLE],
@@ -210,6 +242,18 @@ class _SlowCloseRegistry(_QueryFenceRegistry):
         await super().finish_profile_query(*args, **kwargs)
 
 
+class _SlowAdmissionRegistry(_QueryFenceRegistry):
+    def __init__(self, events):
+        super().__init__(events)
+        self.admission_started = asyncio.Event()
+        self.allow_admission = asyncio.Event()
+
+    async def begin_profile_query(self, *args, **kwargs):
+        self.admission_started.set()
+        await self.allow_admission.wait()
+        return await super().begin_profile_query(*args, **kwargs)
+
+
 class _FailingQueryDelegate:
     def __init__(self, events):
         self.events = events
@@ -222,6 +266,11 @@ class _FailingQueryDelegate:
 class _SuccessfulQueryDelegate:
     async def execute(self, _request):
         return "profile"
+
+
+class _UnexpectedQueryDelegate:
+    async def execute(self, _request):
+        raise AssertionError("cancelled admission must not execute Retrieval")
 
 
 class _BlockingQueryDelegate:
