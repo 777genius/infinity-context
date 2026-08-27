@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from infinity_context_adapters.postgres.models import MemoryChunkRow, MemoryFactRow, MemoryOutboxRow
+from infinity_context_adapters.postgres.models import (
+    MemoryChunkRow,
+    MemoryFactRow,
+    MemoryOutboxRow,
+    MemoryScopeRow,
+)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_server.admin_invariants import ScopeFilters, _resolve_scope, _scope_filters
 from infinity_context_server.composition import build_container
 from infinity_context_server.config import Settings
+from infinity_context_server.processes.vector_rebuild import EVENT_TYPE, MAX_BATCH_SIZE
 
 
 async def repair_projections(
@@ -101,17 +107,153 @@ async def reindex_qdrant(
     memory_scope: str | None,
     dry_run: bool,
     confirmed: bool = False,
+    operation_id: str | None = None,
+    batch_size: int = 100,
 ) -> dict[str, object]:
-    return await _reindex_projection(
-        operation="reindex-qdrant",
-        adapter_key="qdrant",
-        aggregate_type="chunk",
-        event_type="vector.upsert_chunk",
+    return await _start_qdrant_rebuild(
         space=space,
         memory_scope=memory_scope,
         dry_run=dry_run,
         confirmed=confirmed,
+        operation_id=operation_id,
+        batch_size=batch_size,
     )
+
+
+async def _start_qdrant_rebuild(
+    *,
+    space: str | None,
+    memory_scope: str | None,
+    dry_run: bool,
+    confirmed: bool,
+    operation_id: str | None,
+    batch_size: int,
+) -> dict[str, object]:
+    refusal = _qdrant_rebuild_refusal(
+        space=space,
+        memory_scope=memory_scope,
+        dry_run=dry_run,
+        confirmed=confirmed,
+        operation_id=operation_id,
+        batch_size=batch_size,
+    )
+    if refusal is not None:
+        return refusal
+    container = build_container(Settings())
+    try:
+        async with AsyncSession(container.engine) as session:
+            scope = await _resolve_scope(session, space=space, memory_scope=memory_scope)
+            if scope is None:
+                return {
+                    "status": "not_found",
+                    "operation": "reindex-qdrant",
+                    "space": space,
+                    "memory_scope": memory_scope,
+                    "dry_run": dry_run,
+                }
+            space_id, memory_scope_id = scope
+            assert space_id is not None and memory_scope_id is not None
+            await session.execute(
+                select(MemoryScopeRow)
+                .where(MemoryScopeRow.id == memory_scope_id)
+                .with_for_update()
+            )
+            counts = await _qdrant_rebuild_counts(
+                session, space_id=space_id, memory_scope_id=memory_scope_id
+            )
+            if dry_run:
+                return _qdrant_rebuild_result(
+                    status="ok",
+                    operation_id=operation_id,
+                    space=space,
+                    memory_scope=memory_scope,
+                    dry_run=True,
+                    batch_size=batch_size,
+                    counts=counts,
+                    cursor=None,
+                )
+            assert operation_id is not None
+            existing = await _existing_rebuild(session, operation_id)
+            if existing is not None:
+                expected = _rebuild_payload(
+                    operation_id=operation_id,
+                    space_id=space_id,
+                    memory_scope_id=memory_scope_id,
+                    upper_bound_id=str(existing.payload_json.get("upper_bound_id") or ""),
+                    cursor=existing.payload_json.get("cursor"),
+                    batch_size=batch_size,
+                )
+                comparable = dict(existing.payload_json)
+                comparable["cursor"] = expected["cursor"]
+                if comparable != expected:
+                    return {
+                        "status": "refused",
+                        "operation": "reindex-qdrant",
+                        "reason": "operation id is already bound to a different rebuild",
+                        "dry_run": False,
+                    }
+                if existing.status == "dead":
+                    existing.status = "pending"
+                    existing.attempt_count = 0
+                    existing.next_attempt_at = container.clock.now()
+                    existing.last_safe_error = None
+                    existing.last_safe_diagnostic_code = None
+                    existing.updated_at = container.clock.now()
+                resumed_status = "complete" if existing.status == "done" else "resumed"
+                resumed_cursor = existing.payload_json.get("cursor")
+                await session.commit()
+                return _qdrant_rebuild_result(
+                    status=resumed_status,
+                    operation_id=operation_id,
+                    space=space,
+                    memory_scope=memory_scope,
+                    dry_run=False,
+                    batch_size=batch_size,
+                    counts=counts,
+                    cursor=resumed_cursor,
+                )
+            upper_bound_id = str(
+                (
+                    await session.scalar(
+                        select(func.max(MemoryChunkRow.id)).where(
+                            MemoryChunkRow.space_id == space_id,
+                            MemoryChunkRow.memory_scope_id == memory_scope_id,
+                        )
+                    )
+                )
+                or "\U0010ffff"
+            )
+            now = container.clock.now()
+            session.add(
+                _projection_outbox(
+                    event_type=EVENT_TYPE,
+                    aggregate_type="vector_rebuild",
+                    aggregate_id=operation_id,
+                    now=now,
+                    fairness_key=f"vector-rebuild:{operation_id}",
+                    payload=_rebuild_payload(
+                        operation_id=operation_id,
+                        space_id=space_id,
+                        memory_scope_id=memory_scope_id,
+                        upper_bound_id=upper_bound_id,
+                        cursor=None,
+                        batch_size=batch_size,
+                    ),
+                )
+            )
+            await session.commit()
+        return _qdrant_rebuild_result(
+            status="started",
+            operation_id=operation_id,
+            space=space,
+            memory_scope=memory_scope,
+            dry_run=False,
+            batch_size=batch_size,
+            counts=counts,
+            cursor=None,
+        )
+    finally:
+        await container.engine.dispose()
 
 
 async def reindex_graphiti(
@@ -355,6 +497,7 @@ def _projection_outbox(
     now: datetime,
     payload: dict[str, object],
     aggregate_version: int | None = None,
+    fairness_key: str | None = None,
 ) -> MemoryOutboxRow:
     return MemoryOutboxRow(
         event_type=event_type,
@@ -362,7 +505,7 @@ def _projection_outbox(
         aggregate_id=aggregate_id,
         aggregate_version=aggregate_version,
         workload_class="projection",
-        fairness_key=f"{aggregate_type}:{aggregate_id}",
+        fairness_key=fairness_key or f"{aggregate_type}:{aggregate_id}",
         payload_json=payload,
         status="pending",
         attempt_count=0,
@@ -372,3 +515,154 @@ def _projection_outbox(
         created_at=now,
         updated_at=now,
     )
+
+
+def _qdrant_rebuild_refusal(
+    *,
+    space: str | None,
+    memory_scope: str | None,
+    dry_run: bool,
+    confirmed: bool,
+    operation_id: str | None,
+    batch_size: int,
+) -> dict[str, object] | None:
+    reason: str | None = None
+    if not space or not memory_scope:
+        reason = "rebuild requires --space and --memory_scope"
+    elif type(batch_size) is not int or not 1 <= batch_size <= MAX_BATCH_SIZE:
+        reason = f"rebuild --batch-size must be between 1 and {MAX_BATCH_SIZE}"
+    elif not dry_run and not confirmed:
+        reason = "rebuild requires --i-understand-this-enqueues-projection-jobs"
+    elif not dry_run and not _valid_operation_id(operation_id):
+        reason = "rebuild apply requires a stable --operation-id (8-80 safe characters)"
+    if reason is None:
+        return None
+    return {
+        "status": "refused",
+        "operation": "reindex-qdrant",
+        "reason": reason,
+        "dry_run": dry_run,
+    }
+
+
+def _valid_operation_id(value: str | None) -> bool:
+    return bool(
+        isinstance(value, str)
+        and 8 <= len(value) <= 80
+        and all(
+            character.isascii() and (character.isalnum() or character in "-_.")
+            for character in value
+        )
+    )
+
+
+async def _qdrant_rebuild_counts(
+    session: AsyncSession,
+    *,
+    space_id: str,
+    memory_scope_id: str,
+) -> dict[str, int]:
+    conditions = (
+        MemoryChunkRow.space_id == space_id,
+        MemoryChunkRow.memory_scope_id == memory_scope_id,
+    )
+    active = int(
+        (
+            await session.scalar(
+                select(func.count()).select_from(MemoryChunkRow).where(
+                    *conditions, MemoryChunkRow.status == "active"
+                )
+            )
+        )
+        or 0
+    )
+    total = int(
+        (await session.scalar(select(func.count()).select_from(MemoryChunkRow).where(*conditions)))
+        or 0
+    )
+    dead = int(
+        (
+            await session.scalar(
+                select(func.count()).select_from(MemoryOutboxRow).where(
+                    MemoryOutboxRow.status == "dead",
+                    MemoryOutboxRow.last_safe_diagnostic_code.in_(
+                        (
+                            "vector.delete_canonical_versions_rebuild_required",
+                            "qdrant.delete_rebuild_required",
+                        )
+                    ),
+                    MemoryOutboxRow.payload_json["space_id"].as_string() == space_id,
+                    MemoryOutboxRow.payload_json["memory_scope_id"].as_string()
+                    == memory_scope_id,
+                )
+            )
+        )
+        or 0
+    )
+    return {"active": active, "deleted_or_ineligible": total - active, "dead_events": dead}
+
+
+async def _existing_rebuild(
+    session: AsyncSession, operation_id: str
+) -> MemoryOutboxRow | None:
+    return (
+        await session.execute(
+            select(MemoryOutboxRow)
+            .where(
+                MemoryOutboxRow.event_type == EVENT_TYPE,
+                MemoryOutboxRow.aggregate_type == "vector_rebuild",
+                MemoryOutboxRow.aggregate_id == operation_id,
+            )
+            .order_by(MemoryOutboxRow.id.desc())
+            .limit(1)
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+
+
+def _rebuild_payload(
+    *,
+    operation_id: str,
+    space_id: str,
+    memory_scope_id: str,
+    upper_bound_id: str,
+    cursor: object,
+    batch_size: int,
+) -> dict[str, object]:
+    return {
+        "operation_id": operation_id,
+        "space_id": space_id,
+        "memory_scope_id": memory_scope_id,
+        "upper_bound_id": upper_bound_id,
+        "cursor": cursor,
+        "batch_size": batch_size,
+    }
+
+
+def _qdrant_rebuild_result(
+    *,
+    status: str,
+    operation_id: str | None,
+    space: str | None,
+    memory_scope: str | None,
+    dry_run: bool,
+    batch_size: int,
+    counts: dict[str, int],
+    cursor: object,
+) -> dict[str, object]:
+    return {
+        "status": status,
+        "operation": "reindex-qdrant",
+        "operation_id": operation_id,
+        "space": space,
+        "memory_scope": memory_scope,
+        "dry_run": dry_run,
+        "batch_size": batch_size,
+        "cursor": cursor,
+        "qdrant": {
+            "would_upsert": counts["active"],
+            "would_delete_or_reconcile": counts["deleted_or_ineligible"],
+            "dead_events_recoverable": counts["dead_events"],
+            "enqueued": 0 if dry_run or status in {"complete", "resumed"} else 1,
+        },
+    }

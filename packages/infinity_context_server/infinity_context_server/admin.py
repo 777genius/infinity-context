@@ -671,6 +671,8 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             memory_scope=args.memory_scope,
             dry_run=args.dry_run,
             confirmed=args.i_understand_this_enqueues_projection_jobs,
+            operation_id=args.operation_id,
+            batch_size=args.batch_size,
         )
     if args.command == "reindex-graphiti":
         return await reindex_graphiti(
@@ -826,6 +828,9 @@ def main() -> None:
         reindex.add_argument("--memory_scope", default=None)
         reindex.add_argument("--dry-run", action="store_true")
         reindex.add_argument("--i-understand-this-enqueues-projection-jobs", action="store_true")
+        if command == "reindex-qdrant":
+            reindex.add_argument("--operation-id", default=None)
+            reindex.add_argument("--batch-size", type=int, default=100)
     replay = sub.add_parser("replay-outbox")
     replay.add_argument("--status", choices=("dead",), default="dead")
     replay.add_argument("--limit", type=int, default=50)

@@ -295,6 +295,7 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
             memory_scope="default",
             dry_run=False,
             confirmed=True,
+            operation_id="test-rebuild-001",
         )
     )
     second = asyncio.run(
@@ -303,6 +304,7 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
             memory_scope="default",
             dry_run=False,
             confirmed=True,
+            operation_id="test-rebuild-001",
         )
     )
     with make_client(tmp_path) as client:
@@ -314,11 +316,11 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
     assert refused["status"] == "refused"
     assert first["qdrant"]["enqueued"] == 1
     assert second["qdrant"]["enqueued"] == 0
-    assert second["qdrant"]["skipped_existing_jobs"] == 1
+    assert second["status"] == "resumed"
     assert len(rows) == 1
-    assert rows[0]["event_type"] == "vector.upsert_chunk"
-    assert rows[0]["aggregate_type"] == "chunk"
-    assert rows[0]["fairness_key"].startswith("chunk:")
+    assert rows[0]["event_type"] == "vector.rebuild_scope_page"
+    assert rows[0]["aggregate_type"] == "vector_rebuild"
+    assert rows[0]["fairness_key"] == "vector-rebuild:test-rebuild-001"
     assert rows[0]["payload_json"]["space_id"] == space["id"]
     assert rows[0]["payload_json"]["memory_scope_id"] == memory_scope["id"]
     assert "RAW_QDRANT_REINDEX_SECRET" not in str(first)
