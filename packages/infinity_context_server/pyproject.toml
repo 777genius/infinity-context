@@ -13,3 +13,6 @@ dependencies = [
   "uvicorn>=0.48.0,<1.0.0",
   "infinity-context-runtime-bridge==0.1.0",
 ]
+
+[project.scripts]
+infinity-context-admin = "infinity_context_server.admin:main"

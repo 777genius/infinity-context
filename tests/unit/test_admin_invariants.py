@@ -1,4 +1,6 @@
 import asyncio
+import shutil
+import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,18 +14,22 @@ from infinity_context_adapters.postgres.models import (
     MemoryFactRow,
     MemoryIdempotencyRecordRow,
     MemoryOutboxRow,
+    MemoryVectorRebuildOperationRow,
 )
 from infinity_context_server.admin import (
     _adapter_check,
     compact_done_outbox,
     invariant_check,
     reindex_graphiti,
-    reindex_qdrant,
     repair_projections,
     replay_outbox,
 )
+from infinity_context_server.admin_projection_repair import reindex_qdrant
+from infinity_context_server.admin_qdrant_cli import authorize_qdrant_rebuild
 from infinity_context_server.config import DeployProfile, Settings
 from infinity_context_server.main import create_app
+from infinity_context_server.processes.outbox import ClaimedOutboxJob
+from infinity_context_server.processes.vector_rebuild import GenericVectorRebuildProcess
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -285,6 +291,16 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
             },
             headers=auth_headers(),
         )
+        other_space = client.post(
+            "/v1/spaces",
+            json={"slug": "other-app", "name": "Other App"},
+            headers=auth_headers(),
+        ).json()["data"]
+        client.post(
+            "/v1/memory-scopes",
+            json={"space_id": other_space["id"], "external_ref": "other", "name": "Other"},
+            headers=auth_headers(),
+        )
         asyncio.run(_clear_outbox(client))
 
     dry_run = asyncio.run(reindex_qdrant(space="client-app", memory_scope="default", dry_run=True))
@@ -307,6 +323,15 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
             operation_id="test-rebuild-001",
         )
     )
+    cross_scope = asyncio.run(
+        reindex_qdrant(
+            space="other-app",
+            memory_scope="other",
+            dry_run=False,
+            confirmed=True,
+            operation_id="test-rebuild-001",
+        )
+    )
     with make_client(tmp_path) as client:
         rows = asyncio.run(_outbox_items(client))
 
@@ -317,6 +342,8 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
     assert first["qdrant"]["enqueued"] == 1
     assert second["qdrant"]["enqueued"] == 0
     assert second["status"] == "resumed"
+    assert cross_scope["status"] == "refused"
+    assert "different rebuild" in cross_scope["reason"]
     assert len(rows) == 1
     assert rows[0]["event_type"] == "vector.rebuild_scope_page"
     assert rows[0]["aggregate_type"] == "vector_rebuild"
@@ -324,6 +351,63 @@ def test_reindex_qdrant_enqueues_active_chunk_projection_jobs(
     assert rows[0]["payload_json"]["space_id"] == space["id"]
     assert rows[0]["payload_json"]["memory_scope_id"] == memory_scope["id"]
     assert "RAW_QDRANT_REINDEX_SECRET" not in str(first)
+
+
+def test_rebuild_consumes_only_watermarked_legacy_document_delete_events(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("MEMORY_DEPLOY_PROFILE", "test")
+    monkeypatch.setenv("MEMORY_DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'memory.db'}")
+    monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "test-token")
+    with make_client(tmp_path) as client:
+        space = client.post(
+            "/v1/spaces",
+            json={"slug": "legacy-delete", "name": "Legacy Delete"},
+            headers=auth_headers(),
+        ).json()["data"]
+        memory_scope = client.post(
+            "/v1/memory-scopes",
+            json={"space_id": space["id"], "external_ref": "scope", "name": "Scope"},
+            headers=auth_headers(),
+        ).json()["data"]
+        document = client.post(
+            "/v1/documents",
+            json={
+                "space_id": space["id"],
+                "memory_scope_id": memory_scope["id"],
+                "title": "Legacy delete",
+                "text": "Canonical ownership remains after soft delete.",
+                "source_type": "document",
+                "source_external_id": "legacy-delete-doc",
+            },
+            headers=auth_headers(),
+        ).json()["data"]
+        client.delete(f"/v1/documents/{document['id']}", headers=auth_headers())
+        legacy_id = asyncio.run(_make_delete_event_dead_and_legacy(client, document["id"]))
+
+        started = asyncio.run(
+            reindex_qdrant(
+                space="legacy-delete",
+                memory_scope="scope",
+                dry_run=False,
+                confirmed=True,
+                operation_id="legacy-delete-rebuild",
+                batch_size=2,
+            )
+        )
+        later_id = asyncio.run(_insert_later_dead_delete(client, legacy_id))
+        job = asyncio.run(_rebuild_job(client, "legacy-delete-rebuild"))
+        asyncio.run(GenericVectorRebuildProcess(client.app.state.container).handle_page(job))
+        statuses, operation = asyncio.run(
+            _delete_event_statuses(client, legacy_id=legacy_id, later_id=later_id)
+        )
+
+    assert started["dead_event_watermark"] == legacy_id
+    assert statuses == ("done", "dead")
+    assert operation.status == "complete"
+    assert operation.processed_count == 1
+    assert operation.failed_count == 0
 
 
 def test_reindex_graphiti_skips_deleted_facts(
@@ -450,6 +534,43 @@ def test_replay_cli_rejects_done_status(monkeypatch, capsys) -> None:
 
     assert error.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_installed_admin_help_publishes_bounded_qdrant_rebuild_flags() -> None:
+    executable = shutil.which("infinity-context-admin")
+    assert executable is not None
+    result = subprocess.run(
+        [executable, "reindex-qdrant", "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0
+    for flag in (
+        "--auth-token-env",
+        "--preflight-only",
+        "--batch-size",
+        "--deadline-seconds",
+        "--operation-id",
+    ):
+        assert flag in result.stdout
+
+
+def test_qdrant_rebuild_auth_uses_separate_environment_credential(monkeypatch) -> None:
+    monkeypatch.setenv("MEMORY_SERVICE_TOKEN", "configured-secret")
+    monkeypatch.setenv("INFINITY_CONTEXT_ADMIN_TOKEN", "wrong-secret")
+    refused = authorize_qdrant_rebuild("INFINITY_CONTEXT_ADMIN_TOKEN")
+    assert refused is not None
+    assert refused["status"] == "refused"
+
+    monkeypatch.setenv("INFINITY_CONTEXT_ADMIN_TOKEN", "configured-secret")
+    assert authorize_qdrant_rebuild("INFINITY_CONTEXT_ADMIN_TOKEN") is None
+    assert authorize_qdrant_rebuild("invalid-name") == {
+        "status": "refused",
+        "operation": "reindex-qdrant",
+        "reason": "auth token environment variable name is invalid",
+    }
 
 
 def test_compact_done_outbox_redacts_payload_but_keeps_audit_columns(
@@ -703,6 +824,100 @@ async def _outbox_items(client: TestClient) -> list[dict[str, object]]:
             }
             for row in rows
         ]
+
+
+async def _make_delete_event_dead_and_legacy(client: TestClient, document_id: str) -> int:
+    async with AsyncSession(client.app.state.container.engine) as session:
+        row = (
+            await session.execute(
+                select(MemoryOutboxRow)
+                .where(
+                    MemoryOutboxRow.event_type == "vector.delete_chunks",
+                    MemoryOutboxRow.aggregate_id == document_id,
+                )
+                .order_by(MemoryOutboxRow.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        row.payload_json = {
+            key: value
+            for key, value in row.payload_json.items()
+            if key not in {"space_id", "memory_scope_id"}
+        }
+        row.status = "dead"
+        row.last_safe_diagnostic_code = "qdrant.delete_rebuild_required"
+        row_id = row.id
+        await session.commit()
+        return row_id
+
+
+async def _insert_later_dead_delete(client: TestClient, legacy_id: int) -> int:
+    async with AsyncSession(client.app.state.container.engine, expire_on_commit=False) as session:
+        legacy = await session.get(MemoryOutboxRow, legacy_id)
+        assert legacy is not None
+        later = MemoryOutboxRow(
+            event_type=legacy.event_type,
+            aggregate_type=legacy.aggregate_type,
+            aggregate_id=legacy.aggregate_id,
+            aggregate_version=legacy.aggregate_version,
+            workload_class=legacy.workload_class,
+            fairness_key=f"later:{legacy.fairness_key}",
+            payload_json=dict(legacy.payload_json),
+            status="dead",
+            attempt_count=5,
+            next_attempt_at=legacy.next_attempt_at,
+            last_safe_error="redacted",
+            last_safe_diagnostic_code="qdrant.delete_rebuild_required",
+            created_at=legacy.created_at,
+            updated_at=legacy.updated_at,
+        )
+        session.add(later)
+        await session.commit()
+        return later.id
+
+
+async def _rebuild_job(client: TestClient, operation_id: str) -> ClaimedOutboxJob:
+    async with AsyncSession(client.app.state.container.engine) as session:
+        row = (
+            await session.execute(
+                select(MemoryOutboxRow)
+                .where(
+                    MemoryOutboxRow.event_type == "vector.rebuild_scope_page",
+                    MemoryOutboxRow.aggregate_id == operation_id,
+                )
+                .order_by(MemoryOutboxRow.id.desc())
+                .limit(1)
+            )
+        ).scalar_one()
+        return ClaimedOutboxJob(
+            id=row.id,
+            event_type=row.event_type,
+            aggregate_type=row.aggregate_type,
+            aggregate_id=row.aggregate_id,
+            aggregate_version=row.aggregate_version,
+            attempt_count=row.attempt_count,
+            workload_class=row.workload_class,
+            fairness_key=row.fairness_key,
+            payload_json=dict(row.payload_json),
+        )
+
+
+async def _delete_event_statuses(
+    client: TestClient,
+    *,
+    legacy_id: int,
+    later_id: int,
+) -> tuple[tuple[str, str], MemoryVectorRebuildOperationRow]:
+    async with AsyncSession(client.app.state.container.engine) as session:
+        legacy = await session.get(MemoryOutboxRow, legacy_id)
+        later = await session.get(MemoryOutboxRow, later_id)
+        operation = await session.get(
+            MemoryVectorRebuildOperationRow,
+            "legacy-delete-rebuild",
+        )
+        assert legacy is not None and later is not None and operation is not None
+        session.expunge(operation)
+        return (legacy.status, later.status), operation
 
 
 def _check_by_name(result: dict[str, object], name: str) -> dict[str, object]:

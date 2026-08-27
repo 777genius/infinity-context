@@ -40,6 +40,8 @@ class DeleteDocumentUseCase:
                         aggregate_id=str(document.id),
                         payload={
                             "document_id": str(document.id),
+                            "space_id": str(document.space_id),
+                            "memory_scope_id": str(document.memory_scope_id),
                             "chunk_ids": list(chunk_ids),
                             "chunk_versions": [
                                 {

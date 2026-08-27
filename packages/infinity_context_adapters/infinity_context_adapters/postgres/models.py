@@ -921,3 +921,6 @@ from infinity_context_adapters.postgres.strict_v4_preparation_models import (  #
 from infinity_context_adapters.postgres.temporal_models import (  # noqa: E402
     MemoryFactTemporalDecisionRow,  # noqa: F401
 )
+from infinity_context_adapters.postgres.vector_rebuild_models import (  # noqa: E402
+    MemoryVectorRebuildOperationRow,  # noqa: F401
+)

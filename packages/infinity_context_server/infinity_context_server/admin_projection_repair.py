@@ -9,14 +9,21 @@ from infinity_context_adapters.postgres.models import (
     MemoryFactRow,
     MemoryOutboxRow,
     MemoryScopeRow,
+    MemoryVectorRebuildOperationRow,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_server.admin_invariants import ScopeFilters, _resolve_scope, _scope_filters
 from infinity_context_server.composition import build_container
 from infinity_context_server.config import Settings
-from infinity_context_server.processes.vector_rebuild import EVENT_TYPE, MAX_BATCH_SIZE
+from infinity_context_server.processes.vector_rebuild import (
+    DEAD_REBUILD_CODES,
+    EVENT_TYPE,
+    MAX_BATCH_SIZE,
+    dead_event_scope_condition,
+)
 
 
 async def repair_projections(
@@ -39,7 +46,7 @@ async def repair_projections(
         }
     container = build_container(Settings())
     try:
-        async with AsyncSession(container.engine) as session:
+        async with AsyncSession(container.engine, expire_on_commit=False) as session:
             scope = await _resolve_scope(session, space=space, memory_scope=memory_scope)
             if scope is None:
                 return {
@@ -141,7 +148,7 @@ async def _start_qdrant_rebuild(
         return refusal
     container = build_container(Settings())
     try:
-        async with AsyncSession(container.engine) as session:
+        async with AsyncSession(container.engine, expire_on_commit=False) as session:
             scope = await _resolve_scope(session, space=space, memory_scope=memory_scope)
             if scope is None:
                 return {
@@ -153,15 +160,12 @@ async def _start_qdrant_rebuild(
                 }
             space_id, memory_scope_id = scope
             assert space_id is not None and memory_scope_id is not None
-            await session.execute(
-                select(MemoryScopeRow)
-                .where(MemoryScopeRow.id == memory_scope_id)
-                .with_for_update()
-            )
-            counts = await _qdrant_rebuild_counts(
-                session, space_id=space_id, memory_scope_id=memory_scope_id
-            )
             if dry_run:
+                counts = await _qdrant_rebuild_counts(
+                    session,
+                    space_id=space_id,
+                    memory_scope_id=memory_scope_id,
+                )
                 return _qdrant_rebuild_result(
                     status="ok",
                     operation_id=operation_id,
@@ -170,37 +174,34 @@ async def _start_qdrant_rebuild(
                     dry_run=True,
                     batch_size=batch_size,
                     counts=counts,
-                    cursor=None,
+                    operation_row=None,
                 )
+            await session.execute(
+                select(MemoryScopeRow).where(MemoryScopeRow.id == memory_scope_id).with_for_update()
+            )
+            if session.bind is not None and session.bind.dialect.name == "postgresql":
+                # Drain prior canonical/outbox writers and exclude new ones only
+                # for the short durable watermark-capture transaction.
+                await session.execute(text("LOCK TABLE memory_chunks, memory_outbox IN SHARE MODE"))
+            counts = await _qdrant_rebuild_counts(
+                session, space_id=space_id, memory_scope_id=memory_scope_id
+            )
             assert operation_id is not None
             existing = await _existing_rebuild(session, operation_id)
             if existing is not None:
-                expected = _rebuild_payload(
-                    operation_id=operation_id,
-                    space_id=space_id,
-                    memory_scope_id=memory_scope_id,
-                    upper_bound_id=str(existing.payload_json.get("upper_bound_id") or ""),
-                    cursor=existing.payload_json.get("cursor"),
-                    batch_size=batch_size,
-                )
-                comparable = dict(existing.payload_json)
-                comparable["cursor"] = expected["cursor"]
-                if comparable != expected:
+                if (
+                    existing.space_id != space_id
+                    or existing.memory_scope_id != memory_scope_id
+                    or existing.batch_size != batch_size
+                ):
                     return {
                         "status": "refused",
                         "operation": "reindex-qdrant",
                         "reason": "operation id is already bound to a different rebuild",
                         "dry_run": False,
                     }
-                if existing.status == "dead":
-                    existing.status = "pending"
-                    existing.attempt_count = 0
-                    existing.next_attempt_at = container.clock.now()
-                    existing.last_safe_error = None
-                    existing.last_safe_diagnostic_code = None
-                    existing.updated_at = container.clock.now()
-                resumed_status = "complete" if existing.status == "done" else "resumed"
-                resumed_cursor = existing.payload_json.get("cursor")
+                await _resume_rebuild_event(session, existing, now=container.clock.now())
+                resumed_status = "complete" if existing.status == "complete" else "resumed"
                 await session.commit()
                 return _qdrant_rebuild_result(
                     status=resumed_status,
@@ -210,20 +211,50 @@ async def _start_qdrant_rebuild(
                     dry_run=False,
                     batch_size=batch_size,
                     counts=counts,
-                    cursor=resumed_cursor,
+                    operation_row=existing,
                 )
-            upper_bound_id = str(
+            canonical_watermark = int(
                 (
                     await session.scalar(
-                        select(func.max(MemoryChunkRow.id)).where(
+                        select(func.max(MemoryChunkRow.retrieval_commit_watermark)).where(
                             MemoryChunkRow.space_id == space_id,
                             MemoryChunkRow.memory_scope_id == memory_scope_id,
                         )
                     )
                 )
-                or "\U0010ffff"
+                or 0
+            )
+            dead_event_watermark = int(
+                (
+                    await session.scalar(
+                        select(func.max(MemoryOutboxRow.id)).where(
+                            MemoryOutboxRow.status == "dead",
+                            MemoryOutboxRow.event_type == "vector.delete_chunks",
+                            MemoryOutboxRow.last_safe_diagnostic_code.in_(DEAD_REBUILD_CODES),
+                            dead_event_scope_condition(space_id, memory_scope_id),
+                        )
+                    )
+                )
+                or 0
             )
             now = container.clock.now()
+            operation = MemoryVectorRebuildOperationRow(
+                operation_id=operation_id,
+                space_id=space_id,
+                memory_scope_id=memory_scope_id,
+                status="running",
+                canonical_watermark=canonical_watermark,
+                dead_event_watermark=dead_event_watermark,
+                cursor_watermark=0,
+                cursor_chunk_id=None,
+                processed_count=0,
+                failed_count=0,
+                batch_size=batch_size,
+                created_at=now,
+                updated_at=now,
+                completed_at=None,
+            )
+            session.add(operation)
             session.add(
                 _projection_outbox(
                     event_type=EVENT_TYPE,
@@ -235,13 +266,22 @@ async def _start_qdrant_rebuild(
                         operation_id=operation_id,
                         space_id=space_id,
                         memory_scope_id=memory_scope_id,
-                        upper_bound_id=upper_bound_id,
-                        cursor=None,
+                        canonical_watermark=canonical_watermark,
+                        dead_event_watermark=dead_event_watermark,
                         batch_size=batch_size,
                     ),
                 )
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                return {
+                    "status": "refused",
+                    "operation": "reindex-qdrant",
+                    "reason": "operation id is already bound to a different rebuild",
+                    "dry_run": False,
+                }
         return _qdrant_rebuild_result(
             status="started",
             operation_id=operation_id,
@@ -250,7 +290,7 @@ async def _start_qdrant_rebuild(
             dry_run=False,
             batch_size=batch_size,
             counts=counts,
-            cursor=None,
+            operation_row=operation,
         )
     finally:
         await container.engine.dispose()
@@ -569,9 +609,9 @@ async def _qdrant_rebuild_counts(
     active = int(
         (
             await session.scalar(
-                select(func.count()).select_from(MemoryChunkRow).where(
-                    *conditions, MemoryChunkRow.status == "active"
-                )
+                select(func.count())
+                .select_from(MemoryChunkRow)
+                .where(*conditions, MemoryChunkRow.status == "active")
             )
         )
         or 0
@@ -583,17 +623,13 @@ async def _qdrant_rebuild_counts(
     dead = int(
         (
             await session.scalar(
-                select(func.count()).select_from(MemoryOutboxRow).where(
+                select(func.count())
+                .select_from(MemoryOutboxRow)
+                .where(
+                    MemoryOutboxRow.event_type == "vector.delete_chunks",
                     MemoryOutboxRow.status == "dead",
-                    MemoryOutboxRow.last_safe_diagnostic_code.in_(
-                        (
-                            "vector.delete_canonical_versions_rebuild_required",
-                            "qdrant.delete_rebuild_required",
-                        )
-                    ),
-                    MemoryOutboxRow.payload_json["space_id"].as_string() == space_id,
-                    MemoryOutboxRow.payload_json["memory_scope_id"].as_string()
-                    == memory_scope_id,
+                    MemoryOutboxRow.last_safe_diagnostic_code.in_(DEAD_REBUILD_CODES),
+                    dead_event_scope_condition(space_id, memory_scope_id),
                 )
             )
         )
@@ -604,20 +640,63 @@ async def _qdrant_rebuild_counts(
 
 async def _existing_rebuild(
     session: AsyncSession, operation_id: str
-) -> MemoryOutboxRow | None:
-    return (
+) -> MemoryVectorRebuildOperationRow | None:
+    return await session.get(
+        MemoryVectorRebuildOperationRow,
+        operation_id,
+        with_for_update=True,
+    )
+
+
+async def _resume_rebuild_event(
+    session: AsyncSession,
+    operation: MemoryVectorRebuildOperationRow,
+    *,
+    now: datetime,
+) -> None:
+    if operation.status == "complete":
+        return
+    event = (
         await session.execute(
             select(MemoryOutboxRow)
             .where(
                 MemoryOutboxRow.event_type == EVENT_TYPE,
                 MemoryOutboxRow.aggregate_type == "vector_rebuild",
-                MemoryOutboxRow.aggregate_id == operation_id,
+                MemoryOutboxRow.aggregate_id == operation.operation_id,
+                MemoryOutboxRow.status.in_(("pending", "retry_pending", "running", "dead")),
             )
             .order_by(MemoryOutboxRow.id.desc())
             .limit(1)
             .with_for_update()
         )
     ).scalar_one_or_none()
+    payload = _rebuild_payload(
+        operation_id=operation.operation_id,
+        space_id=operation.space_id,
+        memory_scope_id=operation.memory_scope_id,
+        canonical_watermark=operation.canonical_watermark,
+        dead_event_watermark=operation.dead_event_watermark,
+        batch_size=operation.batch_size,
+    )
+    if event is None:
+        session.add(
+            _projection_outbox(
+                event_type=EVENT_TYPE,
+                aggregate_type="vector_rebuild",
+                aggregate_id=operation.operation_id,
+                now=now,
+                fairness_key=f"vector-rebuild:{operation.operation_id}",
+                payload=payload,
+            )
+        )
+    elif event.status == "dead":
+        event.payload_json = payload
+        event.status = "pending"
+        event.attempt_count = 0
+        event.next_attempt_at = now
+        event.last_safe_error = None
+        event.last_safe_diagnostic_code = None
+        event.updated_at = now
 
 
 def _rebuild_payload(
@@ -625,16 +704,16 @@ def _rebuild_payload(
     operation_id: str,
     space_id: str,
     memory_scope_id: str,
-    upper_bound_id: str,
-    cursor: object,
+    canonical_watermark: int,
+    dead_event_watermark: int,
     batch_size: int,
 ) -> dict[str, object]:
     return {
         "operation_id": operation_id,
         "space_id": space_id,
         "memory_scope_id": memory_scope_id,
-        "upper_bound_id": upper_bound_id,
-        "cursor": cursor,
+        "canonical_watermark": canonical_watermark,
+        "dead_event_watermark": dead_event_watermark,
         "batch_size": batch_size,
     }
 
@@ -648,7 +727,7 @@ def _qdrant_rebuild_result(
     dry_run: bool,
     batch_size: int,
     counts: dict[str, int],
-    cursor: object,
+    operation_row: MemoryVectorRebuildOperationRow | None,
 ) -> dict[str, object]:
     return {
         "status": status,
@@ -658,7 +737,22 @@ def _qdrant_rebuild_result(
         "memory_scope": memory_scope,
         "dry_run": dry_run,
         "batch_size": batch_size,
-        "cursor": cursor,
+        "canonical_watermark": (
+            operation_row.canonical_watermark if operation_row is not None else None
+        ),
+        "dead_event_watermark": (
+            operation_row.dead_event_watermark if operation_row is not None else None
+        ),
+        "cursor": (
+            {
+                "canonical_watermark": operation_row.cursor_watermark,
+                "chunk_id": operation_row.cursor_chunk_id,
+            }
+            if operation_row is not None
+            else None
+        ),
+        "processed_count": operation_row.processed_count if operation_row is not None else 0,
+        "failed_count": operation_row.failed_count if operation_row is not None else 0,
         "qdrant": {
             "would_upsert": counts["active"],
             "would_delete_or_reconcile": counts["deleted_or_ineligible"],

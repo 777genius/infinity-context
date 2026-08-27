@@ -24,11 +24,11 @@ from infinity_context_core.application import (
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server import admin_qdrant_cli
 from infinity_context_server.admin_invariants import invariant_check
 from infinity_context_server.admin_outbox import compact_done_outbox, replay_outbox
 from infinity_context_server.admin_projection_repair import (
     reindex_graphiti,
-    reindex_qdrant,
     repair_projections,
 )
 from infinity_context_server.admin_retrieval_profiles import (
@@ -666,14 +666,7 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             dry_run=args.dry_run,
         )
     if args.command == "reindex-qdrant":
-        return await reindex_qdrant(
-            space=args.space,
-            memory_scope=args.memory_scope,
-            dry_run=args.dry_run,
-            confirmed=args.i_understand_this_enqueues_projection_jobs,
-            operation_id=args.operation_id,
-            batch_size=args.batch_size,
-        )
+        return await admin_qdrant_cli.run_qdrant_rebuild(args)
     if args.command == "reindex-graphiti":
         return await reindex_graphiti(
             space=args.space,
@@ -829,8 +822,7 @@ def main() -> None:
         reindex.add_argument("--dry-run", action="store_true")
         reindex.add_argument("--i-understand-this-enqueues-projection-jobs", action="store_true")
         if command == "reindex-qdrant":
-            reindex.add_argument("--operation-id", default=None)
-            reindex.add_argument("--batch-size", type=int, default=100)
+            admin_qdrant_cli.configure_qdrant_rebuild_parser(reindex)
     replay = sub.add_parser("replay-outbox")
     replay.add_argument("--status", choices=("dead",), default="dead")
     replay.add_argument("--limit", type=int, default=50)
