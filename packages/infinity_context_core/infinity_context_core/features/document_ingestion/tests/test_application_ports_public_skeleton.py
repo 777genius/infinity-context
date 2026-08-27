@@ -157,6 +157,7 @@ def test_document_ingestion_ports_are_protocol_boundaries() -> None:
         "DocumentChunkRepositoryPort",
         "DocumentChunkIndexPort",
         "DocumentRetrievalProjectionOwnershipPortV1",
+        "ExactDocumentObservationPort",
     )
     for name in protocol_names:
         assert getattr(getattr(ports, name), "_is_protocol", False)
@@ -222,14 +223,20 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "DocumentProjectionInvalidError": domain,
         "DocumentProjectionLocatorConflictError": domain,
         "DocumentProjectionOrdinalConflictError": domain,
+        "DocumentReconciliationState": domain,
         "DocumentProjectionOwnershipClaimV1": ports,
         "DocumentProjectionOwnershipDecisionV1": ports,
         "DocumentRetrievalProjectionOwnershipPortV1": ports,
         "DocumentRetrievalProjectionTimeIntervalV1": domain,
         "DocumentRetrievalProjectionRelativeTimeIntervalV1": domain,
         "DocumentRetrievalProjectionV1": domain,
+        "DocumentVisibilityEvidence": domain,
         "DocumentTextRange": domain,
         "FEATURE_ID": domain,
+        "ExactDocumentIdentity": domain,
+        "ExactDocumentObservation": domain,
+        "ExactDocumentObservationPort": ports,
+        "ExactDocumentReconciliation": domain,
         "IngestDocumentCommand": application,
         "IngestDocumentHandler": application,
         "IngestDocumentResult": application,
@@ -237,6 +244,8 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "PreparedDocumentIngestion": application,
         "PrepareDocumentIngestionHandler": application,
         "PrepareDocumentIngestionUseCase": application,
+        "ReconcileExactDocumentHandler": application,
+        "ReconcileExactDocumentQuery": application,
         "SourceDocument": domain,
         "SourceDocumentClassification": domain,
         "SourceDocumentContent": domain,
@@ -249,6 +258,7 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "content_hash_for_text": domain,
         "estimate_token_count": domain,
         "normalize_document_text": domain,
+        "reconcile_exact_document": domain,
     }
 
     assert public.__all__ == tuple(expected_exports)

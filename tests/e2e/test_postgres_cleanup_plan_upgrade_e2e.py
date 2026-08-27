@@ -47,8 +47,11 @@ async def _assert_pr57_history_upgrade(database_url: str) -> None:
             assert upgrade.applied == (
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
             )
-            assert upgrade.current == "0052_reconciliation_outbox_binding_index"
+            assert upgrade.current == "0055_generic_vector_rebuild_operations"
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_cleanup_plan_schema(engine)
         finally:
@@ -96,6 +99,9 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0051_locator_profile_acl_search_path_hardening",
                 "0052_document_scope_listing_indexes",
                 "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)
