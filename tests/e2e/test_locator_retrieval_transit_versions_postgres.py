@@ -67,7 +67,7 @@ async def _scenario(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgraded = await upgrade_schema(engine)
-            assert upgraded.applied[-17:] == (
+            assert upgraded.applied[-18:] == (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
