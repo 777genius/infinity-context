@@ -117,9 +117,7 @@ class ProfileAwareLocatorRetrievalService:
         if active is None or activation_lease_id is None:
             raise RuntimeError("retrieval_profile_query_admission_invalid")
         try:
-            return await self._service_for_active(
-                active, admission_proven=True
-            ).execute(request)
+            return await self._service_for_active(active, admission_proven=True).execute(request)
         finally:
             close_task = asyncio.create_task(
                 self.registry.finish_profile_query(
@@ -129,20 +127,25 @@ class ProfileAwareLocatorRetrievalService:
                     activation_lease_id=activation_lease_id,
                 )
             )
+            cancellation: asyncio.CancelledError | None = None
             try:
-                await asyncio.shield(close_task)
-            except asyncio.CancelledError:
-                # HTTP deadline/disconnect cancellation must not abandon a
-                # durable reader fence in this still-live process.
-                try:
-                    await close_task
-                except BaseException:
-                    self._record_query_fence_close_failure(active.profile_id)
-                    raise
-                raise
+                while not close_task.done():
+                    try:
+                        await asyncio.shield(close_task)
+                    except asyncio.CancelledError as exc:
+                        # A deadline and disconnect can cancel this task more
+                        # than once. Consume each request until the independent
+                        # durable close finishes, then propagate cancellation.
+                        cancellation = cancellation or exc
+                        current = asyncio.current_task()
+                        if current is not None:
+                            current.uncancel()
+                close_task.result()
             except BaseException:
                 self._record_query_fence_close_failure(active.profile_id)
                 raise
+            if cancellation is not None:
+                raise cancellation
 
     def _record_query_fence_close_failure(self, profile_id: str) -> None:
         record = getattr(self.diagnostics, "record", None)

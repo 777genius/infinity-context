@@ -81,6 +81,9 @@ def test_query_cancellation_waits_for_durable_fence_close(monkeypatch) -> None:
         query.cancel()
         await registry.close_started.wait()
         assert not query.done()
+        query.cancel()
+        await asyncio.sleep(0)
+        assert not query.done()
         registry.allow_close.set()
         with pytest.raises(asyncio.CancelledError):
             await query
