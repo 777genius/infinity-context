@@ -309,11 +309,9 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
             key_id="mutation-process-supervisor",
             instance_id="runtime-c",
             generation="generation-c",
-            additional_operation_id="mutation-ambiguous-second",
         )
         object.__setattr__(registry, "supervisor_trust", mutation_trust)
         mutation_epoch = int(child_result["mutation_epoch"])
-        second_mutation_epoch = int(child_result["mutation_epochs"]["mutation-ambiguous-second"])
         provider_maintenance = await registry.begin_maintenance(
             reason="drain runtimes before ambiguous provider mutation recovery"
         )
@@ -410,36 +408,22 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
             **mutation_receipt,
             "write_outcome": "idempotent_replay",
         }
-        replayed_for_second_fence = {
-            **mutation_request,
-            "operation_id": "mutation-ambiguous-second",
-            "mutation_epoch": second_mutation_epoch,
-            "idempotency_key": "mutation-recovery-replayed-receipt",
-        }
-        with pytest.raises(RuntimeError, match="provider_receipt_invalid"):
-            await registry.recover_abandoned_fence(**replayed_for_second_fence)
-
-        second_evidence_epoch = await registry.maintenance_evidence_epoch(provider_maintenance)
-        await projection.reconcile_provider_mutation(
-            identity,
-            receipt_id="qdrant-observation-b",
-            maintenance_generation=provider_maintenance,
-            evidence_epoch=second_evidence_epoch,
-            operation_id="mutation-ambiguous-second",
-            owner_instance_id=mutation_owner.instance_id,
-            owner_generation=mutation_owner.generation,
-            mutation_epoch=second_mutation_epoch,
-            stale_deadline=mutation_deadline,
-            observed_at=datetime.now(UTC),
+        takeover_now = datetime.now(UTC)
+        takeover_epoch = await registry.begin_provider_mutation(
+            identity.profile_id,
+            "mutation-new-owner-takeover",
+            owner=new_owner,
+            now=takeover_now,
+            expires_at=takeover_now + timedelta(seconds=15),
         )
-        second_receipt = await registry.recover_abandoned_fence(
-            **{
-                **replayed_for_second_fence,
-                "provider_receipt_id": "qdrant-observation-b",
-                "idempotency_key": "mutation-recovery-second-exact",
-            }
+        assert takeover_epoch > mutation_epoch
+        await registry.finish_provider_mutation(
+            identity.profile_id,
+            "mutation-new-owner-takeover",
+            owner=new_owner,
+            started_epoch=takeover_epoch,
+            now=datetime.now(UTC),
         )
-        assert second_receipt["outcome"] == "released_for_fresh_attestation"
         with pytest.raises(RuntimeError, match="provider_mutation_fenced"):
             await registry.finish_provider_mutation(
                 identity.profile_id,
@@ -456,7 +440,7 @@ async def _assert_exact_recovery(database_url: str, qdrant_url: str) -> None:
                     )
                     or 0
                 )
-                == 3
+                == 2
             )
             row = (
                 await connection.execute(
@@ -511,7 +495,6 @@ async def _spawn_fence_writer(
     key_id: str,
     instance_id: str,
     generation: str,
-    additional_operation_id: str | None = None,
 ):
     root = __import__("pathlib").Path(__file__).resolve().parents[2]
     environment = dict(os.environ)
@@ -576,9 +559,6 @@ async def _spawn_fence_writer(
                 "kind": kind,
                 "profile_id": profile_id,
                 "operation_id": operation_id,
-                "operation_ids": [
-                    item for item in (operation_id, additional_operation_id) if item is not None
-                ],
                 "stale_deadline": stale_deadline.isoformat(),
                 "launch_identity": asdict(owner),
                 "supervisor_trust": {

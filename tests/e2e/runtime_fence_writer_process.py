@@ -41,21 +41,24 @@ async def _write(config: dict[str, object]) -> dict[str, object]:
         deadline = datetime.fromisoformat(str(config["stale_deadline"]))
         if config["kind"] == "reader":
             admission = await registry.begin_profile_query(
-                str(config["operation_id"]), owner=owner, now=datetime.now(deadline.tzinfo),
+                str(config["operation_id"]),
+                owner=owner,
+                now=datetime.now(deadline.tzinfo),
                 expires_at=deadline,
             )
             result = {"status": str(admission.status), "mutation_epoch": None}
         else:
-            epochs = {}
-            for operation_id in config.get("operation_ids", [config["operation_id"]]):
-                epochs[str(operation_id)] = await registry.begin_provider_mutation(
-                    str(config["profile_id"]), str(operation_id), owner=owner,
-                    now=datetime.now(deadline.tzinfo), expires_at=deadline,
-                )
+            operation_id = str(config["operation_id"])
+            mutation_epoch = await registry.begin_provider_mutation(
+                str(config["profile_id"]),
+                operation_id,
+                owner=owner,
+                now=datetime.now(deadline.tzinfo),
+                expires_at=deadline,
+            )
             result = {
                 "status": "admitted",
-                "mutation_epoch": epochs[str(config["operation_id"])],
-                "mutation_epochs": epochs,
+                "mutation_epoch": mutation_epoch,
             }
         return {**result, "pid": owner.process_pid}
     finally:
