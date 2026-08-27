@@ -48,6 +48,7 @@ class ProjectionOutboxProcess:
             "vector.delete_chunks": self.handle_vector_delete_chunks,
             "vector.upsert_locator_profile": self.handle_locator_profile_upsert,
             "vector.delete_locator_profile": self.handle_locator_profile_delete,
+            "vector.replay_locator_profile_tombstones": self.handle_locator_profile_replay,
             "graph.upsert_fact": self.handle_graph_upsert,
             "graph.delete_fact": self.handle_graph_delete,
             "cognee.ingest_document": self.handle_cognee_document_ingest,
@@ -177,6 +178,11 @@ class ProjectionOutboxProcess:
 
     async def handle_locator_profile_delete(self, job: ClaimedOutboxJob) -> None:
         await self._container.retrieval_profile_outbox.delete(job, now=self._container.clock.now())
+
+    async def handle_locator_profile_replay(self, job: ClaimedOutboxJob) -> None:
+        await self._container.retrieval_profile_outbox.continue_tombstone_replay(
+            job, now=self._container.clock.now()
+        )
 
     async def _delete_vector_chunk_from_canonical(
         self, chunk_id: str, chunk: MemoryChunk | None

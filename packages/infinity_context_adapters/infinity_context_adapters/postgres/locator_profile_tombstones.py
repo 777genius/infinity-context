@@ -14,6 +14,9 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
     eligible_value,
     profile_identity,
 )
+from infinity_context_adapters.postgres.locator_profile_tombstone_replay import (
+    request_tombstone_replay,
+)
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryLocatorProfileMaintenanceFenceRow,
@@ -25,6 +28,56 @@ from infinity_context_adapters.postgres.models import (
 
 
 class PostgresRetrievalProfileTombstoneMixin:
+    async def reopen_stale_projection_tombstone(
+        self,
+        profile_id: str,
+        chunk_id: str,
+        *,
+        stale_version: int,
+        now: datetime,
+    ) -> int | None:
+        """Make possible stale provider state durably pending before cleanup."""
+
+        async with self.sessions() as session, session.begin():
+            await _lock_maintenance(session)
+            await _lock_profile_evidence(session)
+            profile = await session.get(MemoryLocatorProfileRow, profile_id, with_for_update=True)
+            tombstone = await session.get(
+                MemoryLocatorProfileTombstoneRow,
+                (profile_id, chunk_id),
+                with_for_update=True,
+            )
+            if (
+                profile is None
+                or profile.state not in ROUTABLE_PROFILE_STATES
+                or tombstone is None
+                or stale_version > tombstone.canonical_version
+            ):
+                return None
+            active_writers = int(
+                await session.scalar(
+                    select(func.count())
+                    .select_from(MemoryLocatorProfileProviderMutationRow)
+                    .where(MemoryLocatorProfileProviderMutationRow.profile_id == profile_id)
+                )
+                or 0
+            )
+            if active_writers:
+                raise RuntimeError("retrieval_profile_provider_mutation_active")
+            tombstone.delete_canonical_version = None
+            tombstone.delete_authorized_mutation_epoch = None
+            tombstone.delete_completed_mutation_epoch = None
+            tombstone.provider_observed_at = None
+            tombstone.completed_at = None
+            tombstone.updated_at = now
+            await request_tombstone_replay(
+                session,
+                profile_id=profile_id,
+                provider_mutation_epoch=int(profile.provider_mutation_epoch),
+                now=now,
+            )
+            return int(tombstone.canonical_version)
+
     async def complete_tombstone(
         self,
         profile_id: str,

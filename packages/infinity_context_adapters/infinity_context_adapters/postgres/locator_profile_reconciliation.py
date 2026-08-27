@@ -34,7 +34,8 @@ from infinity_context_adapters.postgres.locator_profile_queryability import (
     is_profile_canonically_queryable,
 )
 from infinity_context_adapters.postgres.locator_profile_tombstone_replay import (
-    schedule_pending_tombstone_replay,
+    continue_tombstone_replay,
+    request_tombstone_replay,
 )
 from infinity_context_adapters.postgres.locator_runtime_identity import (
     lock_runtime_instance as _lock_runtime_instance,
@@ -499,6 +500,7 @@ class PostgresRetrievalProfileReconciliationMixin:
         now: datetime,
         expires_at: datetime,
         tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+        canonical_writes: tuple[tuple[str, int], ...] = (),
     ) -> int:
         async with self.sessions() as session, session.begin():
             await _lock_admission(session)
@@ -509,6 +511,24 @@ class PostgresRetrievalProfileReconciliationMixin:
                 raise RuntimeError("retrieval_profile_missing")
             if row.state not in ("building", "active", "retained"):
                 raise RuntimeError("retrieval_profile_provider_mutation_rejected")
+            _validate_canonical_writes(canonical_writes)
+            if canonical_writes:
+                versions = dict(canonical_writes)
+                tombstones = tuple(
+                    (
+                        await session.execute(
+                            select(MemoryLocatorProfileTombstoneRow).where(
+                                MemoryLocatorProfileTombstoneRow.profile_id == profile_id,
+                                MemoryLocatorProfileTombstoneRow.chunk_id.in_(versions),
+                            )
+                        )
+                    ).scalars()
+                )
+                if any(
+                    tombstone.canonical_version >= versions[tombstone.chunk_id]
+                    for tombstone in tombstones
+                ):
+                    raise RuntimeError("retrieval_profile_tombstone_projection_rejected")
             active_queries = int(
                 await session.scalar(
                     select(func.count())
@@ -643,6 +663,7 @@ class PostgresRetrievalProfileReconciliationMixin:
         owner: RuntimeFenceOwner,
         started_epoch: int | None = None,
         now: datetime,
+        request_tombstone_cleanup: bool = True,
     ) -> int:
         async with self.sessions() as session, session.begin():
             await _lock_maintenance(session)
@@ -665,13 +686,20 @@ class PostgresRetrievalProfileReconciliationMixin:
                 raise RuntimeError("retrieval_profile_provider_mutation_fenced")
             await session.delete(mutation)
             row.provider_mutation_epoch += 1
-            await schedule_pending_tombstone_replay(
-                session,
-                profile_id=profile_id,
-                provider_mutation_epoch=int(row.provider_mutation_epoch),
-                now=now,
-            )
+            if request_tombstone_cleanup:
+                await request_tombstone_replay(
+                    session,
+                    profile_id=profile_id,
+                    provider_mutation_epoch=int(row.provider_mutation_epoch),
+                    now=now,
+                )
             return int(row.provider_mutation_epoch)
+
+    async def continue_tombstone_replay(self, profile_id: str, *, now: datetime) -> int:
+        """Run bounded fan-out outside provider mutation's critical transaction."""
+
+        async with self.sessions() as session, session.begin():
+            return await continue_tombstone_replay(session, profile_id=profile_id, now=now)
 
 
 def _operation(row) -> ProfileReconciliationOperation:
@@ -688,6 +716,26 @@ def _operation(row) -> ProfileReconciliationOperation:
         row.runtime_generation,
         row.lifecycle_identity_sha256,
     )
+
+
+def _validate_canonical_writes(values: tuple[tuple[str, int], ...]) -> None:
+    if not isinstance(values, tuple) or len(values) > 1000:
+        raise ValueError("Provider mutation canonical writes are invalid")
+    identities = []
+    for item in values:
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not item[0]
+            or not isinstance(item[1], int)
+            or isinstance(item[1], bool)
+            or not 1 <= item[1] <= 9_007_199_254_740_991
+        ):
+            raise ValueError("Provider mutation canonical writes are invalid")
+        identities.append(item[0])
+    if len(set(identities)) != len(identities):
+        raise ValueError("Provider mutation canonical writes are invalid")
 
 
 async def _verify_reconciliation_operation(

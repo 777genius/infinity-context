@@ -568,6 +568,15 @@ class RetrievalProfileRegistryPort(Protocol):
         self, profile_id: str, chunk_id: str, *, canonical_version: int
     ) -> ProfileTombstoneDeleteAuthorization | None: ...
 
+    async def reopen_stale_projection_tombstone(
+        self,
+        profile_id: str,
+        chunk_id: str,
+        *,
+        stale_version: int,
+        now: datetime,
+    ) -> int | None: ...
+
     async def complete_tombstone(
         self,
         profile_id: str,
@@ -722,6 +731,7 @@ class RetrievalProfileRegistryPort(Protocol):
         now: datetime,
         expires_at: datetime,
         tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+        canonical_writes: tuple[tuple[str, int], ...] = (),
     ) -> int: ...
 
     async def finish_provider_mutation(
@@ -732,7 +742,10 @@ class RetrievalProfileRegistryPort(Protocol):
         owner: RuntimeFenceOwner,
         started_epoch: int | None = None,
         now: datetime,
+        request_tombstone_cleanup: bool = True,
     ) -> int: ...
+
+    async def continue_tombstone_replay(self, profile_id: str, *, now: datetime) -> int: ...
 
     async def heartbeat_provider_mutation(
         self,

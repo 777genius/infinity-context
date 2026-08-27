@@ -14,7 +14,7 @@ from infinity_context_core.features.context_building.public import (
 from sqlalchemy import func, select, text
 
 from infinity_context_adapters.postgres.locator_profile_tombstone_replay import (
-    schedule_pending_tombstone_replay,
+    request_tombstone_replay,
 )
 from infinity_context_adapters.postgres.models import (
     MemoryLocatorProfileMaintenanceFenceRow,
@@ -472,7 +472,7 @@ class PostgresRetrievalProfileRecoveryMixin:
                 await session.delete(row)
                 provider_receipt.consumed_by_recovery_key = idempotency_key
                 provider_receipt.consumed_at = now
-                await schedule_pending_tombstone_replay(
+                await request_tombstone_replay(
                     session,
                     profile_id=profile_id,
                     provider_mutation_epoch=int(profile.provider_mutation_epoch),

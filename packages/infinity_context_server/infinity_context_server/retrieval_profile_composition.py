@@ -47,6 +47,9 @@ from infinity_context_server.retrieval_profile_attestation import (
     attestation_page_evidence as _attestation_page_evidence,
 )
 from infinity_context_server.retrieval_profile_attestation import (
+    planned_projection_versions as _planned_projection_versions,
+)
+from infinity_context_server.retrieval_profile_attestation import (
     projection_item_manifest as _projection_item_manifest,
 )
 from infinity_context_server.retrieval_profile_outbox import RetrievalProfileOutboxCoordinator
@@ -433,38 +436,63 @@ class ComposedRetrievalProfileLifecycle:
         replay_cursor = previous_cursor
         all_items = []
         await self.lifecycle.projection.prepare_profile(building)
-        for planned_page in planned_pages:
-            if not isinstance(planned_page, dict):
-                raise RuntimeError("retrieval_profile_rebuild_journal_invalid")
-            page = await self.lifecycle.source.page_eligible(
-                after=replay_cursor, limit=self.lifecycle.page_size
-            )
-            if (
-                planned_page.get("previous_cursor") != replay_cursor
-                or _projection_item_manifest(page.items) != planned_page.get("items")
-                or page.next_cursor != planned_page.get("next_cursor")
-                or page.canonical_watermark != planned_page.get("watermark")
-            ):
-                raise RuntimeError("retrieval_profile_rebuild_journal_drift")
-            if page.items:
-                await self.lifecycle.projection.upsert_profile(building, page.items)
-                all_items.extend(page.items)
-            replay_cursor = page.next_cursor
+        try:
+            for planned_page in planned_pages:
+                if not isinstance(planned_page, dict):
+                    raise RuntimeError("retrieval_profile_rebuild_journal_invalid")
+                page = await self.lifecycle.source.page_eligible(
+                    after=replay_cursor, limit=self.lifecycle.page_size
+                )
+                if (
+                    planned_page.get("previous_cursor") != replay_cursor
+                    or _projection_item_manifest(page.items) != planned_page.get("items")
+                    or page.next_cursor != planned_page.get("next_cursor")
+                    or page.canonical_watermark != planned_page.get("watermark")
+                ):
+                    raise RuntimeError("retrieval_profile_rebuild_journal_drift")
+                if page.items:
+                    await self.lifecycle.projection.upsert_profile(building, page.items)
+                    all_items.extend(page.items)
+                replay_cursor = page.next_cursor
+        except RuntimeError as exc:
+            if str(exc) in {
+                "retrieval_profile_rebuild_journal_drift",
+                "retrieval_profile_tombstone_projection_rejected",
+            }:
+                await self._compensate_rebuild_plan(building, planned_pages, now=now)
+            raise
         result = plan.get("result")
         if not isinstance(result, dict):
             raise RuntimeError("retrieval_profile_rebuild_journal_invalid")
-        return await self.registry.commit_operator_rebuild(
-            profile_id,
-            tuple(all_items),
-            idempotency_key=idempotency_key,
-            request_fingerprint=request_fingerprint,
-            previous_cursor=previous_cursor,
-            cursor=replay_cursor,
-            watermark=int(plan.get("watermark", -1)),
-            complete=bool(plan.get("complete")),
-            result=result,
-            now=now,
+        try:
+            return await self.registry.commit_operator_rebuild(
+                profile_id,
+                tuple(all_items),
+                idempotency_key=idempotency_key,
+                request_fingerprint=request_fingerprint,
+                previous_cursor=previous_cursor,
+                cursor=replay_cursor,
+                watermark=int(plan.get("watermark", -1)),
+                complete=bool(plan.get("complete")),
+                result=result,
+                now=now,
+            )
+        except RuntimeError as exc:
+            if str(exc) in {
+                "retrieval_profile_stale_projection_write",
+                "retrieval_profile_projection_digest_drift",
+            }:
+                await self._compensate_rebuild_plan(building, planned_pages, now=now)
+            raise
+
+    async def _compensate_rebuild_plan(self, identity, planned_pages, *, now: datetime) -> None:
+        """Replay exact stale deletes from the durable rebuild journal."""
+
+        coordinator = RetrievalProfileOutboxCoordinator(
+            self.registry, self.lifecycle.source, self.projection
         )
+        for canonical_id, stale_version in _planned_projection_versions(planned_pages):
+            await coordinator.compensate_stale_write(identity, canonical_id, stale_version, now=now)
 
     async def attest(
         self, profile_id: str, *, operation_id: str, now: datetime

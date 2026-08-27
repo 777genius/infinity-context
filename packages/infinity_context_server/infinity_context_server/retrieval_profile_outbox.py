@@ -24,6 +24,8 @@ class RetrievalProfileOutboxCoordinator:
 
     async def upsert(self, job: ClaimedOutboxJob, *, now: datetime) -> None:
         profile_id = _profile_id(job)
+        if job.aggregate_version is None:
+            raise RuntimeError("retrieval_profile_upsert_version_missing")
         profile = next(
             (item for item in await self.registry.routable() if item.profile_id == profile_id),
             None,
@@ -31,28 +33,61 @@ class RetrievalProfileOutboxCoordinator:
         if profile is None:
             return
         items = await self.source.items_by_ids((job.aggregate_id,))
-        if not items:
+        if not items or any(item.canonical_version != job.aggregate_version for item in items):
+            await self.compensate_stale_write(
+                profile, job.aggregate_id, job.aggregate_version, now=now
+            )
             return
-        await self.projection.upsert_profile(profile, items)
         try:
+            await self.projection.upsert_profile(profile, items)
             await self.registry.record_projection(profile_id, items, projected_at=now)
         except RuntimeError as exc:
             if str(exc) not in {
                 "retrieval_profile_stale_projection_write",
                 "retrieval_profile_projection_digest_drift",
+                "retrieval_profile_tombstone_projection_rejected",
             }:
                 raise
-            for version in sorted({item.canonical_version for item in items}):
-                await self.projection.delete_profile_if_version(
+            for item in items:
+                await self.compensate_stale_write(
                     profile,
-                    tuple(
-                        item.canonical_identity
-                        for item in items
-                        if item.canonical_version == version
-                    ),
-                    canonical_version=version,
+                    item.canonical_identity,
+                    item.canonical_version,
+                    now=now,
                 )
             raise
+
+    async def continue_tombstone_replay(self, job: ClaimedOutboxJob, *, now: datetime) -> None:
+        await self.registry.continue_tombstone_replay(_profile_id(job), now=now)
+
+    async def compensate_stale_write(
+        self, profile, canonical_id: str, stale_version: int, *, now: datetime
+    ) -> None:
+        tombstone_version = await self.registry.reopen_stale_projection_tombstone(
+            profile.profile_id,
+            canonical_id,
+            stale_version=stale_version,
+            now=now,
+        )
+        if tombstone_version is None:
+            return
+        await self.delete(
+            ClaimedOutboxJob(
+                id=0,
+                event_type="vector.delete_locator_profile",
+                aggregate_id=canonical_id,
+                aggregate_version=tombstone_version,
+                attempt_count=0,
+                workload_class="projection",
+                fairness_key=f"profile:{profile.profile_id}",
+                payload_json={
+                    "profile_id": profile.profile_id,
+                    "chunk_ids": [canonical_id],
+                },
+                aggregate_type="locator_profile_chunk",
+            ),
+            now=now,
+        )
 
     async def delete(self, job: ClaimedOutboxJob, *, now: datetime) -> None:
         profile_id = _profile_id(job)

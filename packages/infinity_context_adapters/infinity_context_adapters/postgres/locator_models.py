@@ -607,6 +607,28 @@ class MemoryLocatorProfileTombstoneRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class MemoryLocatorProfileTombstoneReplayRow(Base):
+    """Bounded durable cursor coalescing provider-epoch replay requests."""
+
+    __tablename__ = "memory_locator_profile_tombstone_replays"
+    __table_args__ = (
+        CheckConstraint("requested_epoch >= 0", name="ck_locator_tombstone_replay_requested"),
+        CheckConstraint("processed_epoch >= 0", name="ck_locator_tombstone_replay_processed"),
+        CheckConstraint(
+            "scan_epoch IS NULL OR scan_epoch >= processed_epoch",
+            name="ck_locator_tombstone_replay_scan",
+        ),
+    )
+    profile_id: Mapped[str] = mapped_column(
+        String(120), ForeignKey("memory_locator_profiles.profile_id"), primary_key=True
+    )
+    requested_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    processed_epoch: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    scan_epoch: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cursor_chunk_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class MemoryLocatorProfileCleanupRow(Base):
     __tablename__ = "memory_locator_profile_cleanups"
     __table_args__ = (

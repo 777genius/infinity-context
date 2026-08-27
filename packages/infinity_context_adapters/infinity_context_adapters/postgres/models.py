@@ -897,6 +897,7 @@ from infinity_context_adapters.postgres.locator_models import (  # noqa: E402
     MemoryLocatorProfileReconciliationOperationRow,  # noqa: F401
     MemoryLocatorProfileRecoveryReceiptRow,  # noqa: F401
     MemoryLocatorProfileRow,  # noqa: F401
+    MemoryLocatorProfileTombstoneReplayRow,  # noqa: F401
     MemoryLocatorProfileTombstoneRow,  # noqa: F401
     MemoryLocatorProfileTransitionAuditRow,  # noqa: F401
     MemoryLocatorProviderReconciliationReceiptRow,  # noqa: F401

@@ -98,7 +98,7 @@ class QdrantRetrievalProfileProjection:
             )
             for item, vector in zip(items, embedded.vectors, strict=True)
         )
-        async with self._mutation(identity) as mutation:
+        async with self._mutation(identity, canonical_writes=items) as mutation:
             async with asyncio.timeout(50):
                 result = await self._adapter(identity).upsert_chunks(writes)
             if result.status.value != "ok":
@@ -255,12 +255,16 @@ class QdrantRetrievalProfileProjection:
         identity: RetrievalProfileIdentity,
         *,
         tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+        canonical_writes: tuple[CanonicalProjectionItem, ...] = (),
     ):
         return _ProviderMutation(
             self.mutation_registry,
             identity.profile_id,
             self.runtime_owner,
             tombstone_authorization=tombstone_authorization,
+            canonical_writes=tuple(
+                (item.canonical_identity, item.canonical_version) for item in canonical_writes
+            ),
         )
 
 
@@ -272,6 +276,7 @@ class _ProviderMutation:
         owner: RuntimeFenceOwner,
         *,
         tombstone_authorization: ProfileTombstoneDeleteAuthorization | None = None,
+        canonical_writes: tuple[tuple[str, int], ...] = (),
     ) -> None:
         self.registry = registry
         self.profile_id = profile_id
@@ -280,6 +285,7 @@ class _ProviderMutation:
         self.started_epoch: int | None = None
         self.finished_epoch: int | None = None
         self.tombstone_authorization = tombstone_authorization
+        self.canonical_writes = canonical_writes
         self._completed = False
         self._stop = asyncio.Event()
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -296,6 +302,7 @@ class _ProviderMutation:
             now=now,
             expires_at=now + timedelta(seconds=15),
             tombstone_authorization=self.tombstone_authorization,
+            canonical_writes=self.canonical_writes,
         )
         self._heartbeat_task = asyncio.create_task(self._heartbeat())
         return self
@@ -311,6 +318,7 @@ class _ProviderMutation:
                 owner=self.owner,
                 started_epoch=self.started_epoch,
                 now=datetime.now(UTC),
+                request_tombstone_cleanup=self.tombstone_authorization is None,
             )
             return None
         if exc_type is None and self._heartbeat_error is not None:

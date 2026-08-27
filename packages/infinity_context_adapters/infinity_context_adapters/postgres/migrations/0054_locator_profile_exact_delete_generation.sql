@@ -24,6 +24,23 @@ ALTER TABLE public.memory_locator_profile_tombstones
             OR delete_completed_mutation_epoch >= delete_authorized_mutation_epoch
         );
 
+-- Provider closes only advance this constant-size continuation request.  The
+-- ordinary fair outbox worker expands one deterministic bounded page at a time.
+CREATE TABLE public.memory_locator_profile_tombstone_replays (
+    profile_id VARCHAR(120) PRIMARY KEY
+        REFERENCES public.memory_locator_profiles(profile_id) ON DELETE CASCADE,
+    requested_epoch BIGINT NOT NULL,
+    processed_epoch BIGINT NOT NULL DEFAULT 0,
+    scan_epoch BIGINT,
+    cursor_chunk_id VARCHAR(80),
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT ck_locator_tombstone_replay_requested CHECK (requested_epoch >= 0),
+    CONSTRAINT ck_locator_tombstone_replay_processed CHECK (processed_epoch >= 0),
+    CONSTRAINT ck_locator_tombstone_replay_scan CHECK (
+        scan_epoch IS NULL OR scan_epoch >= processed_epoch
+    )
+);
+
 -- No pre-0054 completion contains a provider observation.  Reopen every
 -- historical tombstone and let the application observe the deterministic
 -- point id.  This works even when a prior false completion removed its receipt.

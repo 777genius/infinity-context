@@ -41,8 +41,28 @@ def projection_item_manifest(items) -> list[list[object]]:
     ]
 
 
+def planned_projection_versions(planned_pages) -> tuple[tuple[str, int], ...]:
+    """Read exact cleanup coordinates from a validated durable rebuild manifest."""
+
+    versions = []
+    for page in planned_pages:
+        manifest = page.get("items") if isinstance(page, dict) else None
+        if not isinstance(manifest, list):
+            continue
+        versions.extend(
+            (item[0], item[1])
+            for item in manifest
+            if isinstance(item, list)
+            and len(item) == 4
+            and isinstance(item[0], str)
+            and isinstance(item[1], int)
+        )
+    return tuple(versions)
+
+
 __all__ = (
     "attestation_in_progress",
     "attestation_page_evidence",
+    "planned_projection_versions",
     "projection_item_manifest",
 )
