@@ -12,7 +12,10 @@ from infinity_context_adapters.postgres.models import (
     MemoryDocumentRow,
     MemoryOutboxRow,
 )
-from infinity_context_adapters.postgres.repositories import PostgresChunkRepository
+from infinity_context_adapters.postgres.repositories import (
+    PostgresChunkRepository,
+    PostgresDocumentRepository,
+)
 from infinity_context_adapters.postgres.unit_of_work import (
     PostgresUnitOfWorkFactory,
     build_session_factory,
@@ -20,7 +23,8 @@ from infinity_context_adapters.postgres.unit_of_work import (
 from infinity_context_core.application.dto import DeleteDocumentCommand
 from infinity_context_core.application.use_cases.delete_document import DeleteDocumentUseCase
 from postgres_test_database import PostgresTestDatabase
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 
 NOW = datetime(2026, 8, 26, tzinfo=UTC)
 
@@ -30,6 +34,60 @@ def test_generic_chunk_generation_and_delete_event_when_postgres_is_configured()
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_generic_generation_lifecycle(database_url))
+
+
+def test_document_delete_locks_exact_chunks_in_order_when_postgres_is_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_document_delete_row_locks(database_url))
+
+
+async def _assert_document_delete_row_locks(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="generic_document_delete_locks",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_document())
+        async with sessions.begin() as session:
+            session.add_all((_chunk("chunk-z", 1), _chunk("chunk-a", 0)))
+
+        owner = sessions()
+        contender = sessions()
+        await owner.begin()
+        try:
+            deleted = await PostgresDocumentRepository(owner).soft_delete_with_chunks(
+                document_id="document-generic",
+                now=NOW,
+            )
+            assert deleted is not None
+            assert tuple(item.chunk_id for item in deleted[1]) == ("chunk-a", "chunk-z")
+            assert tuple(item.canonical_version for item in deleted[1]) == (1, 1)
+
+            await contender.begin()
+            await contender.execute(text("SET LOCAL lock_timeout = '100ms'"))
+            with pytest.raises(DBAPIError):
+                await contender.execute(
+                    select(MemoryChunkRow)
+                    .where(MemoryChunkRow.id == "chunk-a")
+                    .with_for_update()
+                )
+            await contender.rollback()
+        finally:
+            await owner.rollback()
+            await owner.close()
+            await contender.close()
+    finally:
+        await engine.dispose()
+        await database.drop()
 
 
 async def _assert_generic_generation_lifecycle(database_url: str) -> None:
@@ -116,9 +174,9 @@ def _document() -> MemoryDocumentRow:
     )
 
 
-def _chunk() -> MemoryChunkRow:
+def _chunk(chunk_id: str = "chunk-generic", sequence: int = 0) -> MemoryChunkRow:
     return MemoryChunkRow(
-        id="chunk-generic",
+        id=chunk_id,
         space_id="space",
         memory_scope_id="scope",
         thread_id=None,
@@ -126,12 +184,12 @@ def _chunk() -> MemoryChunkRow:
         episode_id=None,
         source_type="document",
         source_external_id="generic-source",
-        source_hash="generic-chunk-hash",
+        source_hash=f"generic-chunk-hash-{chunk_id}",
         kind="document_section",
         text="generic generation one",
         normalized_text="generic generation one",
         status="active",
-        sequence=0,
+        sequence=sequence,
         char_start=0,
         char_end=22,
         token_estimate=4,

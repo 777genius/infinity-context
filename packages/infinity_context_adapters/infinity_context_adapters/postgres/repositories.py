@@ -404,10 +404,13 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         chunk_rows = list(
             (
                 await self._session.execute(
-                    select(MemoryChunkRow).where(
+                    select(MemoryChunkRow)
+                    .where(
                         MemoryChunkRow.document_id == document_id,
                         MemoryChunkRow.status == "active",
                     )
+                    .order_by(MemoryChunkRow.id)
+                    .with_for_update()
                 )
             ).scalars()
         )
