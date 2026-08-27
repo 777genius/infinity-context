@@ -58,6 +58,37 @@ def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
     assert events == ["register", "begin", "finish:lease-active"]
 
 
+def test_query_cancellation_waits_for_durable_fence_close(monkeypatch) -> None:
+    async def scenario() -> None:
+        events: list[str] = []
+        registry = _SlowCloseRegistry(events)
+        delegate = _BlockingQueryDelegate(events)
+        service = ProfileAwareLocatorRetrievalService(
+            registry=registry,
+            projection=object(),
+            sessions=object(),
+            query_embeddings=object(),
+            service_revision="1" * 40,
+        )
+        monkeypatch.setattr(
+            ProfileAwareLocatorRetrievalService,
+            "_service_for_active",
+            lambda _self, _active, **_kwargs: delegate,
+        )
+
+        query = asyncio.create_task(service.execute(object()))
+        await delegate.started.wait()
+        query.cancel()
+        await registry.close_started.wait()
+        assert not query.done()
+        registry.allow_close.set()
+        with pytest.raises(asyncio.CancelledError):
+            await query
+        assert events == ["begin", "execute", "finish:lease-active"]
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize(
     "status",
     [ProfileQueryAdmissionStatus.NO_PROFILE, ProfileQueryAdmissionStatus.UNAVAILABLE],
@@ -164,6 +195,18 @@ class _QueryFenceRegistry:
         self.events.append(f"finish:{activation_lease_id}")
 
 
+class _SlowCloseRegistry(_QueryFenceRegistry):
+    def __init__(self, events):
+        super().__init__(events)
+        self.close_started = asyncio.Event()
+        self.allow_close = asyncio.Event()
+
+    async def finish_profile_query(self, *args, **kwargs):
+        self.close_started.set()
+        await self.allow_close.wait()
+        await super().finish_profile_query(*args, **kwargs)
+
+
 class _FailingQueryDelegate:
     def __init__(self, events):
         self.events = events
@@ -176,6 +219,17 @@ class _FailingQueryDelegate:
 class _SuccessfulQueryDelegate:
     async def execute(self, _request):
         return "profile"
+
+
+class _BlockingQueryDelegate:
+    def __init__(self, events):
+        self.events = events
+        self.started = asyncio.Event()
+
+    async def execute(self, _request):
+        self.events.append("execute")
+        self.started.set()
+        await asyncio.Future()
 
 
 class _StartingRuntime:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from asyncio import timeout
 from dataclasses import dataclass, field
@@ -120,18 +121,33 @@ class ProfileAwareLocatorRetrievalService:
                 active, admission_proven=True
             ).execute(request)
         finally:
-            try:
-                await self.registry.finish_profile_query(
+            close_task = asyncio.create_task(
+                self.registry.finish_profile_query(
                     active.profile_id,
                     operation_id,
                     owner=self.runtime_owner,
                     activation_lease_id=activation_lease_id,
                 )
-            except BaseException:
-                record = getattr(self.diagnostics, "record", None)
-                if callable(record):
-                    record(active.profile_id, "query_fence_close_failed")
+            )
+            try:
+                await asyncio.shield(close_task)
+            except asyncio.CancelledError:
+                # HTTP deadline/disconnect cancellation must not abandon a
+                # durable reader fence in this still-live process.
+                try:
+                    await close_task
+                except BaseException:
+                    self._record_query_fence_close_failure(active.profile_id)
+                    raise
                 raise
+            except BaseException:
+                self._record_query_fence_close_failure(active.profile_id)
+                raise
+
+    def _record_query_fence_close_failure(self, profile_id: str) -> None:
+        record = getattr(self.diagnostics, "record", None)
+        if callable(record):
+            record(profile_id, "query_fence_close_failed")
 
     async def reconcile_active(
         self,
