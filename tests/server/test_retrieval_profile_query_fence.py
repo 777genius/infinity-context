@@ -28,7 +28,7 @@ def test_profile_query_fence_spans_delegate_and_releases_on_failure(monkeypatch)
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
         "_service_for_active",
-        lambda _self, _active: _FailingQueryDelegate(events),
+        lambda _self, _active, **_kwargs: _FailingQueryDelegate(events),
     )
 
     with pytest.raises(RuntimeError, match="synthetic_query_failure"):
@@ -51,7 +51,7 @@ def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
         "_service_for_active",
-        lambda _self, _active: _SuccessfulQueryDelegate(),
+        lambda _self, _active, **_kwargs: _SuccessfulQueryDelegate(),
     )
 
     assert asyncio.run(service.execute(object())) == "profile"
@@ -100,11 +100,41 @@ def test_exact_close_mismatch_fails_closed_and_is_observable(monkeypatch) -> Non
     monkeypatch.setattr(
         ProfileAwareLocatorRetrievalService,
         "_service_for_active",
-        lambda _self, _active: _SuccessfulQueryDelegate(),
+        lambda _self, _active, **_kwargs: _SuccessfulQueryDelegate(),
     )
     with pytest.raises(RuntimeError, match="query_fenced"):
         asyncio.run(service.execute(object()))
     assert diagnostics.events == [("active-a", "query_fence_close_failed")]
+
+
+def test_admitted_query_does_not_repeat_cold_provider_health_probe() -> None:
+    identity = RetrievalProfileIdentity(
+        "active-a", "generation-active", "a" * 64, "collection-active"
+    )
+    service = ProfileAwareLocatorRetrievalService(
+        registry=object(),
+        projection=_NeverProbeProjection(),
+        sessions=object(),
+        query_embeddings=object(),
+        service_revision="1" * 40,
+    )
+
+    descriptor = asyncio.run(
+        service._service_for_active(identity, admission_proven=True).descriptor()
+    )
+
+    assert all(lane.healthy for lane in descriptor.provider_lanes)
+    assert all(lane.profile_qualified for lane in descriptor.provider_lanes)
+
+
+class _NeverProbeProjection:
+    def adapter_for(self, _identity):
+        return _NeverProbeAdapter()
+
+
+class _NeverProbeAdapter:
+    async def capabilities(self):  # pragma: no cover - fail-closed assertion
+        raise AssertionError("admitted Retrieval repeated a cold provider health probe")
 
 
 class _QueryFenceRegistry:

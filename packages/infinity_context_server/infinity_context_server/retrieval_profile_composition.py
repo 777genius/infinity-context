@@ -116,7 +116,9 @@ class ProfileAwareLocatorRetrievalService:
         if active is None or activation_lease_id is None:
             raise RuntimeError("retrieval_profile_query_admission_invalid")
         try:
-            return await self._service_for_active(active).execute(request)
+            return await self._service_for_active(
+                active, admission_proven=True
+            ).execute(request)
         finally:
             try:
                 await self.registry.finish_profile_query(
@@ -283,13 +285,20 @@ class ProfileAwareLocatorRetrievalService:
             raise RuntimeError("retrieval_profile_query_unavailable")
         return self._service_for_active(active)
 
-    def _service_for_active(self, active) -> LocatorRetrievalService:
+    def _service_for_active(
+        self, active, *, admission_proven: bool = False
+    ) -> LocatorRetrievalService:
         adapter = self.projection.adapter_for(active)
 
         async def lease_current() -> bool:
             return await self.registry.active_lease(now=datetime.now(UTC)) is not None
 
         async def postgres_health() -> bool:
+            # Query admission already verifies the current activation lease and
+            # every required lane atomically. Re-probing providers here can
+            # consume the complete Contract-C deadline on a cold SDK client.
+            if admission_proven:
+                return True
             try:
                 if not await lease_current():
                     return False
@@ -300,6 +309,8 @@ class ProfileAwareLocatorRetrievalService:
                 return False
 
         async def qdrant_health() -> bool:
+            if admission_proven:
+                return True
             if not await lease_current():
                 return False
             capability = await adapter.capabilities()
