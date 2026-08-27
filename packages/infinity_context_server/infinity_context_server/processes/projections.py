@@ -165,38 +165,26 @@ class ProjectionOutboxProcess:
                     **retrieval_payload,
                 },
             )
-            result = await self._container.vector_index.upsert_chunks((item,))
-            _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
-            # Canonical state may change while embedding or provider I/O is in
-            # flight.  Reconcile the generation we just wrote before allowing
-            # this event to complete; the exact delete cannot remove a newer
-            # ABA/superseding point.
             async with self._container.uow_factory() as uow:
-                current = await uow.chunks.get_by_id(chunk_id)
-            current_version = _chunk_canonical_version(current)
-            if (
-                current is None
-                or current.status != LifecycleStatus.ACTIVE
-                or not _can_embed(current.classification)
-                or current_version != canonical_version
-            ):
-                await self._delete_vector_chunks_if_version(
-                    (chunk_id,),
-                    canonical_version=canonical_version,
-                )
+                current = await _get_chunk_for_update(uow, chunk_id)
+                current_version = _chunk_canonical_version(current)
                 if (
-                    current is not None
-                    and current.status == LifecycleStatus.ACTIVE
-                    and _can_embed(current.classification)
-                    and current_version != canonical_version
-                ):
-                    _require_same_fenced_space(str(current.space_id), initial_space_id)
-                    raise OutboxProjectionError(
-                        "vector.upsert_chunks",
-                        "vector.canonical_generation_changed",
+                    current is None
+                    or current.status != LifecycleStatus.ACTIVE
+                    or not _can_embed(current.classification)
+                    or current_version != canonical_version
+                    or (
+                        job.aggregate_version is not None
+                        and job.aggregate_version != current_version
                     )
-                return
-            _require_same_fenced_space(str(current.space_id), initial_space_id)
+                ):
+                    if current is not None:
+                        _require_same_fenced_space(str(current.space_id), initial_space_id)
+                    return
+                _require_same_fenced_space(str(current.space_id), initial_space_id)
+                result = await self._container.vector_index.upsert_chunks((item,))
+                _raise_if_degraded(result.status, "vector.upsert_chunks", result.diagnostics)
+                await uow.commit()
 
     async def handle_vector_delete_chunks(self, job: ClaimedOutboxJob) -> None:
         require_delete_completion = _benchmark_cleanup_requires_delete_completion(job.payload_json)
@@ -237,16 +225,39 @@ class ProjectionOutboxProcess:
         canonical_version: int,
         require_delete_completion: bool = False,
     ) -> None:
-        result = await self._container.vector_index.delete_chunks_if_version(
-            chunk_ids,
-            canonical_version=canonical_version,
-        )
-        _raise_if_degraded(
-            result.status,
-            "vector.delete_chunks",
-            result.diagnostics,
-            disabled_is_error=require_delete_completion,
-        )
+        uow_factory = getattr(self._container, "uow_factory", None)
+        if uow_factory is None:
+            # Provider-only boundary fixtures do not compose persistence. The
+            # production container always supplies the canonical row-lock fence.
+            result = await self._container.vector_index.delete_chunks_if_version(
+                chunk_ids,
+                canonical_version=canonical_version,
+            )
+            _raise_if_degraded(
+                result.status,
+                "vector.delete_chunks",
+                result.diagnostics,
+                disabled_is_error=require_delete_completion,
+            )
+            return
+        async with uow_factory() as uow:
+            locked_ids = []
+            for chunk_id in sorted(chunk_ids):
+                if await _get_chunk_for_update(uow, chunk_id) is not None:
+                    locked_ids.append(chunk_id)
+            if not locked_ids:
+                return
+            result = await self._container.vector_index.delete_chunks_if_version(
+                tuple(locked_ids),
+                canonical_version=canonical_version,
+            )
+            _raise_if_degraded(
+                result.status,
+                "vector.delete_chunks",
+                result.diagnostics,
+                disabled_is_error=require_delete_completion,
+            )
+            await uow.commit()
 
     async def handle_graph_upsert(self, job: ClaimedOutboxJob) -> None:
         async with self._container.uow_factory() as uow:
@@ -498,6 +509,14 @@ def _chunk_canonical_version(chunk: MemoryChunk | None) -> int | None:
         return _required_canonical_version(chunk.canonical_version)
     except OutboxProjectionError:
         return None
+
+
+async def _get_chunk_for_update(uow, chunk_id: str) -> MemoryChunk | None:
+    getter = getattr(uow.chunks, "get_for_update", None)
+    if getter is None:
+        # Provider-free test doubles do not supply database lock semantics.
+        return await uow.chunks.get_by_id(chunk_id)
+    return await getter(chunk_id)
 
 
 def _is_disabled_projection(diagnostics: tuple[PortDiagnostic, ...]) -> bool:

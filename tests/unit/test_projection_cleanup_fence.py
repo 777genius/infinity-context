@@ -99,6 +99,9 @@ class FakeUnitOfWork:
     async def __aexit__(self, _exc_type, _exc, _tb) -> None:
         return None
 
+    async def commit(self) -> None:
+        return None
+
 
 class FakeUnitOfWorkFactory:
     def __init__(self, *, chunks, facts, documents, document_chunks) -> None:
@@ -370,7 +373,7 @@ def test_vector_worker_preserves_standard_upsert_without_retrieval_metadata() ->
     assert vector.deletes == []
 
 
-def test_vector_worker_reconciles_generation_deleted_during_upsert() -> None:
+def test_vector_worker_fence_blocks_generation_deleted_before_provider_upsert() -> None:
     vector = ImmediateVectorAdapter()
     active = _chunk()
     deleted = SimpleNamespace(**{**vars(active), "status": LifecycleStatus.DELETED})
@@ -391,11 +394,11 @@ def test_vector_worker_reconciles_generation_deleted_during_upsert() -> None:
 
     asyncio.run(process.handle_vector_upsert(_job("vector")))
 
-    assert len(vector.upserts) == 1
-    assert vector.deletes == [(("chunk-1",), 1)]
+    assert vector.upserts == []
+    assert vector.deletes == []
 
 
-def test_late_vector_worker_cleans_own_generation_and_retries_newer_canonical_state() -> None:
+def test_late_vector_worker_cannot_write_after_newer_canonical_generation() -> None:
     vector = ImmediateVectorAdapter()
     version_one = _chunk()
     version_two = SimpleNamespace(**{**vars(version_one), "canonical_version": 2})
@@ -414,12 +417,10 @@ def test_late_vector_worker_cleans_own_generation_and_retries_newer_canonical_st
         )
     )
 
-    with pytest.raises(OutboxProjectionError) as raised:
-        asyncio.run(process.handle_vector_upsert(_job("vector")))
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
 
-    assert raised.value.diagnostic_code == "vector.canonical_generation_changed"
-    assert [item.metadata["canonical_version"] for item in vector.upserts] == [1]
-    assert vector.deletes == [(("chunk-1",), 1)]
+    assert vector.upserts == []
+    assert vector.deletes == []
 
 
 def _immediate_vector_process(chunk, *, vector) -> ProjectionOutboxProcess:
@@ -554,7 +555,16 @@ def test_vector_and_graph_delete_preserve_benchmark_cleanup_semantics(
             VectorWriteResult.degraded(f"{lane}.disabled", retryable=False)
         )
         process = ProjectionOutboxProcess(
-            SimpleNamespace(vector_index=adapter, graph_index=adapter)
+            SimpleNamespace(
+                vector_index=adapter,
+                graph_index=adapter,
+                uow_factory=FakeUnitOfWorkFactory(
+                    chunks=(_chunk(),),
+                    facts=(),
+                    documents=(),
+                    document_chunks=(),
+                ),
+            )
         )
         try:
             await _dispatch(

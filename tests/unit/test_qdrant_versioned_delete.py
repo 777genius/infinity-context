@@ -4,13 +4,13 @@ import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+from infinity_context_adapters.qdrant.generation_fence import legacy_generation_point_id
+from infinity_context_adapters.qdrant.identity_evidence import qdrant_point_id_for_chunk
 from infinity_context_adapters.qdrant.profile_lifecycle import (
     QdrantRetrievalProfileProjection,
 )
 from infinity_context_adapters.qdrant.vector_adapter import (
     QdrantVectorMemoryAdapter,
-    _generic_generation_point_id,
-    qdrant_point_id_for_chunk,
 )
 from infinity_context_core.features.context_building.public import (
     ProfileTombstoneDeleteAuthorization,
@@ -117,9 +117,7 @@ class _GenerationClient:
     async def get_collection(self, **_kwargs: object) -> SimpleNamespace:
         return SimpleNamespace(
             config=SimpleNamespace(
-                params=SimpleNamespace(
-                    vectors=SimpleNamespace(size=3, distance="Cosine")
-                )
+                params=SimpleNamespace(vectors=SimpleNamespace(size=3, distance="Cosine"))
             )
         )
 
@@ -138,11 +136,16 @@ class _GenerationClient:
                     self.points.pop(point_id, None)
             return
         chunk_ids = set(must[0].kwargs["match"].kwargs["any"])
-        upper = conditions["should"][0].kwargs["range"].kwargs["lt"]
+        upper = conditions["should"][0].kwargs["range"].kwargs["lte"]
+        preserved = set()
+        if conditions.get("must_not"):
+            preserved = set(conditions["must_not"][0].kwargs["has_id"])
         for point_id, payload in tuple(self.points.items()):
             version = payload.get("canonical_version")
-            if payload.get("chunk_id") in chunk_ids and (
-                type(version) is not int or version < upper
+            if (
+                point_id not in preserved
+                and payload.get("chunk_id") in chunk_ids
+                and (type(version) is not int or version <= upper)
             ):
                 self.points.pop(point_id)
 
@@ -152,14 +155,18 @@ class _GenerationClient:
             raise TimeoutError("ambiguous read after provider effect")
         conditions = kwargs["scroll_filter"].kwargs
         chunk_ids = set(conditions["must"][0].kwargs["match"].kwargs["any"])
-        upper = conditions["should"][0].kwargs["range"].kwargs["lt"]
+        upper = conditions["should"][0].kwargs["range"].kwargs["lte"]
+        preserved = set()
+        if conditions.get("must_not"):
+            preserved = set(conditions["must_not"][0].kwargs["has_id"])
         stale = [
             SimpleNamespace(id=point_id)
             for point_id, payload in self.points.items()
-            if payload.get("chunk_id") in chunk_ids
+            if point_id not in preserved
+            and payload.get("chunk_id") in chunk_ids
             and (
                 type(payload.get("canonical_version")) is not int
-                or payload["canonical_version"] < upper
+                or payload["canonical_version"] <= upper
             )
         ]
         return stale[:1], None
@@ -241,7 +248,7 @@ def test_qdrant_rejects_unversioned_generic_point_before_provider_access() -> No
     asyncio.run(run())
 
 
-def test_late_generic_generation_cannot_clobber_existing_newer_generation() -> None:
+def test_generic_writes_use_one_stable_identity_and_retire_legacy_points() -> None:
     async def run() -> None:
         client = _GenerationClient()
         adapter = QdrantVectorMemoryAdapter(
@@ -252,24 +259,18 @@ def test_late_generic_generation_cannot_clobber_existing_newer_generation() -> N
             return client, _GenerationModels
 
         adapter._client = fake_client  # type: ignore[method-assign]
-        newer_id = _generic_generation_point_id("chunk-aba", 2)
-        client.points[newer_id] = {
+        stable_id = qdrant_point_id_for_chunk("chunk-aba")
+        legacy_id = legacy_generation_point_id("chunk-aba", 1)
+        client.points[legacy_id] = {
             "chunk_id": "chunk-aba",
-            "canonical_version": 2,
+            "canonical_version": 1,
         }
 
-        written = await adapter.upsert_chunks((_generic_item("chunk-aba", 1),))
-        older_id = _generic_generation_point_id("chunk-aba", 1)
+        written = await adapter.upsert_chunks((_generic_item("chunk-aba", 2),))
         assert written.status == PortStatus.OK
-        assert set(client.points) == {older_id, newer_id}
-
-        cleaned = await adapter.delete_chunks_if_version(
-            ("chunk-aba",), canonical_version=1
-        )
-        assert cleaned.status == PortStatus.OK
-        assert client.points == {
-            newer_id: {"chunk_id": "chunk-aba", "canonical_version": 2}
-        }
+        assert set(client.points) == {stable_id}
+        assert client.points[stable_id]["canonical_version"] == 2
+        assert client.points[stable_id]["generic_identity_version"] == "stable.v1"
 
     asyncio.run(run())
 
@@ -285,17 +286,15 @@ def test_generic_upsert_replay_repairs_legacy_and_older_points_after_ambiguous_e
             return client, _GenerationModels
 
         adapter._client = fake_client  # type: ignore[method-assign]
-        client.points[qdrant_point_id_for_chunk("chunk-repair")] = {
-            "chunk_id": "chunk-repair"
-        }
-        client.points[_generic_generation_point_id("chunk-repair", 1)] = {
+        client.points[qdrant_point_id_for_chunk("chunk-repair")] = {"chunk_id": "chunk-repair"}
+        client.points[legacy_generation_point_id("chunk-repair", 1)] = {
             "chunk_id": "chunk-repair",
             "canonical_version": 1,
         }
         client.fail_count_once = True
 
         ambiguous = await adapter.upsert_chunks((_generic_item("chunk-repair", 2),))
-        current_id = _generic_generation_point_id("chunk-repair", 2)
+        current_id = qdrant_point_id_for_chunk("chunk-repair")
         assert ambiguous.status == PortStatus.DEGRADED
         assert set(client.points) == {current_id}
 
@@ -318,22 +317,18 @@ def test_rebuild_delete_removes_unversioned_and_older_but_preserves_newer_genera
 
         adapter._client = fake_client  # type: ignore[method-assign]
         legacy_id = qdrant_point_id_for_chunk("chunk-deleted")
-        older_id = _generic_generation_point_id("chunk-deleted", 2)
-        newer_id = _generic_generation_point_id("chunk-deleted", 4)
+        older_id = legacy_generation_point_id("chunk-deleted", 2)
+        newer_id = legacy_generation_point_id("chunk-deleted", 4)
         client.points = {
             legacy_id: {"chunk_id": "chunk-deleted"},
             older_id: {"chunk_id": "chunk-deleted", "canonical_version": 2},
             newer_id: {"chunk_id": "chunk-deleted", "canonical_version": 4},
         }
 
-        result = await adapter.delete_chunks_before_version(
-            ("chunk-deleted",), canonical_version=3
-        )
+        result = await adapter.delete_chunks_before_version(("chunk-deleted",), canonical_version=3)
 
         assert result.status == PortStatus.OK
-        assert client.points == {
-            newer_id: {"chunk_id": "chunk-deleted", "canonical_version": 4}
-        }
+        assert client.points == {newer_id: {"chunk_id": "chunk-deleted", "canonical_version": 4}}
 
     asyncio.run(run())
 

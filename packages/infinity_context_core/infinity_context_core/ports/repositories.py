@@ -465,6 +465,9 @@ class ChunkRepositoryPort(Protocol):
     async def get_by_id(self, chunk_id: str) -> MemoryChunk | None:
         """Load a chunk by canonical id."""
 
+    async def get_for_update(self, chunk_id: str) -> MemoryChunk | None:
+        """Load and lock a chunk for a serialized canonical/provider mutation."""
+
     async def upsert(self, chunk: MemoryChunk) -> UpsertChunkResult:
         """Persist a chunk, returning duplicate=true on same source hash."""
 

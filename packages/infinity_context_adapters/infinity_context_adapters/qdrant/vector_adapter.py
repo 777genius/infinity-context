@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from infinity_context_core.ports.adapters import (
@@ -13,7 +13,6 @@ from infinity_context_core.ports.adapters import (
     VectorCandidate,
     VectorSearchResult,
     VectorUpsertItem,
-    VectorWriteResult,
 )
 from infinity_context_core.ports.benchmark_unsealed_projection import (
     BenchmarkProjectionPassReceipt,
@@ -25,14 +24,7 @@ from infinity_context_core.ports.vector_projection_evidence import (
     VectorProjectionScope,
 )
 
-from infinity_context_adapters.qdrant.generation_fence import (
-    QdrantCanonicalVersionError,
-    delete_older_or_unversioned,
-    generic_point_id_for_write,
-)
-from infinity_context_adapters.qdrant.generation_fence import (
-    generic_generation_point_id as _generic_generation_point_id,
-)
+from infinity_context_adapters.qdrant.generation_fence import QdrantCanonicalVersionError
 from infinity_context_adapters.qdrant.identity_evidence import (
     QdrantIdentityEvidence,
     qdrant_point_id_for_chunk,
@@ -59,6 +51,7 @@ from infinity_context_adapters.qdrant.locator_runtime import (
 from infinity_context_adapters.qdrant.locator_runtime import (
     search_locator_chunks as _search_locator_chunks,
 )
+from infinity_context_adapters.qdrant.vector_mutations import QdrantVectorMutationMixin
 from infinity_context_adapters.qdrant.vector_schema import (
     QdrantDimensionMismatchError,
     QdrantDistanceMismatchError,
@@ -94,7 +87,7 @@ class _FusedPoint:
     score: float
 
 
-class QdrantVectorMemoryAdapter:
+class QdrantVectorMemoryAdapter(QdrantVectorMutationMixin):
     def __init__(
         self,
         *,
@@ -271,116 +264,6 @@ class QdrantVectorMemoryAdapter:
             supports_filters=True,
         )
 
-    async def upsert_chunks(self, items: tuple[VectorUpsertItem, ...]) -> VectorWriteResult:
-        if not items:
-            return VectorWriteResult.ok(0)
-        client = None
-        try:
-            payloads = [self._vector_payload(item) for item in items]
-            client, models = await self._client()
-            await self._ensure_collection(client, models)
-            points = [
-                models.PointStruct(
-                    id=(
-                        qdrant_point_id_for_chunk(item.chunk_id)
-                        if self._locator_profile_enabled
-                        else generic_point_id_for_write(item)
-                    ),
-                    vector=self._point_vector(models, item),
-                    payload=payload,
-                )
-                for item, payload in zip(items, payloads, strict=True)
-            ]
-            await client.upsert(collection_name=self._collection_name, points=points, wait=True)
-            if not self._locator_profile_enabled:
-                for item, payload in zip(items, payloads, strict=True):
-                    await delete_older_or_unversioned(
-                        client,
-                        models,
-                        collection_name=self._collection_name,
-                        chunk_ids=(item.chunk_id,),
-                        canonical_version=int(payload["canonical_version"]),
-                    )
-            return VectorWriteResult.ok(len(points))
-        except QdrantLocatorPayloadError:
-            return VectorWriteResult.degraded("qdrant.locator_profile_invalid", retryable=False)
-        except QdrantCanonicalVersionError:
-            return VectorWriteResult.degraded("qdrant.canonical_version_invalid", retryable=False)
-        except QdrantDimensionMismatchError:
-            return VectorWriteResult.degraded("qdrant.dimension_mismatch", retryable=False)
-        except QdrantDistanceMismatchError:
-            return VectorWriteResult.degraded("qdrant.distance_mismatch", retryable=False)
-        except QdrantHybridSchemaMismatchError:
-            return VectorWriteResult.degraded("qdrant.hybrid_schema_mismatch", retryable=False)
-        except QdrantHybridUnsupportedError:
-            return VectorWriteResult.degraded("qdrant.hybrid_unsupported", retryable=False)
-        except QdrantSparseEncodingError:
-            return VectorWriteResult.degraded("qdrant.sparse_encoding_failed", retryable=True)
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.upsert_failed", retryable=True)
-        finally:
-            await _close_client(client)
-
-    async def delete_chunks_if_version(
-        self,
-        chunk_ids: tuple[str, ...],
-        *,
-        canonical_version: int,
-    ) -> VectorWriteResult:
-        """Delete only points still carrying the tombstoned canonical version."""
-
-        if not chunk_ids:
-            return VectorWriteResult.ok(0)
-        client = None
-        try:
-            client, models = await self._client()
-            if not await client.collection_exists(self._collection_name):
-                return VectorWriteResult.ok(0)
-            point_ids = [
-                point_id
-                for chunk_id in chunk_ids
-                for point_id in (
-                    qdrant_point_id_for_chunk(chunk_id),
-                    _generic_generation_point_id(chunk_id, canonical_version),
-                )
-            ]
-            selector = models.FilterSelector(
-                filter=models.Filter(
-                    must=(
-                        models.HasIdCondition(has_id=point_ids),
-                        models.FieldCondition(
-                            key="canonical_version",
-                            match=models.MatchValue(value=canonical_version),
-                        ),
-                    )
-                )
-            )
-            await client.delete(
-                collection_name=self._collection_name,
-                points_selector=selector,
-                wait=True,
-            )
-            remaining = await client.retrieve(
-                collection_name=self._collection_name,
-                ids=point_ids,
-                with_payload=["canonical_version"],
-                with_vectors=False,
-                consistency="all",
-            )
-            diagnostic = _versioned_delete_observation_diagnostic(
-                remaining,
-                expected_point_ids=set(point_ids),
-                canonical_version=canonical_version,
-            )
-            if diagnostic is not None:
-                code, retryable = diagnostic
-                return VectorWriteResult.degraded(code, retryable=retryable)
-            return VectorWriteResult.ok(len(chunk_ids))
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
-        finally:
-            await _close_client(client)
-
     async def observe_chunk_versions(self, chunk_ids: tuple[str, ...]) -> tuple[int | None, ...]:
         """Read the actual projected generation for deterministic chunk point ids."""
 
@@ -400,35 +283,6 @@ class QdrantVectorMemoryAdapter:
             raise RuntimeError("qdrant.observe_canonical_version_failed") from exc
         finally:
             await _close_client(client)
-
-    async def delete_chunks_before_version(
-        self,
-        chunk_ids: tuple[str, ...],
-        *,
-        canonical_version: int,
-    ) -> VectorWriteResult:
-        """Repair legacy/unversioned and older generic points from canonical truth."""
-
-        if not chunk_ids:
-            return VectorWriteResult.ok(0)
-        client = None
-        try:
-            client, models = await self._client()
-            if not await client.collection_exists(self._collection_name):
-                return VectorWriteResult.ok(0)
-            await delete_older_or_unversioned(
-                client,
-                models,
-                collection_name=self._collection_name,
-                chunk_ids=chunk_ids,
-                canonical_version=canonical_version,
-            )
-            return VectorWriteResult.ok(len(chunk_ids))
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.rebuild_delete_failed", retryable=True)
-        finally:
-            await _close_client(client)
-
     @property
     def target_commitment_sha256(self) -> str:
         return self._identity_evidence.target_commitment_sha256
@@ -500,6 +354,13 @@ class QdrantVectorMemoryAdapter:
                     match=models.MatchAny(any=list(memory_scope_ids)),
                 ),
             ]
+            if not self._locator_profile_enabled:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="generic_identity_version",
+                        match=models.MatchValue(value="stable.v1"),
+                    )
+                )
             filter_kwargs = {"must": must_conditions}
             if thread_id is not None:
                 filter_kwargs["min_should"] = models.MinShould(
@@ -825,6 +686,7 @@ class QdrantVectorMemoryAdapter:
             or not 1 <= version <= 9_007_199_254_740_991
         ):
             raise QdrantCanonicalVersionError
+        payload["generic_identity_version"] = "stable.v1"
         return payload
 
     def _sparse_vector_for_text(self, models, text: str, *, is_query: bool):
@@ -937,39 +799,6 @@ def _sparse_embedding_values(embedding: object, field: str, *, value_type: type)
 def _points_from_response(response: object) -> tuple[object, ...]:
     points = getattr(response, "points", response)
     return tuple(points)
-
-
-def _versioned_delete_observation_diagnostic(
-    records: object,
-    *,
-    expected_point_ids: set[str],
-    canonical_version: int,
-) -> tuple[str, bool] | None:
-    """Prove the requested generation absent without accepting legacy points."""
-
-    if not isinstance(records, (list, tuple)):
-        return ("qdrant.delete_observation_failed", True)
-    observed_ids: set[str] = set()
-    for record in records:
-        point_id = str(getattr(record, "id", ""))
-        if not point_id or point_id not in expected_point_ids or point_id in observed_ids:
-            return ("qdrant.delete_observation_failed", True)
-        observed_ids.add(point_id)
-        payload = getattr(record, "payload", None)
-        if not isinstance(payload, Mapping):
-            return ("qdrant.delete_rebuild_required", False)
-        observed_version = payload.get("canonical_version")
-        if (
-            not isinstance(observed_version, int)
-            or isinstance(observed_version, bool)
-            or not 1 <= observed_version <= 9_007_199_254_740_991
-        ):
-            return ("qdrant.delete_rebuild_required", False)
-        if observed_version < canonical_version:
-            return ("qdrant.delete_rebuild_required", False)
-        if observed_version == canonical_version:
-            return ("qdrant.delete_generation_remaining", True)
-    return None
 
 
 def _fuse_result_sets(

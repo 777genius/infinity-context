@@ -439,6 +439,14 @@ class PostgresChunkRepository(ChunkRepositoryPort):
         row = await self._session.get(MemoryChunkRow, chunk_id)
         return chunk_row_to_domain(row) if row is not None else None
 
+    async def get_for_update(self, chunk_id: str) -> MemoryChunk | None:
+        row = (
+            await self._session.execute(
+                select(MemoryChunkRow).where(MemoryChunkRow.id == chunk_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        return chunk_row_to_domain(row) if row is not None else None
+
     async def upsert(self, chunk: MemoryChunk) -> UpsertChunkResult:
         existing = (
             await self._session.execute(
