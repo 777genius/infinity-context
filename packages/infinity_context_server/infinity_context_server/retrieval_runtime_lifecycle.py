@@ -3,10 +3,32 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TypeVar
 
 from infinity_context_core.features.context_building.public import RuntimeFenceOwner
+
+_T = TypeVar("_T")
+
+
+async def complete_despite_cancellation(
+    awaitable: Awaitable[_T],
+) -> tuple[_T, asyncio.CancelledError | None]:
+    """Resolve an idempotent durable phase before propagating cancellation."""
+
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancellation = cancellation or exc
+            current = asyncio.current_task()
+            if current is not None:
+                current.uncancel()
+    return task.result(), cancellation
 
 
 @dataclass(slots=True)
@@ -48,4 +70,8 @@ class ProviderFreeRetrievalRuntimeLifecycle:
         del now
 
 
-__all__ = ("ProviderFreeRetrievalRuntimeLifecycle", "RetrievalRuntimeLifecycle")
+__all__ = (
+    "ProviderFreeRetrievalRuntimeLifecycle",
+    "RetrievalRuntimeLifecycle",
+    "complete_despite_cancellation",
+)

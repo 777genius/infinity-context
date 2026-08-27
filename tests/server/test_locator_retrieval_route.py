@@ -156,3 +156,38 @@ def test_timeout_cancels_retrieval_and_disconnect_tasks() -> None:
         assert receive_cancelled.is_set()
 
     asyncio.run(scenario())
+
+
+def test_repeated_cancellation_waits_for_retrieval_cleanup() -> None:
+    async def scenario() -> None:
+        cleanup_started = asyncio.Event()
+        cleanup_finished = asyncio.Event()
+
+        async def operation() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleanup_started.set()
+                await asyncio.sleep(0.02)
+                cleanup_finished.set()
+
+        async def receive() -> dict[str, str]:
+            await asyncio.Event().wait()
+            return {"type": "http.disconnect"}
+
+        current = asyncio.current_task()
+        assert current is not None
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.01, current.cancel)
+        loop.call_later(0.015, current.cancel)
+        with pytest.raises(asyncio.CancelledError):
+            await route._execute_with_disconnect(
+                SimpleNamespace(receive=receive),
+                operation(),
+            )
+        assert cleanup_started.is_set()
+        assert cleanup_finished.is_set()
+        while current.cancelling():
+            current.uncancel()
+
+    asyncio.run(scenario())

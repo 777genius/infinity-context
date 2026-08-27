@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 from asyncio import timeout
-from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from time import monotonic
-from typing import TypeVar
 from uuid import uuid4
 
 from infinity_context_adapters.features.context_building.qdrant_candidate_provider import (
@@ -56,27 +53,10 @@ from infinity_context_server.retrieval_profile_attestation import (
     projection_item_manifest as _projection_item_manifest,
 )
 from infinity_context_server.retrieval_profile_outbox import RetrievalProfileOutboxCoordinator
-from infinity_context_server.retrieval_runtime_lifecycle import RetrievalRuntimeLifecycle
-
-_T = TypeVar("_T")
-
-
-async def _complete_despite_cancellation(
-    awaitable: Awaitable[_T],
-) -> tuple[_T, asyncio.CancelledError | None]:
-    """Resolve an idempotent durable phase before propagating task cancellation."""
-
-    task = asyncio.ensure_future(awaitable)
-    cancellation: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as exc:
-            cancellation = cancellation or exc
-            current = asyncio.current_task()
-            if current is not None:
-                current.uncancel()
-    return task.result(), cancellation
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    RetrievalRuntimeLifecycle,
+    complete_despite_cancellation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,7 +103,7 @@ class ProfileAwareLocatorRetrievalService:
         now = datetime.now(UTC)
         if self.runtime_lifecycle is not None:
             await self.runtime_lifecycle.start(now=now)
-        admission, admission_cancellation = await _complete_despite_cancellation(
+        admission, admission_cancellation = await complete_despite_cancellation(
             self.registry.begin_profile_query(
                 operation_id,
                 owner=self.runtime_owner,
@@ -148,7 +128,7 @@ class ProfileAwareLocatorRetrievalService:
             return await self._service_for_active(active, admission_proven=True).execute(request)
         finally:
             try:
-                _, close_cancellation = await _complete_despite_cancellation(
+                _, close_cancellation = await complete_despite_cancellation(
                     self.registry.finish_profile_query(
                         active.profile_id,
                         operation_id,

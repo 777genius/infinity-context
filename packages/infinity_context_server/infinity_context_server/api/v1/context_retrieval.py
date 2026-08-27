@@ -29,6 +29,7 @@ from infinity_context_server.api.v1.scope_resolution import resolve_existing_sin
 from infinity_context_server.auth_tokens import MEMORY_PERMISSION_ADMIN, MEMORY_PERMISSION_READ
 from infinity_context_server.composition import Container
 from infinity_context_server.features.context_building import public as context_building
+from infinity_context_server.retrieval_runtime_lifecycle import complete_despite_cancellation
 
 MAX_RAW_REQUEST_BYTES = 2_097_152
 MIN_RESPONSE_BYTES = 16_384
@@ -220,7 +221,11 @@ async def _execute_with_disconnect(request: Request, awaitable):
         for task in (operation, disconnected):
             if not task.done():
                 task.cancel()
-        await asyncio.gather(operation, disconnected, return_exceptions=True)
+        _, cleanup_cancellation = await complete_despite_cancellation(
+            asyncio.gather(operation, disconnected, return_exceptions=True)
+        )
+        if cleanup_cancellation is not None:
+            raise cleanup_cancellation
 
 
 async def _wait_for_disconnect(request: Request) -> bool:
