@@ -498,6 +498,12 @@ async def _assert_runtime_boundary(asyncpg, admin_dsn: str, database: str) -> No
             )
             == 0
         )
+        assert (
+            await runtime.fetchval(
+                "SELECT count(*) FROM public.memory_document_projection_receipts"
+            )
+            == 0
+        )
         await runtime.execute(
             "INSERT INTO public.memory_spaces "
             "(id, slug, name, status, created_at, updated_at) VALUES "

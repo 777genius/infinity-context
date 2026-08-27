@@ -64,6 +64,7 @@ def test_runtime_acl_is_exact_and_excludes_strict_writes() -> None:
     assert "memory_locator_profile_maintenance_fence" in sql
     assert "memory_locator_profile_recovery_receipts" in sql
     assert "memory_locator_profile_tombstone_replays" in sql
+    assert "memory_document_projection_receipts" in sql
     assert "memory_vector_rebuild_operations" in sql
     assert "memory_comparison_is_strict_v4_canonical_writer" in sql
     assert "REVOKE ALL PRIVILEGES ON FUNCTION" in sql
