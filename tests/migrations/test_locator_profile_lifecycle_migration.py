@@ -7,7 +7,7 @@ from infinity_context_adapters.postgres.migration_runner import _load_migrations
 def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
     migrations = _load_migrations()
     ids = tuple(migration.migration_id for migration in migrations)
-    assert ids[-18:] == (
+    assert ids[-19:] == (
         "0039_locator_retrieval_attributes",
         "0040_locator_profile_lifecycle",
         "0041_locator_profile_attestation_fence",
@@ -26,6 +26,7 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "0053_retrieval_default_lifecycle",
         "0054_locator_profile_exact_delete_generation",
         "0055_generic_vector_rebuild_operations",
+        "0056_fact_outbox_receipt_trigger_scope",
     )
     sql = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
@@ -49,6 +50,20 @@ def test_profile_lifecycle_is_forward_only_after_published_0039() -> None:
         "DROP FUNCTION IF EXISTS memory_chunk_locator_watermark_mirror_v1();",
     )
     assert "ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL" not in forward
+
+
+def test_fact_receipt_trigger_ignores_non_fact_outbox_events() -> None:
+    migration = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_adapters/infinity_context_adapters/postgres/migrations/"
+        "0056_fact_outbox_receipt_trigger_scope.sql"
+    )
+    sql = migration.read_text()
+
+    assert "SET LOCAL lock_timeout = '5s'" in sql
+    assert "DROP TRIGGER IF EXISTS trg_memory_outbox_benchmark_fact_receipt" in sql
+    assert "CREATE CONSTRAINT TRIGGER trg_memory_outbox_benchmark_fact_receipt" in sql
+    assert "WHEN (NEW.aggregate_type = 'fact')" in sql
+    assert "memory_comparison_verify_benchmark_fact_outbox_receipt()" in sql
 
 
 def test_profile_watermark_uses_bounded_online_backfill_and_short_cutover() -> None:

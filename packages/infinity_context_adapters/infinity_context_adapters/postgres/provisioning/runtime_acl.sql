@@ -38,6 +38,7 @@ DECLARE
         'memory_projection_receipt_identity_links', 'memory_projection_result_receipts',
         'memory_projection_target_identities', 'memory_scopes', 'memory_service_tokens',
         'memory_source_refs', 'memory_space_memberships', 'memory_spaces', 'memory_suggestions',
+        'memory_vector_rebuild_operations',
         'memory_threads', 'memory_usage_records', 'memory_users',
         'suggestion_resolution_receipts'
     ];
