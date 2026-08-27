@@ -178,6 +178,25 @@ class CircuitBreakingVectorMemoryAdapter:
         _record_result(self._circuit, result)
         return result
 
+    async def delete_chunks_before_version(
+        self,
+        chunk_ids: tuple[str, ...],
+        *,
+        canonical_version: int,
+    ) -> VectorWriteResult:
+        if not self._circuit.allow_request():
+            return VectorWriteResult.degraded("vector.circuit_open", retryable=True)
+        try:
+            result = await self._inner.delete_chunks_before_version(
+                chunk_ids,
+                canonical_version=canonical_version,
+            )
+        except Exception:
+            self._circuit.record_failure("vector.exception")
+            raise
+        _record_result(self._circuit, result)
+        return result
+
     async def search_chunks(
         self,
         *,

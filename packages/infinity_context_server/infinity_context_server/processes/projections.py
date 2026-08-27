@@ -184,6 +184,17 @@ class ProjectionOutboxProcess:
                     (chunk_id,),
                     canonical_version=canonical_version,
                 )
+                if (
+                    current is not None
+                    and current.status == LifecycleStatus.ACTIVE
+                    and _can_embed(current.classification)
+                    and current_version != canonical_version
+                ):
+                    _require_same_fenced_space(str(current.space_id), initial_space_id)
+                    raise OutboxProjectionError(
+                        "vector.upsert_chunks",
+                        "vector.canonical_generation_changed",
+                    )
                 return
             _require_same_fenced_space(str(current.space_id), initial_space_id)
 

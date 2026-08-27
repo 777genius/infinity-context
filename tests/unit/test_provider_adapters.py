@@ -722,7 +722,8 @@ class FakeQdrantModels:
     class Filter:
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
-
+    FilterSelector = Filter
+    Range = Filter
     class FieldCondition:
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
@@ -786,7 +787,10 @@ class FakeQdrantClient:
     async def delete(self, **_kwargs: object) -> None:
         assert _kwargs["wait"] is True
         return None
-
+    async def scroll(self, **_kwargs: object) -> tuple[list[object], None]:
+        assert _kwargs["limit"] == 1
+        assert _kwargs["consistency"] == "all"
+        return [], None
     async def query_points(self, **_kwargs: object) -> object:
         self.query_calls.append(_kwargs)
         points = self.query_points_by_using.get(_kwargs.get("using"))
@@ -818,8 +822,6 @@ class FakeSparseEmbedding:
     def __init__(self, *, indices: tuple[int, ...], values: tuple[float, ...]) -> None:
         self.indices = indices
         self.values = values
-
-
 class FakeSparseEncoder:
     def __init__(self) -> None:
         self.documents: list[str] = []
@@ -832,8 +834,6 @@ class FakeSparseEncoder:
     def query_embed(self, *, query: list[str]) -> list[FakeSparseEmbedding]:
         self.queries.extend(query)
         return [FakeSparseEmbedding(indices=(11, 19), values=(1.5, 0.75))]
-
-
 class FakeQdrantWrongSizeClient(FakeQdrantClient):
     def __init__(self) -> None:
         super().__init__()

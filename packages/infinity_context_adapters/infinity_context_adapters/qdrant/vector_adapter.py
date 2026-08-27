@@ -25,6 +25,14 @@ from infinity_context_core.ports.vector_projection_evidence import (
     VectorProjectionScope,
 )
 
+from infinity_context_adapters.qdrant.generation_fence import (
+    QdrantCanonicalVersionError,
+    delete_older_or_unversioned,
+    generic_point_id_for_write,
+)
+from infinity_context_adapters.qdrant.generation_fence import (
+    generic_generation_point_id as _generic_generation_point_id,
+)
 from infinity_context_adapters.qdrant.identity_evidence import (
     QdrantIdentityEvidence,
     qdrant_point_id_for_chunk,
@@ -84,10 +92,6 @@ _FUSION_RANK_CONSTANT = 60.0
 class _FusedPoint:
     payload: object
     score: float
-
-
-class QdrantCanonicalVersionError(ValueError):
-    """Raised before an unversioned derived point can be written."""
 
 
 class QdrantVectorMemoryAdapter:
@@ -277,13 +281,26 @@ class QdrantVectorMemoryAdapter:
             await self._ensure_collection(client, models)
             points = [
                 models.PointStruct(
-                    id=qdrant_point_id_for_chunk(item.chunk_id),
+                    id=(
+                        qdrant_point_id_for_chunk(item.chunk_id)
+                        if self._locator_profile_enabled
+                        else generic_point_id_for_write(item)
+                    ),
                     vector=self._point_vector(models, item),
                     payload=payload,
                 )
                 for item, payload in zip(items, payloads, strict=True)
             ]
             await client.upsert(collection_name=self._collection_name, points=points, wait=True)
+            if not self._locator_profile_enabled:
+                for item, payload in zip(items, payloads, strict=True):
+                    await delete_older_or_unversioned(
+                        client,
+                        models,
+                        collection_name=self._collection_name,
+                        chunk_ids=(item.chunk_id,),
+                        canonical_version=int(payload["canonical_version"]),
+                    )
             return VectorWriteResult.ok(len(points))
         except QdrantLocatorPayloadError:
             return VectorWriteResult.degraded("qdrant.locator_profile_invalid", retryable=False)
@@ -319,7 +336,14 @@ class QdrantVectorMemoryAdapter:
             client, models = await self._client()
             if not await client.collection_exists(self._collection_name):
                 return VectorWriteResult.ok(0)
-            point_ids = [qdrant_point_id_for_chunk(chunk_id) for chunk_id in chunk_ids]
+            point_ids = [
+                point_id
+                for chunk_id in chunk_ids
+                for point_id in (
+                    qdrant_point_id_for_chunk(chunk_id),
+                    _generic_generation_point_id(chunk_id, canonical_version),
+                )
+            ]
             selector = models.FilterSelector(
                 filter=models.Filter(
                     must=(
@@ -374,6 +398,34 @@ class QdrantVectorMemoryAdapter:
             )
         except Exception as exc:
             raise RuntimeError("qdrant.observe_canonical_version_failed") from exc
+        finally:
+            await _close_client(client)
+
+    async def delete_chunks_before_version(
+        self,
+        chunk_ids: tuple[str, ...],
+        *,
+        canonical_version: int,
+    ) -> VectorWriteResult:
+        """Repair legacy/unversioned and older generic points from canonical truth."""
+
+        if not chunk_ids:
+            return VectorWriteResult.ok(0)
+        client = None
+        try:
+            client, models = await self._client()
+            if not await client.collection_exists(self._collection_name):
+                return VectorWriteResult.ok(0)
+            await delete_older_or_unversioned(
+                client,
+                models,
+                collection_name=self._collection_name,
+                chunk_ids=chunk_ids,
+                canonical_version=canonical_version,
+            )
+            return VectorWriteResult.ok(len(chunk_ids))
+        except Exception:
+            return VectorWriteResult.degraded("qdrant.rebuild_delete_failed", retryable=True)
         finally:
             await _close_client(client)
 

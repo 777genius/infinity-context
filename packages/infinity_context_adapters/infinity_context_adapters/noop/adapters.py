@@ -49,6 +49,11 @@ class NoopVectorMemoryAdapter:
     ) -> VectorWriteResult:
         return VectorWriteResult.degraded("vector.disabled", retryable=False)
 
+    async def delete_chunks_before_version(
+        self, *_args: object, **_kwargs: object
+    ) -> VectorWriteResult:
+        return VectorWriteResult.degraded("vector.disabled", retryable=False)
+
 
 class NoopGraphMemoryAdapter:
     def __init__(self, name: str = "graphiti") -> None:

@@ -395,6 +395,33 @@ def test_vector_worker_reconciles_generation_deleted_during_upsert() -> None:
     assert vector.deletes == [(("chunk-1",), 1)]
 
 
+def test_late_vector_worker_cleans_own_generation_and_retries_newer_canonical_state() -> None:
+    vector = ImmediateVectorAdapter()
+    version_one = _chunk()
+    version_two = SimpleNamespace(**{**vars(version_one), "canonical_version": 2})
+    process = ProjectionOutboxProcess(
+        SimpleNamespace(
+            projection_fence=CoordinatedFence([]),
+            uow_factory=FakeUnitOfWorkFactory(
+                chunks=(version_one, version_one, version_two),
+                facts=(),
+                documents=(_document(),),
+                document_chunks=(version_one,),
+            ),
+            vector_index=vector,
+            embedder=vector,
+            settings=SimpleNamespace(max_embedding_tokens_per_document=100),
+        )
+    )
+
+    with pytest.raises(OutboxProjectionError) as raised:
+        asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert raised.value.diagnostic_code == "vector.canonical_generation_changed"
+    assert [item.metadata["canonical_version"] for item in vector.upserts] == [1]
+    assert vector.deletes == [(("chunk-1",), 1)]
+
+
 def _immediate_vector_process(chunk, *, vector) -> ProjectionOutboxProcess:
     chunks = (chunk, chunk)
     return ProjectionOutboxProcess(
