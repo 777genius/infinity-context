@@ -384,6 +384,47 @@ describe("transport, retry and errors", () => {
     expect(transport.requests).toHaveLength(1);
   });
 
+  it.each([
+    ["string", "cancel transport string", "memory.request_aborted", false],
+    ["generic Error", new Error("cancel transport error"), "memory.request_aborted", false],
+    ["AbortError", new DOMException("cancel transport abort", "AbortError"), "memory.request_aborted", false],
+    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_timeout", true],
+  ] as const)("classifies direct FetchTransport %s abort reasons from the request signal", async (
+    _name,
+    reason,
+    code,
+    retryable,
+  ) => {
+    const controller = new AbortController();
+    let fetchCalls = 0;
+    let cancellations = 0;
+    const fetchLike = ((_url: URL | RequestInfo, init?: RequestInit) => {
+      fetchCalls += 1;
+      init?.signal?.addEventListener("abort", () => { cancellations += 1; }, { once: true });
+      return new Promise<Response>(() => undefined);
+    }) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    const request = transport.send({
+      method: "GET", url: new URL("http://memory.test/direct-cancel"), headers: new Headers(),
+      signal: controller.signal,
+    });
+    controller.abort(reason);
+
+    try {
+      await request;
+      throw new Error("expected direct transport request to be cancelled");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code,
+        retryable,
+        message: reason instanceof Error ? reason.message : reason,
+      });
+      expect((error as Error).cause).toBe(reason);
+    }
+    expect(fetchCalls).toBe(1);
+    expect(cancellations).toBe(1);
+  });
+
   it("propagates a caller abort when onResponse aborts synchronously and throws", async () => {
     const controller = new AbortController();
     const reason = new Error("cancel in response hook");

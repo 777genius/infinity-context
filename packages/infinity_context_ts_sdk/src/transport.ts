@@ -1,4 +1,4 @@
-import { InfinityContextError, networkError, responseByteLimitError } from "./errors.js";
+import { InfinityContextError, networkError, operationAbortError, responseByteLimitError } from "./errors.js";
 import type { JsonValue, QueryParams } from "./types.js";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -87,6 +87,7 @@ export class FetchTransport implements HttpTransport {
             : new TextDecoder().decode(await readResponseBytes(response, undefined, request.signal)),
       };
     } catch (error) {
+      if (request.signal?.aborted) throw operationAbortError(request.signal.reason);
       if (error instanceof InfinityContextError) throw error;
       throw networkError(error);
     }
