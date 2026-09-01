@@ -132,17 +132,23 @@ async def _decode_body(request: Request) -> tuple[bytes, Any]:
         return encoded, _UNDECODED
     try:
         decoded = json.loads(encoded)
-    except (UnicodeError, json.JSONDecodeError) as exc:
+    except json.JSONDecodeError as exc:
         raise RequestValidationError(
             [
                 {
                     "type": "json_invalid",
-                    "loc": ("body",),
-                    "msg": "Invalid JSON body",
-                    "input": None,
-                    "ctx": {"error": str(exc)},
+                    "loc": ("body", exc.pos),
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": exc.msg},
                 }
-            ]
+            ],
+            body=exc.doc,
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="There was an error parsing the body",
         ) from exc
     return encoded, decoded
 

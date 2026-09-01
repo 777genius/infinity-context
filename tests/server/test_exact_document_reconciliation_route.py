@@ -7,7 +7,9 @@ from typing import get_args, get_origin, get_type_hints
 
 import infinity_context_core.features.document_ingestion.public as ingestion
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncByteStream, AsyncClient
@@ -169,12 +171,80 @@ def test_malformed_json_is_rejected_before_handler_execution() -> None:
             self.calls += 1
 
     handler = Handler()
-    response = _client(handler).post(
+    app = _client(handler).app
+
+    @app.post("/native-body-parsing")
+    async def native_body_parsing(_body: dict) -> None:
+        raise AssertionError("must not execute")
+
+    parsing_errors: list[RequestValidationError] = []
+
+    async def capture_parsing_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        parsing_errors.append(exc)
+        return await request_validation_exception_handler(request, exc)
+
+    app.add_exception_handler(RequestValidationError, capture_parsing_error)
+    client = TestClient(app)
+    expected = client.post(
+        "/native-body-parsing",
+        content=b"{",
+        headers={"content-type": "application/json"},
+    )
+    response = client.post(
         "/v1/documents/reconcile-exact",
         content=b"{",
         headers={"content-type": "application/json"},
     )
-    assert response.status_code == 422
+    assert response.status_code == expected.status_code == 422
+    assert response.json() == expected.json() == {
+        "detail": [
+            {
+                "type": "json_invalid",
+                "loc": ["body", 1],
+                "msg": "JSON decode error",
+                "input": {},
+                "ctx": {"error": "Expecting property name enclosed in double quotes"},
+            }
+        ]
+    }
+    assert len(parsing_errors) == 2
+    assert parsing_errors[1].errors() == parsing_errors[0].errors()
+    assert parsing_errors[1].body == parsing_errors[0].body == "{"
+    assert handler.calls == 0
+
+
+def test_invalid_utf8_preserves_fastapi_body_parsing_response() -> None:
+    class Handler:
+        calls = 0
+
+        async def execute(self, _query):
+            self.calls += 1
+
+    handler = Handler()
+    app = _client(handler).app
+
+    @app.post("/native-body-parsing")
+    async def native_body_parsing(_body: dict) -> None:
+        raise AssertionError("must not execute")
+
+    client = TestClient(app)
+    expected = client.post(
+        "/native-body-parsing",
+        content=b'"\xff"',
+        headers={"content-type": "application/json"},
+    )
+    response = client.post(
+        "/v1/documents/reconcile-exact",
+        content=b'"\xff"',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == expected.status_code == 400
+    assert response.json() == expected.json() == {
+        "detail": "There was an error parsing the body"
+    }
     assert handler.calls == 0
 
 
