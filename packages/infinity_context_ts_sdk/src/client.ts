@@ -83,22 +83,31 @@ export class HttpClient implements RequestExecutor {
   }
 
   async request<T = JsonValue>(options: RequestOptions): Promise<T> {
+    const operation = withTimeout(options.signal, options.timeoutMs ?? this.#timeoutMs);
+    try {
+      return await this.#requestWithinBudget<T>(options, operation.signal);
+    } finally {
+      operation.cleanup();
+    }
+  }
+
+  async #requestWithinBudget<T>(options: RequestOptions, signal: AbortSignal | undefined): Promise<T> {
     let lastError: InfinityContextError | undefined;
     const maxAttempts = Math.max(1, this.#retryPolicy.maxAttempts);
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const context = instrumentationContext(options, attempt + 1, maxAttempts);
-      await this.#notifyRequest(context);
+      const context = instrumentationContext(options, attempt + 1, maxAttempts, signal);
       const started = monotonicNowMs();
       try {
-        const response = await this.#send(options);
+        await this.#notifyRequest(context, signal);
+        const response = await this.#send(options, signal);
         const durationMs = durationSince(started);
         await this.#notifyResponse({
           ...context,
           statusCode: response.status,
           durationMs,
           requestId: response.headers.get("x-request-id") ?? undefined,
-        });
+        }, signal);
         if (response.status < 400) {
           try {
             if (options.responseType === "bytes") {
@@ -109,11 +118,9 @@ export class HttpClient implements RequestExecutor {
             const sdkError = networkError(error);
             lastError = sdkError;
             const retry = shouldRetryAttempt(options, attempt, maxAttempts, sdkError);
-            await this.#notifyError(errorEvent(context, sdkError, durationMs));
-            if (!retry) {
-              throw sdkError;
-            }
-            await this.#retry(context, sdkError, attempt, durationMs, options.signal);
+            await this.#notifyError(errorEvent(context, sdkError, durationMs), signal);
+            if (!retry) throw sdkError;
+            await this.#retry(context, sdkError, attempt, durationMs, signal);
             continue;
           }
         }
@@ -127,33 +134,19 @@ export class HttpClient implements RequestExecutor {
           : options.errorDecoder(response.status, response.headers, response.body);
         lastError = error;
         const retry = shouldRetryAttempt(options, attempt, maxAttempts, error, response.status);
-        await this.#notifyError(errorEvent(context, error, durationMs));
-        if (!retry) {
-          throw error;
-        }
-        await this.#retry(context, error, attempt, durationMs, options.signal);
-        continue;
+        await this.#notifyError(errorEvent(context, error, durationMs), signal);
+        if (!retry) throw error;
+        await this.#retry(context, error, attempt, durationMs, signal);
       } catch (error) {
-        if (options.signal?.aborted) {
-          const reason = options.signal.reason;
-          throw networkError(
-            reason instanceof Error
-              ? reason
-              : new DOMException("Request aborted", "AbortError"),
-          );
-        }
-        if (error instanceof InfinityContextError && error === lastError) {
-          throw error;
-        }
+        if (signal?.aborted) throw networkError(abortReason(signal));
+        if (error instanceof InfinityContextError && error === lastError) throw error;
         const sdkError = error instanceof InfinityContextError ? error : networkError(error);
         lastError = sdkError;
         const durationMs = durationSince(started);
         const retry = shouldRetryAttempt(options, attempt, maxAttempts, sdkError);
-        await this.#notifyError(errorEvent(context, sdkError, durationMs));
-        if (!retry) {
-          throw sdkError;
-        }
-        await this.#retry(context, sdkError, attempt, durationMs, options.signal);
+        await this.#notifyError(errorEvent(context, sdkError, durationMs), signal);
+        if (!retry) throw sdkError;
+        await this.#retry(context, sdkError, attempt, durationMs, signal);
       }
     }
 
@@ -165,9 +158,10 @@ export class HttpClient implements RequestExecutor {
     });
   }
 
-  async #send(options: RequestOptions) {
+  async #send(options: RequestOptions, signal: AbortSignal | undefined) {
+    throwIfAborted(signal);
     const headers = new Headers(options.headers);
-    const token = await resolveAuthToken(this.#token);
+    const token = await abortable(resolveAuthToken(this.#token, signal), signal);
     if (token) {
       headers.set("Authorization", `Bearer ${token}`);
     }
@@ -182,21 +176,17 @@ export class HttpClient implements RequestExecutor {
       body = { kind: "bytes", value: options.bytes, contentType: options.contentType };
     }
 
-    const timeout = withTimeout(options.signal, options.timeoutMs ?? this.#timeoutMs);
-    try {
-      return await this.#transport.send({
-        method: options.method,
-        url: buildUrl(this.#baseUrl, options.path, options.params),
-        headers,
-        body,
-        signal: timeout.signal,
-        responseType: options.responseType,
-        maxResponseBytes: options.maxResponseBytes,
-        maxErrorResponseBytes: options.maxErrorResponseBytes,
-      });
-    } finally {
-      timeout.cleanup();
-    }
+    throwIfAborted(signal);
+    return await abortable(this.#transport.send({
+      method: options.method,
+      url: buildUrl(this.#baseUrl, options.path, options.params),
+      headers,
+      body,
+      signal,
+      responseType: options.responseType,
+      maxResponseBytes: options.maxResponseBytes,
+      maxErrorResponseBytes: options.maxErrorResponseBytes,
+    }), signal);
   }
 
   async #retry(
@@ -207,24 +197,25 @@ export class HttpClient implements RequestExecutor {
     signal: AbortSignal | undefined,
   ): Promise<void> {
     const delayMs = retryDelayMs(this.#retryPolicy, attemptIndex, error.retryAfterMs);
-    await this.#notifyRetry({ ...errorEvent(context, error, durationMs), delayMs });
+    await this.#notifyRetry({ ...errorEvent(context, error, durationMs), delayMs }, signal);
+    throwIfAborted(signal);
     await abortable(this.#sleep(delayMs), signal);
   }
 
-  async #notifyRequest(event: RequestStartEvent): Promise<void> {
-    await notifyInstrumentation(() => this.#instrumentation?.onRequest?.(event));
+  async #notifyRequest(event: RequestStartEvent, signal: AbortSignal | undefined): Promise<void> {
+    await notifyInstrumentation(() => this.#instrumentation?.onRequest?.(event), signal);
   }
 
-  async #notifyResponse(event: RequestResponseEvent): Promise<void> {
-    await notifyInstrumentation(() => this.#instrumentation?.onResponse?.(event));
+  async #notifyResponse(event: RequestResponseEvent, signal: AbortSignal | undefined): Promise<void> {
+    await notifyInstrumentation(() => this.#instrumentation?.onResponse?.(event), signal);
   }
 
-  async #notifyError(event: RequestErrorEvent): Promise<void> {
-    await notifyInstrumentation(() => this.#instrumentation?.onError?.(event));
+  async #notifyError(event: RequestErrorEvent, signal: AbortSignal | undefined): Promise<void> {
+    await notifyInstrumentation(() => this.#instrumentation?.onError?.(event), signal);
   }
 
-  async #notifyRetry(event: RequestRetryEvent): Promise<void> {
-    await notifyInstrumentation(() => this.#instrumentation?.onRetry?.(event));
+  async #notifyRetry(event: RequestRetryEvent, signal: AbortSignal | undefined): Promise<void> {
+    await notifyInstrumentation(() => this.#instrumentation?.onRetry?.(event), signal);
   }
 }
 
@@ -242,6 +233,7 @@ function instrumentationContext(
   options: RequestOptions,
   attempt: number,
   maxAttempts: number,
+  signal: AbortSignal | undefined,
 ): RequestInstrumentationContext {
   return {
     method: options.method,
@@ -250,6 +242,7 @@ function instrumentationContext(
     maxAttempts,
     idempotencyKeyPresent: Boolean(options.idempotencyKey),
     responseType: options.responseType ?? "json",
+    signal,
   };
 }
 
@@ -282,12 +275,33 @@ function errorEvent(
   };
 }
 
-async function notifyInstrumentation(callback: () => Promise<void> | void | undefined): Promise<void> {
+async function notifyInstrumentation(
+  callback: () => Promise<void> | void | undefined,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  throwIfAborted(signal);
+  let result: Promise<void> | void | undefined;
   try {
-    await callback();
+    result = callback();
   } catch {
-    // Instrumentation must not change SDK request semantics.
+    return;
   }
+  try {
+    await abortable(Promise.resolve(result), signal);
+  } catch {
+    if (signal?.aborted) throw abortReason(signal);
+    // Instrumentation failures must not change SDK request semantics.
+  }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw abortReason(signal);
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Request aborted", "AbortError");
 }
 
 function monotonicNowMs(): number {

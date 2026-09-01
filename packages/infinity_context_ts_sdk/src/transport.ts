@@ -57,6 +57,7 @@ export class FetchTransport implements HttpTransport {
     }
 
     try {
+      if (request.signal?.aborted) throw request.signal.reason;
       const init: RequestInit = {
         method: request.method,
         headers,
@@ -67,13 +68,14 @@ export class FetchTransport implements HttpTransport {
       if (request.signal !== undefined) {
         init.signal = request.signal;
       }
-      const response = await this.#fetch(request.url, init);
+      const response = await abortable(this.#fetch(request.url, init), request.signal);
       const readAsBytes = request.responseType === "bytes" ||
         (response.status >= 400 && request.maxErrorResponseBytes !== undefined);
       const responseBytes = readAsBytes
         ? await readResponseBytes(
           response,
           response.status >= 400 ? request.maxErrorResponseBytes ?? request.maxResponseBytes : request.maxResponseBytes,
+          request.signal,
         )
         : undefined;
       return {
@@ -82,7 +84,7 @@ export class FetchTransport implements HttpTransport {
         body:
           readAsBytes
             ? responseBytes!
-            : await response.text(),
+            : new TextDecoder().decode(await readResponseBytes(response, undefined, request.signal)),
       };
     } catch (error) {
       if (error instanceof InfinityContextError) throw error;
@@ -91,24 +93,29 @@ export class FetchTransport implements HttpTransport {
   }
 }
 
-async function readResponseBytes(response: Response, maximum: number | undefined): Promise<Uint8Array> {
-  if (maximum === undefined) return new Uint8Array(await response.arrayBuffer());
-  if (!Number.isSafeInteger(maximum) || maximum < 0) throw new TypeError("maxResponseBytes must be a non-negative integer");
+async function readResponseBytes(
+  response: Response,
+  maximum: number | undefined,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
+  if (maximum !== undefined && (!Number.isSafeInteger(maximum) || maximum < 0)) {
+    throw new TypeError("maxResponseBytes must be a non-negative integer");
+  }
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let received = 0;
   try {
     const contentLength = response.headers.get("content-length");
-    if (contentLength !== null && /^\d+$/u.test(contentLength) && Number(contentLength) > maximum) {
+    if (maximum !== undefined && contentLength !== null && /^\d+$/u.test(contentLength) && Number(contentLength) > maximum) {
       cancelReader(reader);
       throw responseByteLimitError(response.status, response.headers.get("x-request-id") ?? undefined);
     }
     while (true) {
-      const { done, value } = await reader.read();
+      const { done, value } = await abortable(reader.read(), signal, () => cancelReader(reader, signal?.reason));
       if (done) break;
       received += value.byteLength;
-      if (received > maximum) {
+      if (maximum !== undefined && received > maximum) {
         cancelReader(reader);
         throw responseByteLimitError(response.status, response.headers.get("x-request-id") ?? undefined);
       }
@@ -130,12 +137,31 @@ async function readResponseBytes(response: Response, maximum: number | undefined
   return output;
 }
 
-function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>): void {
+function cancelReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reason: unknown = "response byte limit exceeded",
+): void {
   try {
-    void reader.cancel("response byte limit exceeded").catch(() => undefined);
+    void reader.cancel(reason).catch(() => undefined);
   } catch {
     // Cancellation is best-effort; the byte-limit failure must settle promptly.
   }
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbort?: () => void): Promise<T> {
+  if (signal === undefined) return promise;
+  if (signal.aborted) {
+    onAbort?.();
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const handleAbort = () => {
+      onAbort?.();
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", handleAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", handleAbort));
+  });
 }
 
 export function buildUrl(baseUrl: string, path: string, params?: QueryParams): URL {

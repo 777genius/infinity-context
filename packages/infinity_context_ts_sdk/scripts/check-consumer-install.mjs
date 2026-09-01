@@ -372,6 +372,7 @@ const retrievalResult = await retrievalClient.context.retrieve(
   ${JSON.stringify(retrievalPins(capability))},
 );
 if (retrievalResult.candidates.length !== 1) throw new Error("ESM context.retrieve execution failed");
+${reconciliationConsumerSource("ESM")}
 `;
 }
 
@@ -424,8 +425,51 @@ for (const specifier of ${JSON.stringify(fixtureSpecifiers())}) {
     ${JSON.stringify(retrievalPins(capability))},
   );
   if (retrievalResult.candidates.length !== 1) throw new Error("CJS context.retrieve execution failed");
+  ${reconciliationConsumerSource("CJS")}
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 `;
+}
+
+function reconciliationConsumerSource(format) {
+  return `let reconciliationRequest;
+  const reconciliationTransport = { send: async (request) => {
+    reconciliationRequest = request;
+    return {
+      status: 200,
+      headers: new Headers({ "x-request-id": "packed-reconciliation" }),
+      body: new TextEncoder().encode(JSON.stringify({ data: {
+        contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+        state: "indexed",
+        scope: { space_id: "space", memory_scope_id: "scope", thread_id: null },
+        source_type: "document", source_external_id: "external", document_id: "doc-packed",
+        canonical_status: "active", projection_generation: "projection-v1",
+        profile_generation: "profile-v1", visibility: "indexed", idempotency_key_matches: true,
+      } })),
+    };
+  } };
+  const reconciliationClient = new InfinityContextClient({
+    baseUrl: "http://packed-consumer.test", transport: reconciliationTransport, retryPolicy: { maxAttempts: 1 },
+  });
+  const reconciliationResult = await reconciliationClient.documents.reconcileExactDocument({
+    capability: {
+      contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+      endpoint: "/v1/documents/reconcile-exact", max_deadline_ms: 1000,
+      max_response_bytes: EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES, read_only: true,
+    },
+    spaceId: "space", memoryScopeId: "scope", sourceType: "document", sourceExternalId: "external",
+    projectionGeneration: "projection-v1", profileGeneration: "profile-v1",
+    idempotencyKey: "packed-reconciliation-key", deadlineMs: 500,
+  });
+  if (reconciliationResult.state !== "indexed" || reconciliationResult.document_id !== "doc-packed") {
+    throw new Error("Packed documents.reconcileExactDocument execution failed");
+  }
+  if (reconciliationRequest?.url.pathname !== "/v1/documents/reconcile-exact" ||
+      reconciliationRequest?.responseType !== "bytes" ||
+      reconciliationRequest?.maxResponseBytes !== EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES ||
+      reconciliationRequest?.body?.kind !== "json" ||
+      reconciliationRequest.body.value.idempotency_key !== "packed-reconciliation-key") {
+    throw new Error("Packed reconciliation mock transport contract failed");
+  }`;
 }
 
 function consumerBrowserSource() {

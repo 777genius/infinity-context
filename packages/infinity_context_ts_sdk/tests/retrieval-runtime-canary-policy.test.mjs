@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import { assertRetrievalRuntimeCanary } from "../scripts/retrieval-runtime-canary-policy.mjs";
@@ -67,5 +68,14 @@ describe("Retrieval runtime canary policy", () => {
         assertRetrievalRuntimeCanary({ capability, response, ...expected, [key]: "wrong" }),
       ).toThrow(/immutable canary pins/);
     }
+  });
+  it("routes capability and retrieval responses through bounded FetchTransport reads", async () => {
+    const source = await readFile(new URL("../scripts/retrieval-runtime-canary.mjs", import.meta.url), "utf8");
+    expect(source).toContain("new sdk.FetchTransport()");
+    expect(source).toContain("maxResponseBytes: 1_048_576");
+    expect(source).toContain("maxResponseBytes: request.bounds.response_byte_limit");
+    expect(source).toContain("signal: capabilitySignal");
+    expect(source).toContain("signal: retrievalSignal");
+    expect(source).not.toMatch(/\.arrayBuffer\(|\.json\(/u);
   });
 });

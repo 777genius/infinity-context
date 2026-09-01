@@ -9,6 +9,8 @@ export interface RequestInstrumentationContext {
   readonly maxAttempts: number;
   readonly idempotencyKeyPresent: boolean;
   readonly responseType: "json" | "bytes";
+  /** The signal for the complete logical SDK operation, including hooks and authentication. */
+  readonly signal?: AbortSignal | undefined;
 }
 
 export interface RequestStartEvent extends RequestInstrumentationContext {}

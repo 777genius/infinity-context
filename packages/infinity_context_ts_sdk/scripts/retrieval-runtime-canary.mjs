@@ -31,9 +31,20 @@ const headers = {
 const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
 const sdk = await import("../dist/index.js");
 
-const capabilityResponse = await fetch(`${baseUrl}/v1/capabilities`, { headers });
-if (!capabilityResponse.ok) throw new Error(`Capabilities returned HTTP ${capabilityResponse.status}`);
-const capabilityEnvelope = await capabilityResponse.json();
+const transport = new sdk.FetchTransport();
+const capabilitySignal = AbortSignal.timeout(10_000);
+const capabilityResponse = await transport.send({
+  method: "GET",
+  url: new URL(`${baseUrl}/v1/capabilities`),
+  headers: new Headers(headers),
+  signal: capabilitySignal,
+  responseType: "bytes",
+  maxResponseBytes: 1_048_576,
+  maxErrorResponseBytes: 1_048_576,
+});
+if (capabilityResponse.status >= 400) throw new Error(`Capabilities returned HTTP ${capabilityResponse.status}`);
+const capabilityBytes = capabilityResponse.body;
+const capabilityEnvelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(capabilityBytes));
 const capability = sdk.decodeRetrievalCapability(capabilityEnvelope?.context?.retrieval);
 await sdk.verifyRetrievalCapabilityFingerprint(capability);
 
@@ -48,14 +59,19 @@ const request = {
   scope: { space_id: spaceId, memory_scope_id: memoryScopeId, thread_id: null },
   queries: [{ query_id: "runtime-canary", query: process.env.RETRIEVAL_CANARY_QUERY ?? "runtime readiness", weight_micros: 1000000 }],
 };
-const response = await fetch(`${baseUrl}/v1/context/retrieve`, {
+const retrievalSignal = AbortSignal.timeout(request.bounds.deadline_ms + 1000);
+const response = await transport.send({
   method: "POST",
-  headers,
-  body: JSON.stringify(request),
-  signal: AbortSignal.timeout(request.bounds.deadline_ms + 1000),
+  url: new URL(`${baseUrl}/v1/context/retrieve`),
+  headers: new Headers(headers),
+  body: { kind: "json", value: request },
+  signal: retrievalSignal,
+  responseType: "bytes",
+  maxResponseBytes: request.bounds.response_byte_limit,
+  maxErrorResponseBytes: request.bounds.response_byte_limit,
 });
-const bytes = new Uint8Array(await response.arrayBuffer());
-if (!response.ok) throw new Error(`Retrieval returned HTTP ${response.status}`);
+const bytes = response.body;
+if (response.status >= 400) throw new Error(`Retrieval returned HTTP ${response.status}`);
 const decoded = sdk.decodeRetrieveContextResponseBytes(bytes, request, capability);
 assertRetrievalRuntimeCanary({
   capability,

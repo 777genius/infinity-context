@@ -234,6 +234,80 @@ describe("transport, retry and errors", () => {
     expect(transport.requests[0]?.signal?.aborted).toBe(true);
   });
 
+  it("starts the operation budget before async authentication", async () => {
+    let authSignal: AbortSignal | undefined;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      token: (signal) => { authSignal = signal; return new Promise<string>(() => undefined); },
+      transport, retryPolicy: { maxAttempts: 1 },
+    });
+    await expect(client.system.capabilities({ timeoutMs: 10 })).rejects.toMatchObject({ code: "memory.request_timeout" });
+    expect(authSignal?.aborted).toBe(true);
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("races caller cancellation through never-settling request instrumentation", async () => {
+    const controller = new AbortController();
+    let instrumentationSignal: AbortSignal | undefined;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      transport, retryPolicy: { maxAttempts: 1 },
+      instrumentation: { onRequest: (event) => {
+        instrumentationSignal = event.signal;
+        return new Promise<void>(() => undefined);
+      } },
+    });
+    const request = client.system.capabilities({ signal: controller.signal });
+    controller.abort("cancel before transport");
+    await expect(request).rejects.toMatchObject({ code: "memory.request_aborted" });
+    expect(instrumentationSignal?.aborted).toBe(true);
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("keeps response instrumentation inside the operation budget without duplicate effects", async () => {
+    let responses = 0;
+    let errors = 0;
+    const transport = new RecordingTransport([jsonResponse({ enabled_adapters: [] })]);
+    const client = new InfinityContextClient({
+      transport, retryPolicy: { maxAttempts: 2 },
+      instrumentation: {
+        onResponse: () => { responses += 1; return new Promise<void>(() => undefined); },
+        onError: () => { errors += 1; },
+      },
+    });
+    await expect(client.system.capabilities({ timeoutMs: 10 })).rejects.toMatchObject({ code: "memory.request_timeout" });
+    expect(transport.requests).toHaveLength(1);
+    expect(responses).toBe(1);
+    expect(errors).toBe(0);
+  });
+
+  it("bounds a never-settling fetch before response buffering begins", async () => {
+    const fetchLike = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    await expect(transport.send({
+      method: "GET", url: new URL("http://memory.test/capabilities"), headers: new Headers(),
+      signal: AbortSignal.timeout(10), responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({ code: "memory.request_timeout" });
+  });
+
+  it("aborts and cancels a stalled response stream", async () => {
+    let cancelCalls = 0;
+    const fetchLike = (async () => new Response(new ReadableStream<Uint8Array>({
+      cancel() { cancelCalls += 1; },
+    }))) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    const controller = new AbortController();
+    const response = transport.send({
+      method: "GET", url: new URL("http://memory.test/stalled"), headers: new Headers(),
+      signal: controller.signal, responseType: "bytes", maxResponseBytes: 32,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(response).rejects.toMatchObject({ code: "memory.request_aborted" });
+    expect(cancelCalls).toBe(1);
+  });
+
   it("propagates caller aborts while a request is in flight", async () => {
     const controller = new AbortController();
     const transport = new HangingTransport();
