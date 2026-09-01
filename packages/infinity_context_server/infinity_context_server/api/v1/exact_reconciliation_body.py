@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable
 from typing import Any
 
 from fastapi import HTTPException, Request, status
@@ -15,7 +15,6 @@ from infinity_context_contracts.features.document_ingestion import (
     EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
     ExactDocumentReconciliationResultDto,
 )
-from pydantic import ValidationError
 from starlette.requests import ClientDisconnect
 
 from infinity_context_server.features.document_ingestion import public as document_ingestion
@@ -37,21 +36,25 @@ class ExactReconciliationRoute(APIRoute):
 
         async def bounded_handler(request: Request) -> Response:
             started = asyncio.get_running_loop().time()
-            dto: document_ingestion.ReconcileExactDocumentHttpRequest | None = None
             try:
                 async with asyncio.timeout_at(
                     started + MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS
                 ) as deadline_scope:
-                    body = await _decode_body(request)
-                    dto = _validate_body(body)
+                    raw, body = await _decode_body(request)
+                    # FastAPI must consume the bounded bytes and the same decoded
+                    # object; scoped auth runs before its typed-body validation.
+                    request._body = raw
+                    request._json = body
                     setattr(request.state, _BODY_STATE_KEY, body)
-                    setattr(request.state, _DTO_STATE_KEY, dto)
-                    deadline_scope.reschedule(started + dto.deadline_ms / 1000)
+                    deadline_ms = _valid_deadline_ms(body)
+                    if deadline_ms is not None:
+                        deadline_scope.reschedule(started + deadline_ms / 1000)
                     await asyncio.sleep(0)
-                    return await original(request)
+                    return await execute_with_disconnect(request, original(request))
             except (asyncio.CancelledError, ClientDisconnect):
                 raise
             except TimeoutError as exc:
+                dto = cached_exact_reconciliation_request(request)
                 if dto is None:
                     raise HTTPException(
                         status_code=status.HTTP_408_REQUEST_TIMEOUT,
@@ -67,13 +70,20 @@ def cached_exact_reconciliation_body(request: Request) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def cache_exact_reconciliation_request(
+    request: Request,
+    value: document_ingestion.ReconcileExactDocumentHttpRequest,
+) -> None:
+    setattr(request.state, _DTO_STATE_KEY, value)
+
+
 def cached_exact_reconciliation_request(
     request: Request,
-) -> document_ingestion.ReconcileExactDocumentHttpRequest:
+) -> document_ingestion.ReconcileExactDocumentHttpRequest | None:
     value = getattr(request.state, _DTO_STATE_KEY, None)
-    if not isinstance(value, document_ingestion.ReconcileExactDocumentHttpRequest):
-        raise RuntimeError("exact reconciliation request boundary was not applied")
-    return value
+    if isinstance(value, document_ingestion.ReconcileExactDocumentHttpRequest):
+        return value
+    return None
 
 
 async def execute_with_disconnect(request: Request, awaitable: Awaitable[Any]) -> Any:
@@ -97,18 +107,19 @@ async def execute_with_disconnect(request: Request, awaitable: Awaitable[Any]) -
             raise cleanup_cancellation
 
 
-async def _decode_body(request: Request) -> dict[str, Any]:
+async def _decode_body(request: Request) -> tuple[bytes, dict[str, Any]]:
     _validate_headers(request)
     raw = bytearray()
     async for chunk in request.stream():
-        raw.extend(chunk)
-        if len(raw) > MAX_EXACT_RECONCILIATION_BODY_BYTES:
+        if len(raw) + len(chunk) > MAX_EXACT_RECONCILIATION_BODY_BYTES:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="Exact document reconciliation request body is too large",
             )
+        raw.extend(chunk)
+    encoded = bytes(raw)
     try:
-        decoded = json.loads(bytes(raw))
+        decoded = json.loads(encoded)
     except (UnicodeError, json.JSONDecodeError) as exc:
         raise RequestValidationError(
             [
@@ -132,7 +143,7 @@ async def _decode_body(request: Request) -> dict[str, Any]:
                 }
             ]
         )
-    return decoded
+    return encoded, decoded
 
 
 def _validate_headers(request: Request) -> None:
@@ -159,13 +170,11 @@ def _validate_headers(request: Request) -> None:
         )
 
 
-def _validate_body(
-    body: Mapping[str, Any],
-) -> document_ingestion.ReconcileExactDocumentHttpRequest:
-    try:
-        return document_ingestion.ReconcileExactDocumentHttpRequest.model_validate(body)
-    except ValidationError as exc:
-        raise RequestValidationError(exc.errors()) from exc
+def _valid_deadline_ms(body: dict[str, Any]) -> int | None:
+    value = body.get("deadline_ms", 5_000)
+    if isinstance(value, int) and not isinstance(value, bool) and 50 <= value <= 10_000:
+        return value
+    return None
 
 
 def _unavailable_response(
@@ -197,7 +206,8 @@ async def _wait_for_disconnect(request: Request) -> bool:
 __all__ = (
     "ExactReconciliationRoute",
     "MAX_EXACT_RECONCILIATION_BODY_BYTES",
-    "cached_exact_reconciliation_body",
+    "cache_exact_reconciliation_request",
     "cached_exact_reconciliation_request",
+    "cached_exact_reconciliation_body",
     "execute_with_disconnect",
 )

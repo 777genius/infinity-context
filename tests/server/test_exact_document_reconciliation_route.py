@@ -7,7 +7,7 @@ from typing import get_args, get_origin, get_type_hints
 
 import infinity_context_core.features.document_ingestion.public as ingestion
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncByteStream, AsyncClient
@@ -140,12 +140,11 @@ def test_slow_body_consumes_the_advertised_deadline_before_handler_execution() -
             )
 
     response = asyncio.run(post())
-    assert response.status_code == 200
-    assert response.json()["data"]["state"] == "unavailable"
+    assert response.status_code == 408
     assert handler.calls == 0
 
 
-def test_oversized_body_is_rejected_before_handler_execution() -> None:
+def test_single_oversized_chunk_is_rejected_before_handler_execution() -> None:
     class Handler:
         calls = 0
 
@@ -179,28 +178,99 @@ def test_malformed_json_is_rejected_before_handler_execution() -> None:
     assert handler.calls == 0
 
 
-def test_cancellation_waits_for_handler_and_disconnect_cleanup() -> None:
-    async def scenario() -> None:
-        operation_cancelled = asyncio.Event()
+def test_auth_runs_before_typed_contract_validation() -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
 
-        async def operation() -> None:
+    async def reject_request() -> None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    app.dependency_overrides[require_service_token] = reject_request
+    response = TestClient(app).post(
+        "/v1/documents/reconcile-exact",
+        json={"deadline_ms": 500},
+    )
+
+    assert response.status_code == 401
+
+
+def test_openapi_preserves_typed_request_component_reference() -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    schema = app.openapi()
+
+    assert schema["paths"]["/v1/documents/reconcile-exact"]["post"][
+        "requestBody"
+    ]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/ReconcileExactDocumentHttpRequest"
+    }
+    assert "ReconcileExactDocumentHttpRequest" in schema["components"]["schemas"]
+
+
+def test_disconnect_during_authorization_cancels_the_whole_route() -> None:
+    async def scenario() -> None:
+        authorization_started = asyncio.Event()
+        authorization_cancelled = asyncio.Event()
+        disconnect_receiver_started = asyncio.Event()
+        disconnect_receiver_finished = asyncio.Event()
+        disconnect = asyncio.Queue()
+        body_delivered = False
+
+        async def blocked_authorization() -> None:
+            authorization_started.set()
             try:
                 await asyncio.Event().wait()
             finally:
-                operation_cancelled.set()
+                authorization_cancelled.set()
 
         async def receive():
-            await asyncio.Event().wait()
+            nonlocal body_delivered
+            if not body_delivered:
+                body_delivered = True
+                return {
+                    "type": "http.request",
+                    "body": json.dumps(_body()).encode(),
+                    "more_body": False,
+                }
+            disconnect_receiver_started.set()
+            try:
+                return await disconnect.get()
+            finally:
+                disconnect_receiver_finished.set()
 
+        async def send(_message) -> None:
+            return None
+
+        app = FastAPI()
+        app.include_router(router, prefix="/v1")
+        app.dependency_overrides[require_service_token] = blocked_authorization
         task = asyncio.create_task(
-            body_boundary.execute_with_disconnect(
-                SimpleNamespace(receive=receive), operation()
+            app(
+                {
+                    "type": "http",
+                    "asgi": {"version": "3.0"},
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": "/v1/documents/reconcile-exact",
+                    "raw_path": b"/v1/documents/reconcile-exact",
+                    "query_string": b"",
+                    "headers": [(b"content-type", b"application/json")],
+                    "client": ("test", 123),
+                    "server": ("test", 80),
+                },
+                receive,
+                send,
             )
         )
-        await asyncio.sleep(0)
-        task.cancel()
+        await asyncio.wait_for(authorization_started.wait(), timeout=1)
+        await asyncio.wait_for(disconnect_receiver_started.wait(), timeout=1)
+        await disconnect.put({"type": "http.disconnect"})
+
         with pytest.raises(asyncio.CancelledError):
-            await task
-        assert operation_cancelled.is_set()
+            await asyncio.wait_for(task, timeout=1)
+        assert authorization_cancelled.is_set()
+        assert disconnect_receiver_finished.is_set()
 
     asyncio.run(scenario())
