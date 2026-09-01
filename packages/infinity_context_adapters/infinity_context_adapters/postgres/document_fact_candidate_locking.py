@@ -4,12 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Collection
 
-from infinity_context_core.features.memory_facts.application.locking import (
-    memory_fact_identity_lock_key,
-)
 from infinity_context_core.features.memory_facts.public import (
     MemoryFactIdentity,
     MemoryFactScope,
+    memory_fact_identity_lock_key,
 )
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession

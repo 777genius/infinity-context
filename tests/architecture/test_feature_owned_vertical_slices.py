@@ -583,6 +583,7 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
         "MemoryFactUnitOfWorkPort",
         "MemoryFactVisibility",
         "MemoryFactsFeature",
+        "memory_fact_identity_lock_key",
         "NormalizedFactTaxonomy",
         "normalize_fact_taxonomy_fields",
         "RememberFactCommand",

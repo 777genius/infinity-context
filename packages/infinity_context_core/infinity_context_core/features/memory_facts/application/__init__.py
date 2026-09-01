@@ -18,6 +18,9 @@ from infinity_context_core.features.memory_facts.application.handlers import (
     RememberFactHandler,
     UpdateFactHandler,
 )
+from infinity_context_core.features.memory_facts.application.locking import (
+    memory_fact_identity_lock_key,
+)
 from infinity_context_core.features.memory_facts.application.reads import (
     GetMemoryFactHandler,
     ListMemoryFactsHandler,
@@ -80,6 +83,7 @@ __all__ = (
     "MemoryFactLifecycleUseCases",
     "MemoryFactReadUseCases",
     "MemoryFactTemporalUseCases",
+    "memory_fact_identity_lock_key",
     "RememberFactCommand",
     "RememberFactHandler",
     "RememberFactResult",

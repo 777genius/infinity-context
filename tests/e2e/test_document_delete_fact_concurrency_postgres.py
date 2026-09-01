@@ -33,14 +33,10 @@ from infinity_context_core.domain.entities import (
     SpaceId,
     ThreadId,
 )
-from infinity_context_core.features.memory_facts.application.locking import (
-    memory_fact_identity_lock_key,
-)
 from infinity_context_core.features.memory_facts.public import (
     MemoryFactIdentity as CanonicalMemoryFactIdentity,
-)
-from infinity_context_core.features.memory_facts.public import (
     MemoryFactScope as CanonicalMemoryFactScope,
+    memory_fact_identity_lock_key,
 )
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
