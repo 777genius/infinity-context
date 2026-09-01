@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from infinity_context_contracts.features.context_building import (
     RetrievalErrorDto,
@@ -33,6 +32,11 @@ from pydantic import BaseModel, ConfigDict
 from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.policy import ensure_server_writes_enabled
+from infinity_context_server.api.v1.exact_reconciliation_body import (
+    ExactReconciliationRoute,
+    cached_exact_reconciliation_request,
+    execute_with_disconnect,
+)
 from infinity_context_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
     resolve_single_scope,
@@ -52,10 +56,15 @@ router = APIRouter(
     prefix="/documents",
     tags=["documents"],
     dependencies=[Depends(require_service_token)],
+    route_class=ExactReconciliationRoute,
 )
 
 document_to_response = document_ingestion_server.document_to_response
 chunk_to_response = document_ingestion_server.chunk_to_response
+
+_EXACT_RECONCILIATION_REQUEST_SCHEMA = (
+    document_ingestion_server.ReconcileExactDocumentHttpRequest.model_json_schema()
+)
 
 
 class IngestDocumentRequest(document_ingestion_server.LegacyIngestDocumentRequest):
@@ -90,11 +99,23 @@ class DocumentListResponse(BaseModel):
     next_cursor: str | None
 
 
-@router.post("/reconcile-exact", response_model=dict[str, Any])
+@router.post(
+    "/reconcile-exact",
+    response_model=dict[str, Any],
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {
+                "application/json": {"schema": _EXACT_RECONCILIATION_REQUEST_SCHEMA}
+            },
+        }
+    },
+)
 async def reconcile_exact_document(
-    request: document_ingestion_server.ReconcileExactDocumentHttpRequest,
+    http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any] | JSONResponse:
+    request = cached_exact_reconciliation_request(http_request)
     if request.contract_version != EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
@@ -120,13 +141,15 @@ async def reconcile_exact_document(
         profile_generation=request.profile_generation,
     )
     try:
-        async with asyncio.timeout(request.deadline_ms / 1000):
-            result = await container.reconcile_exact_document.execute(
+        result = await execute_with_disconnect(
+            http_request,
+            container.reconcile_exact_document.execute(
                 document_ingestion_server.ReconcileExactDocumentQuery(
                     identity,
                     request.idempotency_key,
                 )
-            )
+            ),
+        )
     except TimeoutError:
         result = document_ingestion_server.ExactDocumentReconciliation(
             "unavailable", identity, visibility="unavailable"

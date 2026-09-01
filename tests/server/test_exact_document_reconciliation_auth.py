@@ -107,3 +107,13 @@ def test_exact_reconciliation_enforces_space_and_memory_scope_token_bounds(monke
 
     with pytest.raises(MemoryForbiddenError, match="requested memory_scope"):
         asyncio.run(crossed())
+
+
+def test_scoped_auth_reuses_the_boundary_decoded_object() -> None:
+    request = _request()
+    cached = {"space_id": "space-a", "memory_scope_id": "scope-a"}
+    request.state.exact_reconciliation_body = cached
+
+    decoded = asyncio.run(auth._json_body(request))
+
+    assert decoded is cached

@@ -18,6 +18,9 @@ from infinity_context_core.processes.workspace_scope_claim_verification import (
 )
 
 from infinity_context_server.api.dependencies import get_container
+from infinity_context_server.api.v1.exact_reconciliation_body import (
+    cached_exact_reconciliation_body,
+)
 from infinity_context_server.auth_scope import (
     PathResourceRefs,
     memory_scope_matches,
@@ -647,6 +650,9 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
 async def _json_body(request: Request) -> dict[str, Any]:
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return {}
+    cached = cached_exact_reconciliation_body(request)
+    if cached is not None:
+        return cached
     try:
         body = await request.json()
     except Exception:
