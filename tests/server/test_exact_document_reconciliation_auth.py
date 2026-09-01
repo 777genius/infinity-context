@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +11,17 @@ from infinity_context_core.domain.errors import MemoryForbiddenError
 from infinity_context_server.api import auth
 from infinity_context_server.auth_tokens import ActiveServiceToken
 from starlette.requests import Request
+
+
+def test_auth_imports_in_a_clean_process() -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", "import infinity_context_server.api.auth"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def _request(**changes) -> Request:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable
+from email.message import Message
 from typing import Annotated, Any
 
 from fastapi import HTTPException, Request, status
@@ -18,12 +19,13 @@ from infinity_context_contracts.features.document_ingestion import (
 from pydantic import TypeAdapter, ValidationError
 from starlette.requests import ClientDisconnect
 
+from infinity_context_server.api.exact_reconciliation_cache import (
+    cache_exact_reconciliation_json,
+)
 from infinity_context_server.features.document_ingestion import public as document_ingestion
-from infinity_context_server.retrieval_runtime_lifecycle import complete_despite_cancellation
 
 MAX_EXACT_RECONCILIATION_BODY_BYTES = 16_384
 MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS = 10.0
-_BODY_STATE_KEY = "exact_reconciliation_body"
 _DTO_STATE_KEY = "exact_reconciliation_request"
 _DEADLINE_FIELD = document_ingestion.ReconcileExactDocumentHttpRequest.model_fields[
     "deadline_ms"
@@ -49,11 +51,14 @@ class ExactReconciliationRoute(APIRoute):
                     started + MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS
                 ) as deadline_scope:
                     raw, body = await _decode_body(request)
-                    # FastAPI must consume the bounded bytes and the same decoded
-                    # object; scoped auth runs before its typed-body validation.
+                    # FastAPI must consume only the bounded bytes. Accepted JSON
+                    # media also reuses this single decoded object in auth and
+                    # typed validation; empty and non-JSON media retain FastAPI's
+                    # auth-before-validation ordering.
                     request._body = raw
-                    request._json = body
-                    setattr(request.state, _BODY_STATE_KEY, body)
+                    if body is not _UNDECODED:
+                        request._json = body
+                        cache_exact_reconciliation_json(request, body)
                     deadline_ms = _valid_deadline_ms(body)
                     if deadline_ms is not None:
                         deadline_scope.reschedule(started + deadline_ms / 1000)
@@ -73,13 +78,6 @@ class ExactReconciliationRoute(APIRoute):
                 return _unavailable_response(dto)
 
         return bounded_handler
-
-
-def cached_exact_reconciliation_body(request: Request) -> dict[str, Any] | None:
-    if not hasattr(request.state, _BODY_STATE_KEY):
-        return None
-    value = getattr(request.state, _BODY_STATE_KEY)
-    return value if isinstance(value, dict) else {}
 
 
 def cache_exact_reconciliation_request(
@@ -112,7 +110,7 @@ async def execute_with_disconnect(request: Request, awaitable: Awaitable[Any]) -
         for task in (operation, disconnected):
             if not task.done():
                 task.cancel()
-        _, cleanup_cancellation = await complete_despite_cancellation(
+        cleanup_cancellation = await _complete_cleanup_preserving_cancellation(
             asyncio.gather(operation, disconnected, return_exceptions=True)
         )
         if cleanup_cancellation is not None:
@@ -130,6 +128,8 @@ async def _decode_body(request: Request) -> tuple[bytes, Any]:
             )
         raw.extend(chunk)
     encoded = bytes(raw)
+    if not encoded or not _is_json_content_type(request.headers.get("content-type")):
+        return encoded, _UNDECODED
     try:
         decoded = json.loads(encoded)
     except (UnicodeError, json.JSONDecodeError) as exc:
@@ -174,6 +174,34 @@ def _valid_deadline_ms(body: Any) -> int | None:
         return None
 
 
+def _is_json_content_type(content_type: str | None) -> bool:
+    if content_type is None:
+        return True
+    message = Message()
+    message["content-type"] = content_type
+    maintype = message.get_content_maintype()
+    subtype = message.get_content_subtype()
+    return maintype == "application" and (
+        subtype == "json" or subtype.endswith("+json")
+    )
+
+
+async def _complete_cleanup_preserving_cancellation(
+    awaitable: Awaitable[Any],
+) -> asyncio.CancelledError | None:
+    """Drain cleanup without consuming cancellations received during it."""
+
+    task = asyncio.ensure_future(awaitable)
+    cancellation: asyncio.CancelledError | None = None
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError as exc:
+            cancellation = cancellation or exc
+    task.result()
+    return cancellation
+
+
 def _unavailable_response(
     request: document_ingestion.ReconcileExactDocumentHttpRequest,
 ) -> JSONResponse:
@@ -200,11 +228,13 @@ async def _wait_for_disconnect(request: Request) -> bool:
             return True
 
 
+_UNDECODED = object()
+
+
 __all__ = (
     "ExactReconciliationRoute",
     "MAX_EXACT_RECONCILIATION_BODY_BYTES",
     "cache_exact_reconciliation_request",
     "cached_exact_reconciliation_request",
-    "cached_exact_reconciliation_body",
     "execute_with_disconnect",
 )
