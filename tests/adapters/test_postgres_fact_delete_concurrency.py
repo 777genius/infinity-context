@@ -40,7 +40,13 @@ async def _assert_locked_current_versions_drive_document_fact_delete() -> None:
         ),
         status=FactStatus.SUPERSEDED,
     )
-    session = _CandidateSession(("fact-a", "fact-b", "fact-c"))
+    session = _CandidateSession(
+        (
+            _Candidate("fact-a", "space-a", "scope-a", "thread-z"),
+            _Candidate("fact-b", "space-a", "scope-a", "thread-a"),
+            _Candidate("fact-c", "space-a", "scope-a", None),
+        )
+    )
     repository = _RaceRepository(
         cast(AsyncSession, session),
         locked={"fact-a": moved, "fact-b": still_sourced, "fact-c": superseded},
@@ -54,33 +60,48 @@ async def _assert_locked_current_versions_drive_document_fact_delete() -> None:
         now=NOW,
     )
 
-    assert repository.locked_ids == ["fact-a", "fact-b", "fact-c"]
+    assert repository.locked_ids == ["fact-c", "fact-b", "fact-a"]
     assert deleted == (("fact-b", 3),)
     assert [(str(fact.id), fact.version, fact.status) for fact in repository.saved] == [
         ("fact-b", 3, FactStatus.DELETED)
     ]
     sql = str(session.statement.compile(dialect=postgresql.dialect()))
     assert "SELECT DISTINCT memory_facts.id" in sql
-    assert "ORDER BY memory_facts.id" in sql
+    assert "memory_facts.thread_id" in sql
+    assert "ORDER BY" not in sql
     assert "FOR UPDATE" not in sql
 
 
-class _CandidateScalars:
-    def __init__(self, fact_ids: tuple[str, ...]) -> None:
-        self._fact_ids = fact_ids
+class _Candidate:
+    def __init__(
+        self,
+        fact_id: str,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+    ) -> None:
+        self.id = fact_id
+        self.space_id = space_id
+        self.memory_scope_id = memory_scope_id
+        self.thread_id = thread_id
 
-    def scalars(self) -> tuple[str, ...]:
-        return self._fact_ids
+
+class _CandidateRows:
+    def __init__(self, rows: tuple[_Candidate, ...]) -> None:
+        self._rows = rows
+
+    def all(self) -> tuple[_Candidate, ...]:
+        return self._rows
 
 
 class _CandidateSession:
-    def __init__(self, fact_ids: tuple[str, ...]) -> None:
-        self._fact_ids = fact_ids
+    def __init__(self, rows: tuple[_Candidate, ...]) -> None:
+        self._rows = rows
         self.statement = None
 
     async def execute(self, statement):
         self.statement = statement
-        return _CandidateScalars(self._fact_ids)
+        return _CandidateRows(self._rows)
 
 
 class _RaceRepository(PostgresFactRepository):

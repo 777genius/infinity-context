@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 
 from infinity_context_core.domain.entities import MemoryFact, MemoryFactRelation, SourceRef
 from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
+from infinity_context_core.features.memory_facts.application.locking import (
+    memory_fact_identity_lock_key,
+)
 from infinity_context_core.features.memory_facts.public import (
     FactCodeScopeReference,
     FactEpistemicContext,
@@ -444,10 +447,24 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         if not chunk_ids and not document_id:
             return ()
         chunk_id_set = set(chunk_ids)
-        candidate_ids = tuple(
+        candidate_identities = tuple(
+            CanonicalMemoryFactIdentity(
+                fact_id=row.id,
+                scope=CanonicalMemoryFactScope(
+                    space_id=row.space_id,
+                    memory_scope_id=row.memory_scope_id,
+                    thread_id=row.thread_id,
+                ),
+            )
+            for row in
             (
                 await self._session.execute(
-                    select(MemoryFactRow.id)
+                    select(
+                        MemoryFactRow.id,
+                        MemoryFactRow.space_id,
+                        MemoryFactRow.memory_scope_id,
+                        MemoryFactRow.thread_id,
+                    )
                     .join(
                         MemorySourceRefRow,
                         (MemorySourceRefRow.fact_id == MemoryFactRow.id)
@@ -466,13 +483,15 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                         ),
                     )
                     .distinct()
-                    .order_by(MemoryFactRow.id)
                 )
-            ).scalars()
+            ).all()
         )
         deleted: list[tuple[str, int]] = []
-        for fact_id in candidate_ids:
-            current = await self.get_for_update(fact_id)
+        for identity in sorted(
+            candidate_identities,
+            key=memory_fact_identity_lock_key,
+        ):
+            current = await self.get_for_update(identity.fact_id)
             if (
                 current is None
                 or current.status.value != "active"

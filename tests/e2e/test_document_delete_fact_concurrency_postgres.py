@@ -31,6 +31,16 @@ from infinity_context_core.domain.entities import (
     MemoryScopeId,
     SourceRef,
     SpaceId,
+    ThreadId,
+)
+from infinity_context_core.features.memory_facts.application.locking import (
+    memory_fact_identity_lock_key,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactIdentity as CanonicalMemoryFactIdentity,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactScope as CanonicalMemoryFactScope,
 )
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
@@ -43,6 +53,160 @@ def test_document_delete_serializes_with_fact_update_when_postgres_is_configured
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_document_delete_serializes_with_fact_update(database_url))
+
+
+def test_document_delete_uses_shared_two_fact_lock_order_when_postgres_is_configured() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_document_delete_uses_shared_two_fact_lock_order(database_url))
+
+
+async def _assert_document_delete_uses_shared_two_fact_lock_order(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="document_delete_two_fact_lock_order",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    multi_fact_task = delete_task = None
+    continue_multi_fact = asyncio.Event()
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_document())
+            session.add(_chunk())
+        async with sessions.begin() as session:
+            repository = PostgresFactRepository(session, now=NOW)
+            await repository.create(_fact(fact_id="fact-a", thread_id="thread-z"))
+            await repository.create(_fact(fact_id="fact-z", thread_id="thread-a"))
+
+        first_locked = asyncio.Event()
+        multi_fact_task = asyncio.create_task(
+            _lock_two_facts_in_shared_order(
+                sessions,
+                first_locked=first_locked,
+                continue_after_first=continue_multi_fact,
+            )
+        )
+        await asyncio.wait_for(first_locked.wait(), timeout=2)
+        pid_ready = asyncio.Event()
+        delete_pid: list[int] = []
+        clock = SystemClock()
+        delete_task = asyncio.create_task(
+            DeleteDocumentUseCase(
+                uow_factory=_TrackingUnitOfWorkFactory(
+                    session_factory=sessions,
+                    clock=clock,
+                    pid_ready=pid_ready,
+                    pid=delete_pid,
+                ),
+                clock=clock,
+            ).execute(DeleteDocumentCommand(document_id="document-race"))
+        )
+        await asyncio.wait_for(pid_ready.wait(), timeout=2)
+        await _wait_for_row_lock(engine, delete_pid[0])
+        continue_multi_fact.set()
+        locked_ids = await asyncio.wait_for(multi_fact_task, timeout=5)
+        assert locked_ids == ("fact-z", "fact-a")
+        multi_fact_task = None
+        result = await asyncio.wait_for(delete_task, timeout=5)
+        delete_task = None
+        assert (result.deleted_chunks, result.deleted_facts) == (1, 2)
+
+        async with sessions() as session:
+            facts = tuple(
+                (
+                    await session.execute(
+                        select(MemoryFactRow).order_by(MemoryFactRow.id)
+                    )
+                ).scalars()
+            )
+            versions = tuple(
+                (
+                    await session.execute(
+                        select(MemoryFactVersionRow).order_by(
+                            MemoryFactVersionRow.fact_id,
+                            MemoryFactVersionRow.version,
+                        )
+                    )
+                ).scalars()
+            )
+            outbox = tuple(
+                (
+                    await session.execute(
+                        select(
+                            MemoryOutboxRow.event_type,
+                            MemoryOutboxRow.aggregate_id,
+                        ).order_by(MemoryOutboxRow.id)
+                    )
+                ).all()
+            )
+        assert [(row.id, row.status, row.version) for row in facts] == [
+            ("fact-a", "deleted", 2),
+            ("fact-z", "deleted", 2),
+        ]
+        assert [(row.fact_id, row.version, row.status) for row in versions] == [
+            ("fact-a", 1, "active"),
+            ("fact-a", 2, "deleted"),
+            ("fact-z", 1, "active"),
+            ("fact-z", 2, "deleted"),
+        ]
+        assert outbox == (
+            ("vector.delete_chunks", "document-race"),
+            ("cognee.forget_document", "document-race"),
+            ("graph.delete_fact", "fact-z"),
+            ("graph.delete_fact", "fact-a"),
+        )
+    finally:
+        continue_multi_fact.set()
+        for task in (multi_fact_task, delete_task):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (multi_fact_task, delete_task) if task is not None),
+            return_exceptions=True,
+        )
+        await engine.dispose()
+        await database.drop()
+
+
+async def _lock_two_facts_in_shared_order(
+    sessions,
+    *,
+    first_locked: asyncio.Event,
+    continue_after_first: asyncio.Event,
+) -> tuple[str, ...]:
+    identities = tuple(
+        sorted(
+            (
+                CanonicalMemoryFactIdentity(
+                    "fact-a",
+                    CanonicalMemoryFactScope(
+                        "space-race", "scope-race", "thread-z"
+                    ),
+                ),
+                CanonicalMemoryFactIdentity(
+                    "fact-z",
+                    CanonicalMemoryFactScope(
+                        "space-race", "scope-race", "thread-a"
+                    ),
+                ),
+            ),
+            key=memory_fact_identity_lock_key,
+        )
+    )
+    async with sessions.begin() as session:
+        repository = PostgresFactRepository(session, now=NOW)
+        for index, identity in enumerate(identities):
+            assert await repository.get_for_update(identity.fact_id) is not None
+            if index == 0:
+                first_locked.set()
+                await continue_after_first.wait()
+    return tuple(identity.fact_id for identity in identities)
 
 
 async def _assert_document_delete_serializes_with_fact_update(database_url: str) -> None:
@@ -260,12 +424,17 @@ def _chunk() -> MemoryChunkRow:
     )
 
 
-def _fact() -> MemoryFact:
+def _fact(
+    *,
+    fact_id: str = "fact-race",
+    thread_id: str | None = None,
+) -> MemoryFact:
     return MemoryFact.create(
-        fact_id=MemoryFactId("fact-race"),
+        fact_id=MemoryFactId(fact_id),
         space_id=SpaceId("space-race"),
         memory_scope_id=MemoryScopeId("scope-race"),
-        text="Document-backed fact before concurrent update.",
+        thread_id=ThreadId(thread_id) if thread_id is not None else None,
+        text=f"Document-backed fact {fact_id} before concurrent update.",
         kind=MemoryKind.NOTE,
         source_refs=(
             SourceRef(
