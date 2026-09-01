@@ -444,10 +444,10 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         if not chunk_ids and not document_id:
             return ()
         chunk_id_set = set(chunk_ids)
-        candidate_rows = list(
+        candidate_ids = tuple(
             (
                 await self._session.execute(
-                    select(MemoryFactRow)
+                    select(MemoryFactRow.id)
                     .join(
                         MemorySourceRefRow,
                         (MemorySourceRefRow.fact_id == MemoryFactRow.id)
@@ -466,12 +466,21 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                         ),
                     )
                     .distinct()
+                    .order_by(MemoryFactRow.id)
                 )
             ).scalars()
         )
         deleted: list[tuple[str, int]] = []
-        for row in candidate_rows:
-            refs = await self._load_source_refs(fact_id=row.id, version=row.version)
+        for fact_id in candidate_ids:
+            current = await self.get_for_update(fact_id)
+            if (
+                current is None
+                or current.status.value != "active"
+                or str(current.space_id) != space_id
+                or str(current.memory_scope_id) != memory_scope_id
+            ):
+                continue
+            refs = current.source_refs
             if refs and all(
                 _source_ref_points_to_deleted_document(
                     ref,
@@ -480,7 +489,7 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 )
                 for ref in refs
             ):
-                forgotten = fact_row_to_domain(row, refs).forget(now=now)
+                forgotten = current.forget(now=now)
                 await self.save(forgotten)
                 deleted.append((str(forgotten.id), forgotten.version))
         return tuple(deleted)
