@@ -1,5 +1,5 @@
 import { resolveAuthToken, type AuthTokenProvider } from "./auth.js";
-import { InfinityContextError, networkError, redactSensitiveText } from "./errors.js";
+import { InfinityContextError, networkError, operationAbortError, redactSensitiveText } from "./errors.js";
 import type {
   InfinityContextInstrumentation,
   RequestErrorEvent,
@@ -86,6 +86,9 @@ export class HttpClient implements RequestExecutor {
     const operation = withTimeout(options.signal, options.timeoutMs ?? this.#timeoutMs);
     try {
       return await this.#requestWithinBudget<T>(options, operation.signal);
+    } catch (error) {
+      if (operation.signal?.aborted) throw operationAbortError(operation.signal.reason);
+      throw error;
     } finally {
       operation.cleanup();
     }
@@ -138,7 +141,7 @@ export class HttpClient implements RequestExecutor {
         if (!retry) throw error;
         await this.#retry(context, error, attempt, durationMs, signal);
       } catch (error) {
-        if (signal?.aborted) throw networkError(abortReason(signal));
+        if (signal?.aborted) throw operationAbortError(signal.reason);
         if (error instanceof InfinityContextError && error === lastError) throw error;
         const sdkError = error instanceof InfinityContextError ? error : networkError(error);
         lastError = sdkError;
@@ -284,24 +287,19 @@ async function notifyInstrumentation(
   try {
     result = callback();
   } catch {
+    if (signal?.aborted) throw operationAbortError(signal.reason);
     return;
   }
   try {
     await abortable(Promise.resolve(result), signal);
   } catch {
-    if (signal?.aborted) throw abortReason(signal);
+    if (signal?.aborted) throw operationAbortError(signal.reason);
     // Instrumentation failures must not change SDK request semantics.
   }
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
-  if (signal?.aborted) throw abortReason(signal);
-}
-
-function abortReason(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new DOMException("Request aborted", "AbortError");
+  if (signal?.aborted) throw operationAbortError(signal.reason);
 }
 
 function monotonicNowMs(): number {

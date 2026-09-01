@@ -282,6 +282,138 @@ describe("transport, retry and errors", () => {
     expect(errors).toBe(0);
   });
 
+  it.each(["onError", "onRetry", "sleep"] as const)(
+    "normalizes timeout while %s never settles after a transport failure",
+    async (phase) => {
+      let sends = 0;
+      let errors = 0;
+      let retries = 0;
+      let sleeps = 0;
+      const client = new HttpClient({
+        transport: {
+          async send() {
+            sends += 1;
+            throw new Error("transport unavailable");
+          },
+        },
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          onError: () => {
+            errors += 1;
+            if (phase === "onError") return new Promise<void>(() => undefined);
+          },
+          onRetry: () => {
+            retries += 1;
+            if (phase === "onRetry") return new Promise<void>(() => undefined);
+          },
+        },
+        sleep: async () => {
+          sleeps += 1;
+          if (phase === "sleep") return new Promise<void>(() => undefined);
+        },
+      });
+
+      await expect(client.request({ method: "GET", path: "/failure", timeoutMs: 10 })).rejects.toMatchObject({
+        code: "memory.request_timeout",
+        retryable: true,
+      });
+      expect(sends).toBe(1);
+      expect(errors).toBe(1);
+      expect(retries).toBe(phase === "onError" ? 0 : 1);
+      expect(sleeps).toBe(phase === "sleep" ? 1 : 0);
+    },
+  );
+
+  it.each(["onError", "onRetry", "sleep"] as const)(
+    "normalizes caller abort while %s never settles after a transport failure",
+    async (phase) => {
+      const controller = new AbortController();
+      const reason = new Error(`cancel during ${phase}`);
+      let sends = 0;
+      const hang = () => {
+        controller.abort(reason);
+        return new Promise<void>(() => undefined);
+      };
+      const client = new HttpClient({
+        transport: {
+          async send() {
+            sends += 1;
+            throw new Error("transport unavailable");
+          },
+        },
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          onError: () => phase === "onError" ? hang() : undefined,
+          onRetry: () => phase === "onRetry" ? hang() : undefined,
+        },
+        sleep: async () => {
+          if (phase === "sleep") await hang();
+        },
+      });
+
+      await expect(client.request({ method: "GET", path: "/failure", signal: controller.signal })).rejects.toMatchObject({
+        code: "memory.request_aborted",
+        retryable: false,
+        message: reason.message,
+        cause: reason,
+      });
+      expect(sends).toBe(1);
+    },
+  );
+
+  it.each([
+    ["string", "cancel string", "memory.request_aborted", false],
+    ["generic Error", new Error("cancel error"), "memory.request_aborted", false],
+    ["AbortError", new DOMException("cancel abort", "AbortError"), "memory.request_aborted", false],
+    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_timeout", true],
+  ] as const)("classifies caller %s reasons from the operation signal", async (_name, reason, code, retryable) => {
+    const controller = new AbortController();
+    const transport = new HangingTransport();
+    const client = new HttpClient({ transport, timeoutMs: 0, retryPolicy: { maxAttempts: 2 } });
+    const request = client.request({ method: "GET", path: "/cancel", signal: controller.signal });
+    await waitForRecordedRequests(transport, 1);
+    controller.abort(reason);
+
+    try {
+      await request;
+      throw new Error("expected request to be cancelled");
+    } catch (error) {
+      expect(error).toMatchObject({ code, retryable, message: reason instanceof Error ? reason.message : reason });
+      expect((error as Error).cause).toBe(reason);
+    }
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it("propagates a caller abort when onResponse aborts synchronously and throws", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancel in response hook");
+    let responses = 0;
+    let errors = 0;
+    const transport = new RecordingTransport([jsonResponse({ enabled_adapters: [] })]);
+    const client = new InfinityContextClient({
+      transport,
+      retryPolicy: { maxAttempts: 2 },
+      instrumentation: {
+        onResponse: () => {
+          responses += 1;
+          controller.abort(reason);
+          throw new Error("instrumentation failed after abort");
+        },
+        onError: () => { errors += 1; },
+      },
+    });
+
+    await expect(client.system.capabilities({ signal: controller.signal })).rejects.toMatchObject({
+      code: "memory.request_aborted",
+      retryable: false,
+      message: reason.message,
+      cause: reason,
+    });
+    expect(transport.requests).toHaveLength(1);
+    expect(responses).toBe(1);
+    expect(errors).toBe(0);
+  });
+
   it("bounds a never-settling fetch before response buffering begins", async () => {
     const fetchLike = (() => new Promise<Response>(() => undefined)) as typeof fetch;
     const transport = new FetchTransport(fetchLike);

@@ -20,6 +20,7 @@ export interface InfinityContextErrorOptions {
   readonly retryAfterMs?: number | undefined;
   readonly details?: JsonValue | undefined;
   readonly requestId?: string | undefined;
+  readonly cause?: unknown;
 }
 
 export class InfinityContextError extends Error {
@@ -31,7 +32,8 @@ export class InfinityContextError extends Error {
   readonly requestId: string | undefined;
 
   constructor(options: InfinityContextErrorOptions) {
-    super(redactSensitiveText(options.message).slice(0, 500));
+    const message = redactSensitiveText(options.message).slice(0, 500);
+    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
     this.name = "InfinityContextError";
     this.statusCode = options.statusCode;
     this.code = options.code;
@@ -42,6 +44,24 @@ export class InfinityContextError extends Error {
   }
 }
 
+export function operationAbortError(cause: unknown): InfinityContextError {
+  if (errorName(cause) === "TimeoutError") {
+    return networkError(cause);
+  }
+  const message = cause instanceof Error
+    ? cause.message
+    : typeof cause === "string" && cause.length > 0
+      ? cause
+      : "Infinity Context request aborted";
+  return new InfinityContextError({
+    statusCode: 0,
+    code: "memory.request_aborted",
+    message,
+    retryable: false,
+    cause,
+  });
+}
+
 export function networkError(cause: unknown): InfinityContextError {
   const name = errorName(cause);
   if (name === "TimeoutError") {
@@ -50,6 +70,7 @@ export function networkError(cause: unknown): InfinityContextError {
       code: "memory.request_timeout",
       message: cause instanceof Error ? cause.message : "Infinity Context request timed out",
       retryable: true,
+      cause,
     });
   }
   if (name === "AbortError") {
@@ -58,6 +79,7 @@ export function networkError(cause: unknown): InfinityContextError {
       code: "memory.request_aborted",
       message: cause instanceof Error ? cause.message : "Infinity Context request aborted",
       retryable: false,
+      cause,
     });
   }
   const message = cause instanceof Error ? cause.message : "Infinity Context request failed";
@@ -66,6 +88,7 @@ export function networkError(cause: unknown): InfinityContextError {
     code: "memory.network_error",
     message,
     retryable: true,
+    cause,
   });
 }
 
