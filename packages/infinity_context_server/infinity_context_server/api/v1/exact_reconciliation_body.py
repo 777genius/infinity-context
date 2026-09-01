@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +15,7 @@ from infinity_context_contracts.features.document_ingestion import (
     EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
     ExactDocumentReconciliationResultDto,
 )
+from pydantic import TypeAdapter, ValidationError
 from starlette.requests import ClientDisconnect
 
 from infinity_context_server.features.document_ingestion import public as document_ingestion
@@ -24,6 +25,12 @@ MAX_EXACT_RECONCILIATION_BODY_BYTES = 16_384
 MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS = 10.0
 _BODY_STATE_KEY = "exact_reconciliation_body"
 _DTO_STATE_KEY = "exact_reconciliation_request"
+_DEADLINE_FIELD = document_ingestion.ReconcileExactDocumentHttpRequest.model_fields[
+    "deadline_ms"
+]
+_DEADLINE_ADAPTER = TypeAdapter(
+    Annotated[_DEADLINE_FIELD.annotation, *_DEADLINE_FIELD.metadata]
+)
 
 
 class ExactReconciliationRoute(APIRoute):
@@ -36,6 +43,7 @@ class ExactReconciliationRoute(APIRoute):
 
         async def bounded_handler(request: Request) -> Response:
             started = asyncio.get_running_loop().time()
+            deadline_scope: asyncio.Timeout | None = None
             try:
                 async with asyncio.timeout_at(
                     started + MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS
@@ -54,6 +62,8 @@ class ExactReconciliationRoute(APIRoute):
             except (asyncio.CancelledError, ClientDisconnect):
                 raise
             except TimeoutError as exc:
+                if deadline_scope is None or not deadline_scope.expired():
+                    raise
                 dto = cached_exact_reconciliation_request(request)
                 if dto is None:
                     raise HTTPException(
@@ -66,8 +76,10 @@ class ExactReconciliationRoute(APIRoute):
 
 
 def cached_exact_reconciliation_body(request: Request) -> dict[str, Any] | None:
-    value = getattr(request.state, _BODY_STATE_KEY, None)
-    return value if isinstance(value, dict) else None
+    if not hasattr(request.state, _BODY_STATE_KEY):
+        return None
+    value = getattr(request.state, _BODY_STATE_KEY)
+    return value if isinstance(value, dict) else {}
 
 
 def cache_exact_reconciliation_request(
@@ -107,8 +119,8 @@ async def execute_with_disconnect(request: Request, awaitable: Awaitable[Any]) -
             raise cleanup_cancellation
 
 
-async def _decode_body(request: Request) -> tuple[bytes, dict[str, Any]]:
-    _validate_headers(request)
+async def _decode_body(request: Request) -> tuple[bytes, Any]:
+    _validate_content_length(request)
     raw = bytearray()
     async for chunk in request.stream():
         if len(raw) + len(chunk) > MAX_EXACT_RECONCILIATION_BODY_BYTES:
@@ -132,28 +144,10 @@ async def _decode_body(request: Request) -> tuple[bytes, dict[str, Any]]:
                 }
             ]
         ) from exc
-    if not isinstance(decoded, dict):
-        raise RequestValidationError(
-            [
-                {
-                    "type": "dict_type",
-                    "loc": ("body",),
-                    "msg": "Input should be an object",
-                    "input": decoded,
-                }
-            ]
-        )
     return encoded, decoded
 
 
-def _validate_headers(request: Request) -> None:
-    content_type = request.headers.get("content-type")
-    normalized = "" if content_type is None else content_type.casefold().replace(" ", "")
-    if normalized not in {"application/json", "application/json;charset=utf-8"}:
-        raise HTTPException(status_code=415, detail="Content-Type must be application/json")
-    encoding = request.headers.get("content-encoding")
-    if encoding is not None and encoding.strip().casefold() != "identity":
-        raise HTTPException(status_code=415, detail="Content-Encoding is not supported")
+def _validate_content_length(request: Request) -> None:
     length = request.headers.get("content-length")
     if length is None:
         return
@@ -170,11 +164,14 @@ def _validate_headers(request: Request) -> None:
         )
 
 
-def _valid_deadline_ms(body: dict[str, Any]) -> int | None:
-    value = body.get("deadline_ms", 5_000)
-    if isinstance(value, int) and not isinstance(value, bool) and 50 <= value <= 10_000:
-        return value
-    return None
+def _valid_deadline_ms(body: Any) -> int | None:
+    if not isinstance(body, dict):
+        return None
+    value = body.get("deadline_ms", _DEADLINE_FIELD.default)
+    try:
+        return _DEADLINE_ADAPTER.validate_python(value)
+    except ValidationError:
+        return None
 
 
 def _unavailable_response(

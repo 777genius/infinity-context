@@ -117,3 +117,13 @@ def test_scoped_auth_reuses_the_boundary_decoded_object() -> None:
     decoded = asyncio.run(auth._json_body(request))
 
     assert decoded is cached
+
+
+@pytest.mark.parametrize("cached", [[], None, "invalid", 7])
+def test_scoped_auth_reuses_arbitrary_boundary_json_as_an_empty_scope(cached) -> None:
+    request = _request()
+    request.state.exact_reconciliation_body = cached
+
+    decoded = asyncio.run(auth._json_body(request))
+
+    assert decoded == {}

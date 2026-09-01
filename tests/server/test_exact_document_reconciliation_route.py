@@ -194,6 +194,84 @@ def test_auth_runs_before_typed_contract_validation() -> None:
     assert response.status_code == 401
 
 
+@pytest.mark.parametrize("body", [[], None, "not-an-object", 7])
+def test_auth_runs_before_non_object_contract_validation(body) -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    async def reject_request() -> None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    app.dependency_overrides[require_service_token] = reject_request
+    response = TestClient(app).post(
+        "/v1/documents/reconcile-exact",
+        content=json.dumps(body),
+    )
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize("deadline_ms", [50.0, "50"])
+def test_deadline_uses_the_typed_field_coercion(deadline_ms) -> None:
+    class Handler:
+        async def execute(self, _query):
+            await asyncio.sleep(0.2)
+
+    response = _client(Handler()).post(
+        "/v1/documents/reconcile-exact",
+        json=_body(deadline_ms=deadline_ms),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["state"] == "unavailable"
+
+
+@pytest.mark.parametrize("content_type", [None, "application/vnd.infinity+json"])
+def test_fastapi_compatible_json_media_types_remain_accepted(content_type) -> None:
+    class Handler:
+        async def execute(self, query):
+            return ingestion.ExactDocumentReconciliation("absent", query.identity)
+
+    headers = {} if content_type is None else {"content-type": content_type}
+    response = _client(Handler()).post(
+        "/v1/documents/reconcile-exact",
+        content=json.dumps(_body()).encode(),
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["state"] == "absent"
+
+
+def test_unsupported_media_type_still_authenticates_before_typed_validation() -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    async def reject_request() -> None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    app.dependency_overrides[require_service_token] = reject_request
+    response = TestClient(app).post(
+        "/v1/documents/reconcile-exact",
+        content=json.dumps(_body()),
+        headers={"content-type": "text/plain"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_unrelated_authorization_timeout_is_not_translated() -> None:
+    app = FastAPI()
+    app.include_router(router, prefix="/v1")
+
+    async def fail_authorization() -> None:
+        raise TimeoutError("authorization backend timed out")
+
+    app.dependency_overrides[require_service_token] = fail_authorization
+    with pytest.raises(TimeoutError, match="authorization backend"):
+        TestClient(app).post("/v1/documents/reconcile-exact", json=_body())
+
+
 def test_openapi_preserves_typed_request_component_reference() -> None:
     app = FastAPI()
     app.include_router(router, prefix="/v1")
@@ -272,5 +350,81 @@ def test_disconnect_during_authorization_cancels_the_whole_route() -> None:
             await asyncio.wait_for(task, timeout=1)
         assert authorization_cancelled.is_set()
         assert disconnect_receiver_finished.is_set()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("cancellations", [1, 2])
+def test_external_cancellation_drains_route_and_receiver_tasks(cancellations) -> None:
+    async def scenario() -> None:
+        authorization_started = asyncio.Event()
+        authorization_finished = asyncio.Event()
+        receiver_started = asyncio.Event()
+        receiver_finished = asyncio.Event()
+        body_delivered = False
+
+        async def blocked_authorization() -> None:
+            authorization_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0.02)
+                authorization_finished.set()
+
+        async def receive():
+            nonlocal body_delivered
+            if not body_delivered:
+                body_delivered = True
+                return {
+                    "type": "http.request",
+                    "body": json.dumps(_body()).encode(),
+                    "more_body": False,
+                }
+            receiver_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0.02)
+                receiver_finished.set()
+
+        async def send(_message) -> None:
+            return None
+
+        app = FastAPI()
+        app.include_router(router, prefix="/v1")
+        app.dependency_overrides[require_service_token] = blocked_authorization
+        current = asyncio.current_task()
+        assert current is not None
+        baseline = asyncio.all_tasks() - {current}
+        task = asyncio.create_task(
+            app(
+                {
+                    "type": "http",
+                    "asgi": {"version": "3.0"},
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": "/v1/documents/reconcile-exact",
+                    "raw_path": b"/v1/documents/reconcile-exact",
+                    "query_string": b"",
+                    "headers": [(b"content-type", b"application/json")],
+                    "client": ("test", 123),
+                    "server": ("test", 80),
+                },
+                receive,
+                send,
+            )
+        )
+        await asyncio.wait_for(authorization_started.wait(), timeout=1)
+        await asyncio.wait_for(receiver_started.wait(), timeout=1)
+        task.cancel()
+        if cancellations == 2:
+            asyncio.get_running_loop().call_later(0.005, task.cancel)
+
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1)
+        assert authorization_finished.is_set()
+        assert receiver_finished.is_set()
+        assert asyncio.all_tasks() - {current} == baseline
 
     asyncio.run(scenario())
