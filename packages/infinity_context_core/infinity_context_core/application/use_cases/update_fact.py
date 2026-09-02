@@ -29,6 +29,7 @@ class UpdateFactUseCase:
                 uow,
                 space_id=str(observed.space_id),
                 memory_scope_id=str(observed.memory_scope_id),
+                thread_id=str(observed.thread_id) if observed.thread_id is not None else None,
                 source_refs=command.source_refs,
             )
             current = await uow.facts.get_for_update(command.fact_id)

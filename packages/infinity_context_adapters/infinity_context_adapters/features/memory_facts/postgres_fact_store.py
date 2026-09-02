@@ -511,6 +511,7 @@ class PostgresMemoryFactTransaction:
             self._session,
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
+            thread_id=scope.thread_id,
             source_refs=source_refs,
         )
 

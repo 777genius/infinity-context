@@ -23,14 +23,19 @@ from infinity_context_adapters.postgres.models import (
 )
 from infinity_context_adapters.postgres.unit_of_work import (
     PostgresUnitOfWork,
+    PostgresUnitOfWorkFactory,
     build_session_factory,
 )
 from infinity_context_core.application.dto import (
     DeleteDocumentCommand,
+    DeleteThreadMemoryCommand,
     RememberFactCommand,
     UpdateFactCommand,
 )
 from infinity_context_core.application.use_cases.delete_document import DeleteDocumentUseCase
+from infinity_context_core.application.use_cases.delete_thread_memory import (
+    DeleteThreadMemoryUseCase,
+)
 from infinity_context_core.application.use_cases.remember_fact import RememberFactUseCase
 from infinity_context_core.application.use_cases.update_fact import UpdateFactUseCase
 from infinity_context_core.domain.entities import (
@@ -99,6 +104,171 @@ def test_document_delete_admission_rejects_late_fact_reinstatement() -> None:
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_delete_admission_rejects_late_reinstatement(database_url))
+
+
+def test_thread_delete_rejects_concurrent_late_fact_create_and_update() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_thread_delete_rejects_late_fact_writers(database_url))
+
+
+async def _assert_thread_delete_rejects_late_fact_writers(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="thread_delete_late_fact_writers",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    deletion = create_writer = update_writer = None
+    release_delete = asyncio.Event()
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        document = _document()
+        document.thread_id = "thread-race"
+        chunk = _chunk()
+        chunk.thread_id = "thread-race"
+        async with sessions.begin() as session:
+            session.add_all((document, chunk))
+        async with sessions.begin() as session:
+            await PostgresFactRepository(session, now=NOW).create(
+                _fact(fact_id="fact-update", thread_id="thread-race")
+            )
+
+        admitted = asyncio.Event()
+        clock = SystemClock()
+        deletion = asyncio.create_task(
+            DeleteThreadMemoryUseCase(
+                uow_factory=_ThreadDeleteGateUnitOfWorkFactory(
+                    session_factory=sessions,
+                    clock=clock,
+                    admitted=admitted,
+                    release=release_delete,
+                )
+            ).execute(
+                DeleteThreadMemoryCommand(
+                    space_id=SpaceId("space-race"),
+                    memory_scope_id=MemoryScopeId("scope-race"),
+                    thread_id=ThreadId("thread-race"),
+                )
+            )
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=2)
+
+        ref = SourceRef("document", "document-race", chunk_id="chunk-race")
+        writer_factory = PostgresUnitOfWorkFactory(
+            session_factory=sessions,
+            clock=clock,
+        )
+        create_writer = asyncio.create_task(
+            RememberFactUseCase(
+                uow_factory=writer_factory,
+                clock=clock,
+                ids=UuidIdGenerator(),
+            ).execute(
+                RememberFactCommand(
+                    space_id=SpaceId("space-race"),
+                    memory_scope_id=MemoryScopeId("scope-race"),
+                    thread_id=ThreadId("thread-race"),
+                    text="Late thread fact must not survive deletion.",
+                    kind=MemoryKind.NOTE,
+                    source_refs=(ref,),
+                )
+            )
+        )
+        update_writer = asyncio.create_task(
+            UpdateFactUseCase(uow_factory=writer_factory, clock=clock).execute(
+                UpdateFactCommand(
+                    fact_id="fact-update",
+                    expected_version=1,
+                    text="Late update must not survive thread deletion.",
+                    source_refs=(ref,),
+                    reason="exercise thread deletion admission",
+                )
+            )
+        )
+        await asyncio.sleep(0.1)
+        assert not create_writer.done()
+        assert not update_writer.done()
+
+        release_delete.set()
+        result = await asyncio.wait_for(deletion, timeout=5)
+        deletion = None
+        assert result.deleted_facts == 1
+        for writer in (create_writer, update_writer):
+            with pytest.raises(MemoryConflictError, match="deleted document"):
+                await asyncio.wait_for(writer, timeout=5)
+        create_writer = update_writer = None
+
+        async with sessions() as session:
+            assert await session.scalar(
+                select(MemoryFactRow.id).where(
+                    MemoryFactRow.thread_id == "thread-race",
+                    MemoryFactRow.status == "active",
+                )
+            ) is None
+    finally:
+        release_delete.set()
+        for task in (deletion, create_writer, update_writer):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (deletion, create_writer, update_writer) if task is not None),
+            return_exceptions=True,
+        )
+        await engine.dispose()
+        await database.drop()
+
+
+class _ThreadDeleteGateScopeRepository:
+    def __init__(self, inner, *, admitted, release) -> None:
+        self._inner = inner
+        self._admitted = admitted
+        self._release = release
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def delete_thread_memory(self, **kwargs):
+        result = await self._inner.delete_thread_memory(**kwargs)
+        self._admitted.set()
+        await self._release.wait()
+        return result
+
+
+class _ThreadDeleteGateUnitOfWork(PostgresUnitOfWork):
+    def __init__(self, *, admitted, release, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._admitted = admitted
+        self._release = release
+
+    async def __aenter__(self):
+        entered = await super().__aenter__()
+        self.scope = _ThreadDeleteGateScopeRepository(
+            self.scope,
+            admitted=self._admitted,
+            release=self._release,
+        )
+        return entered
+
+
+class _ThreadDeleteGateUnitOfWorkFactory:
+    def __init__(self, *, session_factory, clock, admitted, release) -> None:
+        self._session_factory = session_factory
+        self._clock = clock
+        self._admitted = admitted
+        self._release = release
+
+    def __call__(self):
+        return _ThreadDeleteGateUnitOfWork(
+            session_factory=self._session_factory,
+            clock=self._clock,
+            admitted=self._admitted,
+            release=self._release,
+        )
 
 
 async def _assert_delete_admission_rejects_late_reinstatement(database_url: str) -> None:

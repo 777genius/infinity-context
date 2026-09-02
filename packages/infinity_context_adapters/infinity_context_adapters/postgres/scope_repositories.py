@@ -18,6 +18,9 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    lock_thread_fact_writes,
+)
 from infinity_context_adapters.postgres.mappers import (
     memory_scope_row_to_domain,
     space_row_to_domain,
@@ -332,6 +335,38 @@ class PostgresScopeRepository(ScopeRepositoryPort):
         memory_scope_id: str,
         thread_id: str,
     ) -> SessionDeleteResult:
+        await lock_thread_fact_writes(
+            self._session,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
+        document_rows = await self._lock_active_thread_rows(
+            MemoryDocumentRow,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
+        chunk_rows = await self._lock_active_thread_rows(
+            MemoryChunkRow,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
+        fact_rows = await self._lock_active_thread_rows(
+            MemoryFactRow,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
+        await self._require_unchanged_thread_deletion_set(
+            document_ids=tuple(row.id for row in document_rows),
+            chunk_ids=tuple(row.id for row in chunk_rows),
+            fact_ids=tuple(row.id for row in fact_rows),
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+        )
         aggregate_ids = await self._aggregate_ids_for_thread(
             space_id=space_id,
             memory_scope_id=memory_scope_id,
@@ -340,30 +375,28 @@ class PostgresScopeRepository(ScopeRepositoryPort):
         # Prune obsolete work before canonical mutations enqueue authoritative
         # profile tombstones. Those new tombstones must survive this transaction.
         jobs = await self._delete_outbox_for_aggregate_ids(aggregate_ids)
-        chunk_versions = await self._soft_delete_chunk_versions(
-            space_id=space_id,
-            memory_scope_id=memory_scope_id,
-            thread_id=thread_id,
+        chunk_versions = tuple(
+            CanonicalChunkVersion(
+                chunk_id=row.id,
+                canonical_version=row.retrieval_version,
+            )
+            for row in chunk_rows
         )
+        for row in chunk_rows:
+            row.status = "deleted"
+            row.retrieval_version += 1
         chunk_ids = tuple(item.chunk_id for item in chunk_versions)
-        fact_ids = await self._soft_delete_ids(
-            MemoryFactRow,
-            space_id=space_id,
-            memory_scope_id=memory_scope_id,
-            thread_id=thread_id,
-        )
+        fact_ids = tuple(row.id for row in fact_rows)
+        for row in fact_rows:
+            row.status = "deleted"
         await self._soft_delete_ids(
             MemoryEpisodeRow,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
-        await self._soft_delete_ids(
-            MemoryDocumentRow,
-            space_id=space_id,
-            memory_scope_id=memory_scope_id,
-            thread_id=thread_id,
-        )
+        for row in document_rows:
+            row.status = "deleted"
         return SessionDeleteResult(
             deleted_chunks=len(chunk_ids),
             deleted_facts=len(fact_ids),
@@ -372,6 +405,55 @@ class PostgresScopeRepository(ScopeRepositoryPort):
             deleted_chunk_versions=chunk_versions,
             deleted_fact_ids=fact_ids,
         )
+
+    async def _lock_active_thread_rows(
+        self,
+        model,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str,
+    ) -> tuple:
+        return tuple(
+            (
+                await self._session.execute(
+                    select(model)
+                    .where(
+                        model.space_id == space_id,
+                        model.memory_scope_id == memory_scope_id,
+                        model.thread_id == thread_id,
+                        model.status != "deleted",
+                    )
+                    .order_by(model.id)
+                    .with_for_update()
+                )
+            ).scalars()
+        )
+
+    async def _require_unchanged_thread_deletion_set(
+        self,
+        *,
+        document_ids: tuple[str, ...],
+        chunk_ids: tuple[str, ...],
+        fact_ids: tuple[str, ...],
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str,
+    ) -> None:
+        for model, locked_ids in (
+            (MemoryDocumentRow, document_ids),
+            (MemoryChunkRow, chunk_ids),
+            (MemoryFactRow, fact_ids),
+        ):
+            current_ids = await self._ids_for_thread(
+                model,
+                space_id=space_id,
+                memory_scope_id=memory_scope_id,
+                thread_id=thread_id,
+                active_only=True,
+            )
+            if set(current_ids) != set(locked_ids):
+                raise MemoryConflictError("Thread memory changed during deletion coordination")
 
     async def thread_status(
         self,
@@ -434,40 +516,6 @@ class PostgresScopeRepository(ScopeRepositoryPort):
             .values(status="deleted")
         )
         return ids
-
-    async def _soft_delete_chunk_versions(
-        self,
-        *,
-        space_id: str,
-        memory_scope_id: str,
-        thread_id: str,
-    ) -> tuple[CanonicalChunkVersion, ...]:
-        rows = list(
-            (
-                await self._session.execute(
-                    select(MemoryChunkRow)
-                    .where(
-                        MemoryChunkRow.space_id == space_id,
-                        MemoryChunkRow.memory_scope_id == memory_scope_id,
-                        MemoryChunkRow.thread_id == thread_id,
-                        MemoryChunkRow.status != "deleted",
-                    )
-                    .order_by(MemoryChunkRow.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
-        versions = tuple(
-            CanonicalChunkVersion(
-                chunk_id=row.id,
-                canonical_version=row.retrieval_version,
-            )
-            for row in rows
-        )
-        for row in rows:
-            row.status = "deleted"
-            row.retrieval_version += 1
-        return versions
 
     async def _aggregate_ids_for_thread(
         self,

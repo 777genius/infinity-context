@@ -493,6 +493,7 @@ class ConsolidateCaptureUseCase:
                     uow,
                     space_id=str(current.space_id),
                     memory_scope_id=str(current.memory_scope_id),
+                    thread_id=str(current.thread_id) if current.thread_id is not None else None,
                     source_refs=tuple(
                         source_ref
                         for fact in pending_auto_applied_facts

@@ -9,6 +9,9 @@ from datetime import UTC, datetime
 import pytest
 from infinity_context_adapters.noop import UuidIdGenerator
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    coordinate_document_source_ref_write,
+)
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
@@ -53,33 +56,73 @@ NOW = datetime(2026, 9, 2, tzinfo=UTC)
 
 
 @pytest.mark.parametrize(
-    ("case", "source_ref"),
+    ("case", "source_ref", "fact_thread_id"),
     (
         (
             "missing_chunk",
             SourceRef("document", "document-local", chunk_id="chunk-missing"),
+            None,
         ),
         (
             "cross_scope_chunk",
             SourceRef("document", "document-foreign", chunk_id="chunk-foreign"),
+            None,
         ),
-        ("missing_document", SourceRef("document", "document-missing")),
-        ("cross_scope_document", SourceRef("document", "document-foreign")),
+        ("missing_document", SourceRef("document", "document-missing"), None),
+        ("cross_scope_document", SourceRef("document", "document-foreign"), None),
         (
             "inactive_chunk",
             SourceRef("document", "document-inactive-chunk", chunk_id="chunk-inactive"),
+            None,
         ),
-        ("inactive_document", SourceRef("document", "document-inactive")),
+        ("inactive_document", SourceRef("document", "document-inactive"), None),
+        (
+            "cross_thread_chunk",
+            SourceRef("document", "document-foreign-thread", chunk_id="chunk-foreign-thread"),
+            "thread-local",
+        ),
+        (
+            "cross_thread_document",
+            SourceRef("document", "document-foreign-thread"),
+            "thread-local",
+        ),
+        (
+            "global_fact_private_document",
+            SourceRef("document", "document-private"),
+            None,
+        ),
     ),
 )
 def test_canonical_source_ref_completeness_fails_before_fact_write(
     case: str,
     source_ref: SourceRef,
+    fact_thread_id: str | None,
 ) -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_invalid_reference_fails_closed(database_url, case, source_ref))
+    asyncio.run(
+        _assert_invalid_reference_fails_closed(
+            database_url,
+            case,
+            source_ref,
+            fact_thread_id,
+        )
+    )
+
+
+def test_thread_fact_accepts_exact_and_global_document_evidence() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_thread_fact_accepts_visible_evidence(database_url))
+
+
+def test_chunk_parent_change_between_resolution_and_lock_fails_closed() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_chunk_parent_change_fails_closed(database_url))
 
 
 def test_opposing_order_consolidations_lock_document_union_once() -> None:
@@ -93,6 +136,7 @@ async def _assert_invalid_reference_fails_closed(
     database_url: str,
     case: str,
     source_ref: SourceRef,
+    fact_thread_id: str | None,
 ) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
@@ -127,6 +171,18 @@ async def _assert_invalid_reference_fails_closed(
                 )
             if case == "inactive_document":
                 session.add(_document("document-inactive", status="deleted"))
+            if "cross_thread" in case:
+                session.add(_document("document-foreign-thread", thread_id="thread-foreign"))
+            if case == "cross_thread_chunk":
+                session.add(
+                    _chunk(
+                        "chunk-foreign-thread",
+                        "document-foreign-thread",
+                        thread_id="thread-foreign",
+                    )
+                )
+            if case == "global_fact_private_document":
+                session.add(_document("document-private", thread_id="thread-private"))
 
         use_case = RememberFactUseCase(
             uow_factory=PostgresUnitOfWorkFactory(
@@ -141,7 +197,7 @@ async def _assert_invalid_reference_fails_closed(
                 RememberFactCommand(
                     space_id=SpaceId("space-local"),
                     memory_scope_id=MemoryScopeId("scope-local"),
-                    thread_id=None,
+                    thread_id=fact_thread_id,
                     text="This write must fail before becoming canonical.",
                     kind=MemoryKind.NOTE,
                     source_refs=(source_ref,),
@@ -154,6 +210,141 @@ async def _assert_invalid_reference_fails_closed(
     finally:
         await engine.dispose()
         await database.drop()
+
+
+async def _assert_thread_fact_accepts_visible_evidence(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="fact_source_ref_thread_visibility",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add_all(
+                (
+                    _document("document-global"),
+                    _document("document-exact", thread_id="thread-local"),
+                    _chunk("chunk-global", "document-global"),
+                    _chunk("chunk-exact", "document-exact", thread_id="thread-local"),
+                )
+            )
+        use_case = RememberFactUseCase(
+            uow_factory=PostgresUnitOfWorkFactory(
+                session_factory=sessions,
+                clock=_FixedClock(),
+            ),
+            clock=_FixedClock(),
+            ids=UuidIdGenerator(),
+        )
+        result = await use_case.execute(
+            RememberFactCommand(
+                space_id=SpaceId("space-local"),
+                memory_scope_id=MemoryScopeId("scope-local"),
+                thread_id="thread-local",
+                text="Thread facts may use exact and shared evidence.",
+                kind=MemoryKind.NOTE,
+                source_refs=(
+                    SourceRef("document", "document-global", chunk_id="chunk-global"),
+                    SourceRef("document", "document-exact", chunk_id="chunk-exact"),
+                ),
+            )
+        )
+        assert str(result.fact.thread_id) == "thread-local"
+    finally:
+        await engine.dispose()
+        await database.drop()
+
+
+async def _assert_chunk_parent_change_fails_closed(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="fact_source_ref_parent_change",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    coordinator_session = None
+    task = None
+    release = asyncio.Event()
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add_all(
+                (
+                    _document("document-initial"),
+                    _document("document-late"),
+                    _chunk("chunk-moving", "document-initial"),
+                )
+            )
+
+        resolved = asyncio.Event()
+        coordinator_session = sessions()
+        await coordinator_session.begin()
+        gated_session = _InitialResolutionGateSession(
+            coordinator_session,
+            resolved=resolved,
+            release=release,
+        )
+        task = asyncio.create_task(
+            coordinate_document_source_ref_write(
+                gated_session,
+                space_id="space-local",
+                memory_scope_id="scope-local",
+                thread_id=None,
+                source_refs=(
+                    SourceRef(
+                        "document",
+                        "document-initial",
+                        chunk_id="chunk-moving",
+                    ),
+                ),
+            )
+        )
+        await asyncio.wait_for(resolved.wait(), timeout=2)
+        async with sessions.begin() as updater:
+            moving = await updater.get(MemoryChunkRow, "chunk-moving")
+            assert moving is not None
+            moving.document_id = "document-late"
+        release.set()
+        with pytest.raises(MemoryConflictError, match="parent changed"):
+            await asyncio.wait_for(task, timeout=5)
+        task = None
+    finally:
+        release.set()
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        if coordinator_session is not None:
+            await coordinator_session.rollback()
+            await coordinator_session.close()
+        await engine.dispose()
+        await database.drop()
+
+
+class _InitialResolutionGateSession:
+    def __init__(self, inner, *, resolved, release) -> None:
+        self._inner = inner
+        self._resolved = resolved
+        self._release = release
+        self._execute_count = 0
+
+    def get_bind(self):
+        return self._inner.get_bind()
+
+    async def execute(self, statement, *args, **kwargs):
+        result = await self._inner.execute(statement, *args, **kwargs)
+        self._execute_count += 1
+        if self._execute_count == 1:
+            self._resolved.set()
+            await self._release.wait()
+        return result
 
 
 async def _assert_opposing_order_consolidations_complete(database_url: str) -> None:
@@ -373,13 +564,14 @@ def _document(
     document_id: str,
     *,
     scope_id: str = "scope-local",
+    thread_id: str | None = None,
     status: str = "active",
 ) -> MemoryDocumentRow:
     return MemoryDocumentRow(
         id=document_id,
         space_id="space-local",
         memory_scope_id=scope_id,
-        thread_id=None,
+        thread_id=thread_id,
         title=document_id,
         source_type="document",
         source_external_id=document_id,
@@ -397,13 +589,14 @@ def _chunk(
     document_id: str,
     *,
     scope_id: str = "scope-local",
+    thread_id: str | None = None,
     status: str = "active",
 ) -> MemoryChunkRow:
     return MemoryChunkRow(
         id=chunk_id,
         space_id="space-local",
         memory_scope_id=scope_id,
-        thread_id=None,
+        thread_id=thread_id,
         document_id=document_id,
         episode_id=None,
         source_type="document",

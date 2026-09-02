@@ -139,6 +139,8 @@ class SupersedeFactHandler:
 
     async def execute(self, command: SupersedeFactCommand) -> SupersedeFactResult:
         async with self.uow_factory() as uow:
+            if command.successor_identity.scope != command.predecessor_identity.scope:
+                raise ValueError("Supersession facts must share one scope")
             await uow.lock_scope(command.successor_identity.scope)
             replayed = await uow.temporal_decisions.get_by_idempotency_key(
                 scope=command.successor_identity.scope,
@@ -154,6 +156,24 @@ class SupersedeFactHandler:
                     key=memory_fact_identity_lock_key,
                 )
             )
+            observed = tuple(
+                fact
+                for identity in ordered_identities
+                if (fact := await uow.facts.get(identity)) is not None
+            )
+            if len(observed) != len(ordered_identities):
+                raise LookupError("Supersession fact not found")
+            await uow.coordinate_source_refs(
+                scope=command.successor_identity.scope,
+                source_refs=tuple(
+                    dict.fromkeys(
+                        (
+                            *(ref for fact in observed for ref in fact.source_refs),
+                            *(evidence.source_ref for evidence in command.evidence_refs),
+                        )
+                    )
+                ),
+            )
             locked = await uow.facts.get_many_for_update(ordered_identities)
             replayed = await uow.temporal_decisions.get_by_idempotency_key(
                 scope=command.successor_identity.scope,
@@ -168,6 +188,14 @@ class SupersedeFactHandler:
                 predecessor_snapshot = by_identity[command.predecessor_identity]
             except KeyError as exc:
                 raise LookupError("Supersession fact not found") from exc
+            observed_by_identity = {fact.identity: fact for fact in observed}
+            for current in (successor_snapshot, predecessor_snapshot):
+                before_lock = observed_by_identity[current.identity]
+                if (
+                    current.visibility.version != before_lock.visibility.version
+                    or current.source_refs != before_lock.source_refs
+                ):
+                    raise ValueError("Supersession fact changed during source coordination")
             require_authorized_code_scope(
                 successor_snapshot,
                 command.authorized_code_scope,

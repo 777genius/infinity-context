@@ -955,6 +955,7 @@ class PostgresUnitOfWork:
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         source_refs: tuple[SourceRef, ...],
     ) -> None:
         if self._session is None:
@@ -963,6 +964,7 @@ class PostgresUnitOfWork:
             self._session,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
             source_refs=source_refs,
         )
 

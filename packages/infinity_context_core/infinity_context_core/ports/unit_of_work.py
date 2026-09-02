@@ -77,6 +77,7 @@ class UnitOfWorkPort(Protocol):
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         source_refs: tuple[SourceRef, ...],
     ) -> None:
         """Coordinate canonical document evidence before locking fact aggregates."""
@@ -95,6 +96,7 @@ async def coordinate_fact_source_refs(
     *,
     space_id: str,
     memory_scope_id: str,
+    thread_id: str | None,
     source_refs: tuple[SourceRef, ...],
 ) -> None:
     """Invoke document coordination when the persistence adapter provides it."""
@@ -104,5 +106,6 @@ async def coordinate_fact_source_refs(
         await coordinator(
             space_id=space_id,
             memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
             source_refs=source_refs,
         )

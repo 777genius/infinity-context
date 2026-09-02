@@ -76,6 +76,7 @@ class RememberFactUseCase:
                 uow,
                 space_id=str(command.space_id),
                 memory_scope_id=str(command.memory_scope_id),
+                thread_id=str(command.thread_id) if command.thread_id is not None else None,
                 source_refs=command.source_refs,
             )
             now = self._clock.now()
