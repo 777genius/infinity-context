@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -87,6 +87,7 @@ def reviewed_fact_decision(
     scope = MemoryFactScope(
         space_id=str(suggestion.space_id),
         memory_scope_id=str(suggestion.memory_scope_id),
+        thread_id=_canonical_source_thread_id(suggestion.review_payload or {}),
     )
     sources = tuple(_canonical_source_ref(ref) for ref in suggestion.source_refs)
     candidate = ReviewedFactCandidate(
@@ -238,6 +239,15 @@ def _canonical_source_ref(ref: object) -> MemoryFactSourceRef:
         time_end_ms=getattr(ref, "time_end_ms", None),
         bbox=getattr(ref, "bbox", None),
     )
+
+
+def _canonical_source_thread_id(payload: Mapping[str, object]) -> str | None:
+    value = payload.get("canonical_source_thread_id")
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise MemoryValidationError("Suggestion canonical source thread is invalid")
+    return value.strip()
 
 
 def _resolution_key(reason: str) -> str:

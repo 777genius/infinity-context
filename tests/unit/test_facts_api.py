@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 from typing import Any
 
+from facts_api_evidence_test_support import create_document_chunk
 from fastapi.testclient import TestClient
 from infinity_context_adapters.postgres.models import (
     MemoryOutboxRow,
@@ -166,6 +167,12 @@ def test_fact_multimodal_source_refs_survive_persistence_and_context(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path) as client:
+        chunk_id = create_document_chunk(
+            client,
+            scope={"space_id": "space_client_app", "memory_scope_id": "memory_scope_default"},
+            suffix="multimodal",
+            headers=auth_headers(),
+        )
         created = client.post(
             "/v1/facts",
             json={
@@ -174,7 +181,7 @@ def test_fact_multimodal_source_refs_survive_persistence_and_context(
                     {
                         "source_type": "asset_extraction",
                         "source_id": "extract_1",
-                        "chunk_id": "chunk_1",
+                        "chunk_id": chunk_id,
                         "quote_preview": "Alex approved launch",
                         "page_number": 2,
                         "time_start_ms": 1000,
@@ -233,8 +240,7 @@ def test_fact_multimodal_source_refs_survive_persistence_and_context(
     assert context_diagnostics["source_refs_returned"] == 1
     assert context_diagnostics["source_refs_truncated"] is False
     assert (
-        context_diagnostics["ranking_reason"]
-        == "canonical active fact matched query and filters"
+        context_diagnostics["ranking_reason"] == "canonical active fact matched query and filters"
     )
     assert context.json()["data"]["diagnostics"]["source_refs_with_bbox_count"] >= 1
 
@@ -500,6 +506,16 @@ def test_fact_update_context_only_renders_current_version(tmp_path: Path) -> Non
 
 def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
+        chunk_id = create_document_chunk(
+            client,
+            scope={
+                "space_slug": "related-space",
+                "memory_scope_external_ref": "backend",
+                "thread_external_ref": "thread-a",
+            },
+            suffix="related",
+            headers=auth_headers(),
+        )
         target = client.post(
             "/v1/facts",
             json={
@@ -513,8 +529,8 @@ def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) 
                 "source_refs": [
                     {
                         "source_type": "document",
-                        "source_id": "adr-1",
-                        "chunk_id": "chunk-a",
+                        "source_id": "evidence-related",
+                        "chunk_id": chunk_id,
                     }
                 ],
             },
@@ -533,8 +549,8 @@ def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) 
                 "source_refs": [
                     {
                         "source_type": "document",
-                        "source_id": "adr-1",
-                        "chunk_id": "chunk-a",
+                        "source_id": "evidence-related",
+                        "chunk_id": chunk_id,
                     }
                 ],
             },
@@ -563,7 +579,7 @@ def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) 
                 "kind": "architecture_decision",
                 "category": "architecture",
                 "tags": ["memory"],
-                "source_refs": [{"source_type": "document", "source_id": "adr-1"}],
+                "source_refs": [{"source_type": "manual", "source_id": "other-thread"}],
             },
             headers=auth_headers(),
         )
@@ -577,7 +593,7 @@ def test_related_facts_returns_explainable_same_scope_neighbors(tmp_path: Path) 
                 "classification": "restricted",
                 "category": "architecture",
                 "tags": ["memory"],
-                "source_refs": [{"source_type": "document", "source_id": "adr-1"}],
+                "source_refs": [{"source_type": "manual", "source_id": "restricted"}],
             },
             headers=auth_headers(),
         )

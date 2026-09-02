@@ -15,6 +15,7 @@ from infinity_context_adapters.postgres.document_source_ref_coordination import 
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryEpisodeRow,
     MemoryThreadRow,
 )
 from infinity_context_adapters.postgres.repositories import PostgresCaptureRepository
@@ -117,6 +118,13 @@ def test_thread_fact_accepts_exact_and_global_document_evidence() -> None:
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_thread_fact_accepts_visible_evidence(database_url))
+
+
+def test_thread_fact_accepts_live_episode_chunk_evidence() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_thread_fact_accepts_episode_evidence(database_url))
 
 
 def test_chunk_parent_change_between_resolution_and_lock_fails_closed() -> None:
@@ -263,6 +271,52 @@ async def _assert_thread_fact_accepts_visible_evidence(database_url: str) -> Non
                 source_refs=(
                     SourceRef("document", "document-global", chunk_id="chunk-global"),
                     SourceRef("document", "document-exact", chunk_id="chunk-exact"),
+                ),
+            )
+        )
+        assert str(result.fact.thread_id) == "thread-local"
+    finally:
+        await engine.dispose()
+        await database.drop()
+
+
+async def _assert_thread_fact_accepts_episode_evidence(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="fact_ref_episode",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_thread("thread-local"))
+            session.add(_episode("episode-local", "thread-local"))
+            await session.flush()
+            session.add(_episode_chunk("chunk-episode", "episode-local", "thread-local"))
+        result = await RememberFactUseCase(
+            uow_factory=PostgresUnitOfWorkFactory(
+                session_factory=sessions,
+                clock=_FixedClock(),
+            ),
+            clock=_FixedClock(),
+            ids=UuidIdGenerator(),
+        ).execute(
+            RememberFactCommand(
+                space_id=SpaceId("space-local"),
+                memory_scope_id=MemoryScopeId("scope-local"),
+                thread_id="thread-local",
+                text="Live episode evidence remains canonical.",
+                kind=MemoryKind.NOTE,
+                source_refs=(
+                    SourceRef(
+                        "system_audio",
+                        "episode-source",
+                        chunk_id="chunk-episode",
+                    ),
                 ),
             )
         )
@@ -615,6 +669,34 @@ def _thread(thread_id: str) -> MemoryThreadRow:
         created_at=NOW,
         updated_at=NOW,
     )
+
+
+def _episode(episode_id: str, thread_id: str) -> MemoryEpisodeRow:
+    return MemoryEpisodeRow(
+        id=episode_id,
+        space_id="space-local",
+        memory_scope_id="scope-local",
+        thread_id=thread_id,
+        source_type="system_audio",
+        source_external_id="episode-source",
+        text="Live episode evidence remains canonical.",
+        speaker="user",
+        trust_level="high",
+        status="active",
+        occurred_at=NOW,
+        created_at=NOW,
+        metadata_json={},
+    )
+
+
+def _episode_chunk(chunk_id: str, episode_id: str, thread_id: str) -> MemoryChunkRow:
+    row = _chunk(chunk_id, "unused", thread_id=thread_id)
+    row.document_id = None
+    row.episode_id = episode_id
+    row.source_type = "system_audio"
+    row.source_external_id = "episode-source"
+    row.kind = "episode_excerpt"
+    return row
 
 
 def _chunk(

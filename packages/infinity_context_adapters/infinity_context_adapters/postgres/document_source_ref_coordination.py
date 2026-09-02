@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryEpisodeRow,
     MemoryFactRow,
     MemorySourceRefRow,
     MemoryThreadRow,
@@ -33,6 +34,7 @@ class ScopedFactLike(Protocol):
 
 class ScopedChunkLike(Protocol):
     document_id: object | None
+    episode_id: object | None
     space_id: object
     memory_scope_id: object
     thread_id: object | None
@@ -71,6 +73,21 @@ async def lock_exact_thread_lifecycle(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:identity, 0))"),
         {"identity": identity},
     )
+
+
+async def _lock_document_lifecycles(
+    session: AsyncSession,
+    document_ids: Iterable[str],
+) -> None:
+    """Serialize parent reads with document deletion without requiring UPDATE ACLs."""
+
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    for document_id in sorted(set(document_ids)):
+        await session.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:identity, 0))"),
+            {"identity": f"document-lifecycle:{document_id}"},
+        )
 
 
 async def require_exact_thread_active(
@@ -215,6 +232,7 @@ async def lock_document_deletion_evidence(
             memory_scope_id=observed.memory_scope_id,
             thread_id=thread_id,
         )
+    await _lock_document_lifecycles(session, document_ids)
     documents = tuple(
         (
             await session.execute(
@@ -331,7 +349,9 @@ async def _observe_deletion_union(
     )
     document_ids = {document.id, *(item for item in parent_ids if item is not None)}
     document_ids.update(
-        ref.source_id for ref in refs if ref.source_type == "document" and ref.source_id
+        ref.source_id
+        for ref in refs
+        if ref.source_type == "document" and ref.chunk_id is None and ref.source_id
     )
     candidate_thread_ids = {row.thread_id for row in candidate_rows if row.thread_id is not None}
     return (
@@ -347,16 +367,16 @@ async def lock_chunk_parent_for_write(
     session: AsyncSession,
     chunk: ScopedChunkLike,
 ) -> None:
-    """Lock and validate a canonical chunk's document before mutation."""
+    """Lock and validate a document-owned chunk's parent before mutation."""
 
     document_id = chunk.document_id
     if document_id is None:
         return
+    await _lock_document_lifecycles(session, (str(document_id),))
     document = (
         await session.execute(
             select(MemoryDocumentRow)
             .where(MemoryDocumentRow.id == str(document_id))
-            .with_for_update()
             .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
@@ -445,43 +465,67 @@ async def coordinate_document_source_ref_batches(
     if not direct_document_ids and not chunk_ids:
         return
 
-    resolved_chunk_parents: dict[str, str | None] = {}
+    resolved_chunk_parents: dict[str, tuple[str | None, str | None]] = {}
     if chunk_ids:
         resolved_chunk_parents.update(
             (
                 row.id,
-                row.document_id,
+                (row.document_id, row.episode_id),
             )
             for row in (
                 await session.execute(
-                    select(MemoryChunkRow.id, MemoryChunkRow.document_id).where(
-                        MemoryChunkRow.id.in_(chunk_ids)
-                    )
+                    select(
+                        MemoryChunkRow.id,
+                        MemoryChunkRow.document_id,
+                        MemoryChunkRow.episode_id,
+                    ).where(MemoryChunkRow.id.in_(chunk_ids))
                 )
             )
         )
 
     if set(resolved_chunk_parents) != set(chunk_ids):
         raise MemoryConflictError("Fact source references a missing canonical chunk")
-    if any(document_id is None for document_id in resolved_chunk_parents.values()):
-        raise MemoryConflictError("Fact source chunk has no canonical parent document")
+    if any(
+        int(document_id is not None) + int(episode_id is not None) != 1
+        for document_id, episode_id in resolved_chunk_parents.values()
+    ):
+        raise MemoryConflictError("Fact source chunk has an invalid canonical owner")
 
     document_ids = set(direct_document_ids)
     document_ids.update(
-        document_id for document_id in resolved_chunk_parents.values() if document_id is not None
+        document_id
+        for document_id, _episode_id in resolved_chunk_parents.values()
+        if document_id is not None
     )
+    episode_ids = {
+        episode_id
+        for _document_id, episode_id in resolved_chunk_parents.values()
+        if episode_id is not None
+    }
 
+    await _lock_document_lifecycles(session, document_ids)
     documents = tuple(
         (
             await session.execute(
                 select(MemoryDocumentRow)
                 .where(MemoryDocumentRow.id.in_(tuple(sorted(document_ids))))
                 .order_by(MemoryDocumentRow.id)
-                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         ).scalars()
     )
     documents_by_id = {document.id: document for document in documents}
+    episodes = tuple(
+        (
+            await session.execute(
+                select(MemoryEpisodeRow)
+                .where(MemoryEpisodeRow.id.in_(tuple(sorted(episode_ids))))
+                .order_by(MemoryEpisodeRow.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+    )
+    episodes_by_id = {episode.id: episode for episode in episodes}
 
     # Re-read chunks only after all resolvable parent documents have been locked.
     # Document deletion follows the same document-first protocol, so their lifecycle
@@ -495,7 +539,6 @@ async def coordinate_document_source_ref_batches(
                     select(MemoryChunkRow)
                     .where(MemoryChunkRow.id.in_(chunk_ids))
                     .order_by(MemoryChunkRow.id)
-                    .with_for_update()
                     .execution_options(populate_existing=True)
                 )
             ).scalars()
@@ -503,14 +546,14 @@ async def coordinate_document_source_ref_batches(
 
     if set(chunks_by_id) != set(chunk_ids):
         raise MemoryConflictError("Fact source references a missing canonical chunk")
-    if any(chunk.document_id is None for chunk in chunks_by_id.values()):
-        raise MemoryConflictError("Fact source chunk has no canonical parent document")
     if {
-        chunk_id: chunk.document_id for chunk_id, chunk in chunks_by_id.items()
+        chunk_id: (chunk.document_id, chunk.episode_id) for chunk_id, chunk in chunks_by_id.items()
     } != resolved_chunk_parents:
         raise MemoryConflictError("Fact source chunk parent changed during coordination")
     if set(documents_by_id) != document_ids:
         raise MemoryConflictError("Fact source references a missing canonical document")
+    if set(episodes_by_id) != episode_ids:
+        raise MemoryConflictError("Fact source references a missing canonical episode")
     if any(
         chunk.space_id != space_id or chunk.memory_scope_id != memory_scope_id
         for chunk in chunks_by_id.values()
@@ -521,16 +564,17 @@ async def coordinate_document_source_ref_batches(
         for document in documents_by_id.values()
     ):
         raise MemoryConflictError("Fact source reference is outside the requested scope")
+    if any(
+        episode.space_id != space_id or episode.memory_scope_id != memory_scope_id
+        for episode in episodes_by_id.values()
+    ):
+        raise MemoryConflictError("Fact source reference is outside the requested scope")
     if any(document.status != "active" for document in documents_by_id.values()):
         raise MemoryConflictError("Fact source references a deleted document")
+    if any(episode.status != "active" for episode in episodes_by_id.values()):
+        raise MemoryConflictError("Fact source references an inactive canonical episode")
     if any(chunk.status != "active" for chunk in chunks_by_id.values()):
         raise MemoryConflictError("Fact source references an inactive canonical chunk")
-    if any(
-        chunks_by_id[ref.chunk_id].document_id != ref.source_id
-        for ref in refs
-        if ref.source_type == "document" and ref.chunk_id is not None
-    ):
-        raise MemoryConflictError("Fact source chunk does not belong to its document")
     for fact_thread_id, batch_refs in materialized:
         if any(
             ref.chunk_id is not None
@@ -549,11 +593,19 @@ async def coordinate_document_source_ref_batches(
             for ref in batch_refs
         ):
             raise MemoryConflictError("Fact source reference is outside the requested thread scope")
-    if any(
-        chunk.thread_id != documents_by_id[chunk.document_id].thread_id
-        for chunk in chunks_by_id.values()
-    ):
-        raise MemoryConflictError("Fact source chunk and document scopes do not match")
+    for chunk in chunks_by_id.values():
+        if chunk.document_id is not None:
+            owner = documents_by_id[chunk.document_id]
+        elif chunk.episode_id is not None:
+            owner = episodes_by_id[chunk.episode_id]
+        else:
+            raise MemoryConflictError("Fact source chunk has no canonical owner")
+        if (
+            chunk.space_id != owner.space_id
+            or chunk.memory_scope_id != owner.memory_scope_id
+            or chunk.thread_id != owner.thread_id
+        ):
+            raise MemoryConflictError("Fact source chunk and owner scopes do not match")
 
 
 def _thread_visible(*, owner_thread_id: str | None, fact_thread_id: str | None) -> bool:

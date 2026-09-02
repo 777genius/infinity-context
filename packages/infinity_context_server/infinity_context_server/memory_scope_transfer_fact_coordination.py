@@ -31,6 +31,7 @@ async def coordinate_and_stage_imported_facts(
     imported_fact_versions: dict[str, int],
     source_refs: list[dict[str, Any]],
     skipped_fact_ids: set[str],
+    skipped_chunk_ids: set[str],
     fact_id_map: dict[str, str],
     chunk_id_map: dict[str, str],
     document_id_map: dict[str, str],
@@ -43,6 +44,9 @@ async def coordinate_and_stage_imported_facts(
     refs_by_fact_id: dict[str, list[MemorySourceRefRow]] = {}
     for ref in source_refs:
         if str(ref["fact_id"]) in skipped_fact_ids:
+            continue
+        chunk_id = ref.get("chunk_id")
+        if chunk_id is not None and str(chunk_id) in skipped_chunk_ids:
             continue
         mapped_ref = _remap.remap_source_ref(
             ref,

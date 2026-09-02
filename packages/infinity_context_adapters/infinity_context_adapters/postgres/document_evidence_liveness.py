@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from infinity_context_core.domain.entities import MemoryFact, SourceRef
 from infinity_context_core.features.memory_facts.public import MemoryFactIdentity
 from sqlalchemy import select, tuple_
@@ -10,19 +12,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryEpisodeRow,
     MemoryFactRow,
     MemorySourceRefRow,
 )
 
 
+@dataclass(frozen=True, slots=True)
+class CanonicalEvidenceState:
+    chunks_by_id: dict[str, MemoryChunkRow]
+    documents_by_id: dict[str, MemoryDocumentRow]
+    episodes_by_id: dict[str, MemoryEpisodeRow]
+
+
 async def load_candidate_evidence_state(
     session: AsyncSession,
     identities: tuple[MemoryFactIdentity, ...],
-) -> tuple[dict[str, MemoryChunkRow], dict[str, MemoryDocumentRow]]:
+) -> CanonicalEvidenceState:
     """Load state already locked by the document-first deletion protocol."""
 
     if not identities:
-        return {}, {}
+        return CanonicalEvidenceState({}, {}, {})
     candidate_rows = tuple(
         (
             await session.execute(
@@ -54,9 +64,12 @@ async def load_candidate_evidence_state(
         ).scalars()
     )
     document_ids = {
-        ref.source_id for ref in refs if ref.source_type == "document" and ref.source_id
+        ref.source_id
+        for ref in refs
+        if ref.source_type == "document" and ref.chunk_id is None and ref.source_id
     }
     document_ids.update(chunk.document_id for chunk in chunks if chunk.document_id is not None)
+    episode_ids = {chunk.episode_id for chunk in chunks if chunk.episode_id is not None}
     documents = tuple(
         (
             await session.execute(
@@ -66,53 +79,77 @@ async def load_candidate_evidence_state(
             )
         ).scalars()
     )
-    return ({row.id: row for row in chunks}, {row.id: row for row in documents})
+    episodes = tuple(
+        (
+            await session.execute(
+                select(MemoryEpisodeRow).where(MemoryEpisodeRow.id.in_(episode_ids))
+            )
+        ).scalars()
+    )
+    return CanonicalEvidenceState(
+        chunks_by_id={row.id: row for row in chunks},
+        documents_by_id={row.id: row for row in documents},
+        episodes_by_id={row.id: row for row in episodes},
+    )
 
 
 def source_ref_has_live_evidence(
     ref: SourceRef,
     *,
     fact: MemoryFact,
-    chunks_by_id: dict[str, MemoryChunkRow],
-    documents_by_id: dict[str, MemoryDocumentRow],
+    evidence: CanonicalEvidenceState,
 ) -> bool:
     """Return whether a current ref retains live evidence after a deletion set."""
 
     if ref.chunk_id is None and ref.source_type != "document":
         return True
     if ref.chunk_id is not None:
-        chunk = chunks_by_id.get(ref.chunk_id)
-        if chunk is None or chunk.status != "active" or chunk.document_id is None:
+        chunk = evidence.chunks_by_id.get(ref.chunk_id)
+        if chunk is None or chunk.status != "active":
             return False
-        document = documents_by_id.get(chunk.document_id)
-        if document is None or document.status != "active":
+        if chunk.document_id is not None:
+            owner = evidence.documents_by_id.get(chunk.document_id)
+        elif chunk.episode_id is not None:
+            owner = evidence.episodes_by_id.get(chunk.episode_id)
+        else:
             return False
-        if ref.source_type == "document" and ref.source_id != document.id:
+        if owner is None or owner.status != "active":
             return False
-        return _matches_fact(fact=fact, document=document, chunk=chunk)
-    document = documents_by_id.get(ref.source_id)
+        return _matches_fact(
+            fact=fact,
+            owner_space_id=owner.space_id,
+            owner_memory_scope_id=owner.memory_scope_id,
+            owner_thread_id=owner.thread_id,
+        ) and (
+            chunk.space_id == owner.space_id
+            and chunk.memory_scope_id == owner.memory_scope_id
+            and chunk.thread_id == owner.thread_id
+        )
+    document = evidence.documents_by_id.get(ref.source_id)
     return bool(
         document is not None
         and document.status == "active"
-        and _matches_fact(fact=fact, document=document)
+        and _matches_fact(
+            fact=fact,
+            owner_space_id=document.space_id,
+            owner_memory_scope_id=document.memory_scope_id,
+            owner_thread_id=document.thread_id,
+        )
     )
 
 
 def _matches_fact(
-    *, fact: MemoryFact, document: MemoryDocumentRow, chunk: MemoryChunkRow | None = None
+    *,
+    fact: MemoryFact,
+    owner_space_id: str,
+    owner_memory_scope_id: str,
+    owner_thread_id: str | None,
 ) -> bool:
     fact_thread_id = str(fact.thread_id) if fact.thread_id is not None else None
-    if (
-        document.space_id != str(fact.space_id)
-        or document.memory_scope_id != str(fact.memory_scope_id)
-        or not _thread_visible(document.thread_id, fact_thread_id)
-    ):
-        return False
-    return chunk is None or (
-        chunk.space_id == document.space_id
-        and chunk.memory_scope_id == document.memory_scope_id
-        and chunk.thread_id == document.thread_id
-        and chunk.document_id == document.id
+    return (
+        owner_space_id == str(fact.space_id)
+        and owner_memory_scope_id == str(fact.memory_scope_id)
+        and _thread_visible(owner_thread_id, fact_thread_id)
     )
 
 
@@ -128,4 +165,8 @@ def _thread_visible(owner_thread_id: str | None, fact_thread_id: str | None) -> 
     )
 
 
-__all__ = ("load_candidate_evidence_state", "source_ref_has_live_evidence")
+__all__ = (
+    "CanonicalEvidenceState",
+    "load_candidate_evidence_state",
+    "source_ref_has_live_evidence",
+)

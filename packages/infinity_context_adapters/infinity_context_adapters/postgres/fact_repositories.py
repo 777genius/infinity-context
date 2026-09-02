@@ -470,7 +470,7 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
             document_id=document_id,
             chunk_ids=chunk_id_set,
         )
-        chunks_by_id, documents_by_id = await load_candidate_evidence_state(
+        evidence = await load_candidate_evidence_state(
             self._session,
             candidate_identities,
         )
@@ -489,8 +489,7 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
                 source_ref_has_live_evidence(
                     ref,
                     fact=current,
-                    chunks_by_id=chunks_by_id,
-                    documents_by_id=documents_by_id,
+                    evidence=evidence,
                 )
                 for ref in refs
             ):

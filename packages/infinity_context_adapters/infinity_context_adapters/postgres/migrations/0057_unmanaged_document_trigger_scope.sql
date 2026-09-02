@@ -2,6 +2,72 @@
 SET LOCAL lock_timeout = '5s';
 SET LOCAL statement_timeout = '30s';
 
+CREATE OR REPLACE FUNCTION memory_comparison_lock_benchmark_document_child_target()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+    target_document_id VARCHAR(80);
+    target_episode_id VARCHAR(80);
+    target_space_id VARCHAR(80);
+BEGIN
+    IF TG_TABLE_NAME = 'memory_outbox' THEN
+        IF TG_OP = 'DELETE' THEN
+            IF OLD.aggregate_type <> 'chunk' THEN RETURN OLD; END IF;
+            SELECT chunk.document_id, chunk.episode_id, document.space_id
+            INTO target_document_id, target_episode_id, target_space_id
+            FROM public.memory_chunks AS chunk
+            LEFT JOIN public.memory_documents AS document ON document.id = chunk.document_id
+            WHERE chunk.id = OLD.aggregate_id;
+        ELSE
+            IF NEW.aggregate_type <> 'chunk' THEN RETURN NEW; END IF;
+            SELECT chunk.document_id, chunk.episode_id, document.space_id
+            INTO target_document_id, target_episode_id, target_space_id
+            FROM public.memory_chunks AS chunk
+            LEFT JOIN public.memory_documents AS document ON document.id = chunk.document_id
+            WHERE chunk.id = NEW.aggregate_id;
+        END IF;
+    ELSE
+        IF TG_OP = 'DELETE' THEN
+            target_document_id := OLD.document_id;
+            target_episode_id := OLD.episode_id;
+        ELSIF TG_OP = 'UPDATE' THEN
+            target_document_id := COALESCE(NEW.document_id, OLD.document_id);
+            target_episode_id := COALESCE(NEW.episode_id, OLD.episode_id);
+        ELSE
+            target_document_id := NEW.document_id;
+            target_episode_id := NEW.episode_id;
+        END IF;
+        SELECT document.space_id INTO target_space_id
+        FROM public.memory_documents AS document
+        WHERE document.id = target_document_id;
+    END IF;
+    IF target_document_id IS NULL AND target_episode_id IS NOT NULL THEN
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
+    END IF;
+    IF target_document_id IS NULL OR target_space_id IS NULL THEN
+        RAISE EXCEPTION 'benchmark document child parent is missing'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
+    END IF;
+    BEGIN
+        PERFORM 1
+        FROM public.memory_comparison_benchmark_runs AS benchmark_run
+        WHERE benchmark_run.space_id = target_space_id
+        FOR SHARE NOWAIT;
+    EXCEPTION WHEN lock_not_available THEN
+        RAISE EXCEPTION 'benchmark document child writer fence rejected data mutation'
+            USING ERRCODE = '23514',
+                  CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';
+    END;
+    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+    RETURN NEW;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION memory_comparison_enforce_benchmark_document_child_fence()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -9,6 +75,7 @@ SET search_path = pg_catalog, public, pg_temp
 AS $$
 DECLARE
     target_document_id VARCHAR(80);
+    target_episode_id VARCHAR(80);
     target_space_id VARCHAR(80);
     parent_scope_id VARCHAR(80);
     parent_thread_id VARCHAR(80);
@@ -26,17 +93,30 @@ BEGIN
     IF TG_TABLE_NAME = 'memory_outbox' THEN
         IF TG_OP = 'DELETE' THEN
             IF OLD.aggregate_type <> 'chunk' THEN RETURN OLD; END IF;
-            SELECT chunk.document_id INTO target_document_id
+            SELECT chunk.document_id, chunk.episode_id
+            INTO target_document_id, target_episode_id
             FROM public.memory_chunks AS chunk WHERE chunk.id = OLD.aggregate_id;
         ELSE
             IF NEW.aggregate_type <> 'chunk' THEN RETURN NEW; END IF;
-            SELECT chunk.document_id INTO target_document_id
+            SELECT chunk.document_id, chunk.episode_id
+            INTO target_document_id, target_episode_id
             FROM public.memory_chunks AS chunk WHERE chunk.id = NEW.aggregate_id;
         END IF;
     ELSE
-        IF TG_OP = 'DELETE' THEN target_document_id := OLD.document_id;
-        ELSE target_document_id := NEW.document_id;
+        IF TG_OP = 'DELETE' THEN
+            target_document_id := OLD.document_id;
+            target_episode_id := OLD.episode_id;
+        ELSIF TG_OP = 'UPDATE' THEN
+            target_document_id := COALESCE(NEW.document_id, OLD.document_id);
+            target_episode_id := COALESCE(NEW.episode_id, OLD.episode_id);
+        ELSE
+            target_document_id := NEW.document_id;
+            target_episode_id := NEW.episode_id;
         END IF;
+    END IF;
+    IF target_document_id IS NULL AND target_episode_id IS NOT NULL THEN
+        IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+        RETURN NEW;
     END IF;
     SELECT document.space_id, document.memory_scope_id, document.thread_id,
            document.source_type, document.source_external_id,

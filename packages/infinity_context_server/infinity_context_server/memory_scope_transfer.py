@@ -742,6 +742,7 @@ async def import_memory_scope_payload(
             imported_fact_versions=imported_fact_versions,
             source_refs=source_refs,
             skipped_fact_ids=skipped["facts"],
+            skipped_chunk_ids=skipped["chunks"],
             fact_id_map=fact_id_map,
             chunk_id_map=chunk_id_map,
             document_id_map=document_id_map,

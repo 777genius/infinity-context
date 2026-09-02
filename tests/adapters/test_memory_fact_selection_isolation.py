@@ -16,6 +16,7 @@ from infinity_context_adapters.postgres import (
     build_session_factory,
     create_schema,
 )
+from infinity_context_adapters.postgres.models import MemoryThreadRow
 from infinity_context_core.features.memory_facts.public import (
     FactTemporalExtent,
     MemoryFactIdentity,
@@ -64,6 +65,7 @@ def test_postgres_selection_does_not_leak_other_threads(tmp_path: Path) -> None:
             await create_schema(engine)
             sessions = build_session_factory(engine)
             async with sessions() as session:
+                session.add_all((_thread("thread-a"), _thread("thread-b")))
                 store = PostgresMemoryFactStore(session)
                 for fact in _facts():
                     await store.create(fact)
@@ -163,4 +165,16 @@ def _query(*, thread_id: str | None) -> MemoryFactSelectionQuery:
         reference_time=NOW,
         limit=10,
         thread_id=thread_id,
+    )
+
+
+def _thread(thread_id: str) -> MemoryThreadRow:
+    return MemoryThreadRow(
+        id=thread_id,
+        space_id="space-1",
+        memory_scope_id="scope-1",
+        external_ref=thread_id,
+        status="active",
+        created_at=NOW,
+        updated_at=NOW,
     )

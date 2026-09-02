@@ -339,6 +339,9 @@ class ConsolidateCaptureUseCase:
                             "rejected_extractor_codes": list(validation.rejected_codes),
                             "rejected_resolver_codes": list(resolver_rejected_codes),
                             "unknown_taxonomy_labels": list(duplicate_taxonomy.unknown_labels),
+                            "canonical_source_thread_id": (
+                                str(current.thread_id) if current.thread_id is not None else None
+                            ),
                         },
                         now=now,
                     )
@@ -472,6 +475,9 @@ class ConsolidateCaptureUseCase:
                         "conflict_overlap_terms": list(active_conflict_match.overlap_terms)
                         if active_conflict_match is not None
                         else [],
+                        "canonical_source_thread_id": (
+                            str(current.thread_id) if current.thread_id is not None else None
+                        ),
                         "diff_preview": _diff_preview(target_fact, candidate.text),
                         "valid_from": candidate.valid_from.isoformat()
                         if candidate.valid_from

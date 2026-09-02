@@ -65,7 +65,7 @@ async def _assert_locked_current_versions_drive_document_fact_delete() -> None:
     assert [(str(fact.id), fact.version, fact.status) for fact in repository.saved] == [
         ("fact-b", 3, FactStatus.DELETED)
     ]
-    sql = str(session.statement.compile(dialect=postgresql.dialect()))
+    sql = str(session.statements[0].compile(dialect=postgresql.dialect()))
     assert "SELECT DISTINCT memory_facts.id" in sql
     assert "memory_facts.thread_id" in sql
     assert "ORDER BY" not in sql
@@ -85,6 +85,9 @@ class _Candidate:
         self.memory_scope_id = memory_scope_id
         self.thread_id = thread_id
 
+    def __iter__(self):
+        return iter((self.id, 2))
+
 
 class _CandidateRows:
     def __init__(self, rows: tuple[_Candidate, ...]) -> None:
@@ -93,14 +96,17 @@ class _CandidateRows:
     def all(self) -> tuple[_Candidate, ...]:
         return self._rows
 
+    def scalars(self) -> tuple[()]:
+        return ()
+
 
 class _CandidateSession:
     def __init__(self, rows: tuple[_Candidate, ...]) -> None:
         self._rows = rows
-        self.statement = None
+        self.statements = []
 
     async def execute(self, statement):
-        self.statement = statement
+        self.statements.append(statement)
         return _CandidateRows(self._rows)
 
 

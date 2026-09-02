@@ -269,6 +269,11 @@ class IngestEpisodeUseCase:
                         safe_reason=decision.reason,
                         confidence=decision.confidence,
                         trust_level=decision.trust_level,
+                        review_payload=(
+                            {"canonical_source_thread_id": str(command.thread_id)}
+                            if command.thread_id is not None
+                            else None
+                        ),
                         now=now,
                     )
                     saved = await uow.suggestions.create(suggestion)
