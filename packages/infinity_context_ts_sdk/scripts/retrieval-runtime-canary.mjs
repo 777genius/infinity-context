@@ -169,7 +169,15 @@ async function packageVersion() {
   return packageJson.version;
 }
 
-if (process.argv[1] !== undefined
-  && await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1])) {
+async function isMainEntry(moduleUrl, entryPath) {
+  if (typeof entryPath !== "string" || entryPath.length === 0) return false;
+  try {
+    return await realpath(fileURLToPath(moduleUrl)) === await realpath(entryPath);
+  } catch {
+    return false;
+  }
+}
+
+if (await isMainEntry(import.meta.url, process.argv[1])) {
   await runRetrievalRuntimeCanaryCli({ exitCodeTarget: process });
 }

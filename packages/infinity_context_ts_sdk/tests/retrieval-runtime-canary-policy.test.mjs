@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import * as sdk from "../src/index.js";
@@ -113,6 +113,32 @@ describe("Retrieval runtime canary policy", () => {
           message: "RETRIEVAL_CANARY_SPACE_ID is required",
         },
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("imports without side effects when argv[1] does not exist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "retrieval-canary-import-"));
+    const missingEntry = join(root, "missing-entry.mjs");
+    const cli = fileURLToPath(new URL("../scripts/retrieval-runtime-canary.mjs", import.meta.url));
+    const probe = [
+      `process.argv[1] = ${JSON.stringify(missingEntry)};`,
+      `await import(${JSON.stringify(pathToFileURL(cli).href)});`,
+      'process.stdout.write("imported-only\\n");',
+    ].join("\n");
+    try {
+      const result = spawnSync(process.execPath, ["--input-type=module", "--eval", probe], {
+        encoding: "utf8",
+        env: {},
+        timeout: 2_000,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe("imported-only\n");
     } finally {
       await rm(root, { recursive: true, force: true });
     }
