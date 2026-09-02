@@ -14,6 +14,37 @@ import {
   waitForRecordedRequests,
 } from "./fixtures.js";
 
+const TEXTUAL_REDACTION_CASES = [
+  ["Basic authorization header", "Authorization: Basic dXNlcjpwYXNzd29yZA==", "Authorization: [REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["standalone Basic credential", "Basic dXNlcjpwYXNzd29yZA==", "Basic [REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["assigned Basic credential", "authorization=Basic dXNlcjpwYXNzd29yZA==", "authorization=[REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["x_api_key", "x_api_key=x-api-key-value", "x_api_key=[REDACTED]", ["x-api-key-value"]],
+  ["api.key", "api.key=dot-api-key-value", "api.key=[REDACTED]", ["dot-api-key-value"]],
+  ["refresh_token", "refresh_token=refresh-token-value", "refresh_token=[REDACTED]", ["refresh-token-value"]],
+  ["api-key", "api-key=hyphenated-value", "api-key=[REDACTED]", ["hyphenated-value"]],
+  ["api key", "api key: spaced-value", "api key: [REDACTED]", ["spaced-value"]],
+  ["api_key", "api_key=underscored-value", "api_key=[REDACTED]", ["underscored-value"]],
+  ["credential", "credential: credential-value", "credential: [REDACTED]", ["credential-value"]],
+  ["token", "token=token-value", "token=[REDACTED]", ["token-value"]],
+  ["passwd", "passwd=passwd-value", "passwd=[REDACTED]", ["passwd-value"]],
+  ["password", "password=password-value", "password=[REDACTED]", ["password-value"]],
+  ["secret", "secret=secret-value", "secret=[REDACTED]", ["secret-value"]],
+  ["authorization", "authorization=authorization-value", "authorization=[REDACTED]", ["authorization-value"]],
+  [
+    "escaped JSON-like value",
+    "prefix {\"api.key\": \"before-\\\"still-secret-after\", \"safe\": true}",
+    "prefix {\"api.key\": \"[REDACTED]\", \"safe\": true}",
+    ["before-", "still-secret-after"],
+  ],
+] as const;
+
+const STRUCTURED_SENSITIVE_KEYS = [
+  "x_api_key", "api.key", "refresh_token", "api-key", "api key", "api_key",
+  "credential", "token", "passwd", "password", "secret", "authorization",
+] as const;
+
+const BENIGN_KEY_BOUNDARIES = ["tokenizer", "secretary", "passwordless"] as const;
+
 describe("transport, retry and errors", () => {
   it.each(["token", "onRequest", "onResponse", "onError", "onRetry", "sleep", "transport"] as const)(
     "drains a late %s rejection after that extension synchronously aborts",
@@ -751,34 +782,32 @@ describe("transport, retry and errors", () => {
     }
   });
 
-  it.each([
-    ["token", "token=token-value", "token=[REDACTED]"],
-    ["credential", "credential: credential-value", "credential: [REDACTED]"],
-    ["passwd", "passwd=passwd-value", "passwd=[REDACTED]"],
-    ["authorization", "authorization=authorization-value", "authorization=[REDACTED]"],
-    ["quoted api_key", '"api_key": "quoted api key value"', '"api_key": "[REDACTED]"'],
-    ["hyphenated api-key", "api-key=hyphenated-value", "api-key=[REDACTED]"],
-    ["spaced api key", "api key: spaced-value", "api key: [REDACTED]"],
-    ["underscored api_key", "api_key=underscored-value", "api_key=[REDACTED]"],
-  ] as const)("redacts %s assignments from public messages", (_name, value, expected) => {
-    expect(redactSensitiveText(value)).toBe(expected);
-    expect(new InfinityContextError({
-      statusCode: 400,
-      code: "memory.bad_request",
-      message: value,
-      retryable: false,
-    }).message).toBe(expected);
-  });
+  it.each(TEXTUAL_REDACTION_CASES)(
+    "redacts %s across public messages, recursive string details, and nested causes",
+    (_name, value, expected, secretParts) => {
+      expect(redactSensitiveText(value)).toBe(expected);
+      const leaf = new Error(value);
+      const middle = new Error("safe middle", { cause: leaf });
+      const error = new InfinityContextError({
+        statusCode: 400,
+        code: "memory.bad_request",
+        message: value,
+        retryable: false,
+        details: { outer: [{ nested: value }] },
+        cause: middle,
+      });
+      expect(error.message).toBe(expected);
+      expect(error.details).toEqual({ outer: [{ nested: expected }] });
+      expect(error.cause).not.toBe(middle);
+      expect((error.cause as Error).cause).not.toBe(leaf);
+      const exposed = publicErrorText(error);
+      for (const secret of secretParts) expect(exposed).not.toContain(secret);
+      expect(exposed).toContain("[REDACTED]");
+    },
+  );
 
-  it.each([
-    ["api-key", "api key value"],
-    ["api key", "api key value"],
-    ["api_key", "api key value"],
-    ["token", "token value"],
-    ["credential", "credential value"],
-    ["passwd", "passwd value"],
-    ["authorization", "authorization value"],
-  ] as const)("redacts recursive structured detail key %s", (key, secret) => {
+  it.each(STRUCTURED_SENSITIVE_KEYS)("redacts normalized recursive structured detail key %s", (key) => {
+    const secret = `structured-${key}-value`;
     const error = new InfinityContextError({
       statusCode: 400,
       code: "memory.bad_request",
@@ -789,45 +818,23 @@ describe("transport, retry and errors", () => {
     expect(error.details).toEqual({ outer: [{ nested: { [key]: "[REDACTED]" } }] });
   });
 
-  it.each([
-    "token=string-detail-secret",
-    "credential: string-detail-secret",
-    "passwd=string-detail-secret",
-    "authorization=string-detail-secret",
-    '"api_key": "string detail secret"',
-  ])("redacts recursive string details containing %s", (diagnostic) => {
+  it.each(BENIGN_KEY_BOUNDARIES)("preserves benign %s boundaries on every public error surface", (key) => {
+    const diagnostic = `${key}=benign-value`;
+    const cause = new Error(diagnostic);
     const error = new InfinityContextError({
       statusCode: 400,
       code: "memory.bad_request",
-      message: "bad request",
+      message: diagnostic,
       retryable: false,
-      details: { outer: [{ nested: diagnostic }] },
+      details: { outer: [{ nested: diagnostic, structured: { [key]: "benign-value" } }] },
+      cause,
     });
-    expect(publicErrorText(error.details)).not.toContain("string-detail-secret");
-    expect(publicErrorText(error.details)).not.toContain("string detail secret");
-    expect(publicErrorText(error.details)).toContain("[REDACTED]");
-  });
-
-  it.each([
-    ["token", "token=nested-cause-secret"],
-    ["credential", "credential=nested-cause-secret"],
-    ["passwd", "passwd=nested-cause-secret"],
-    ["authorization", "authorization=nested-cause-secret"],
-    ["quoted api_key", '"api_key":"nested-cause-secret"'],
-  ] as const)("redacts %s in nested causes", (_name, message) => {
-    const leaf = new Error(message);
-    const middle = new Error("safe middle", { cause: leaf });
-    const error = new InfinityContextError({
-      statusCode: 0,
-      code: "memory.network_error",
-      message: "request failed",
-      retryable: true,
-      cause: middle,
+    expect(error.message).toBe(diagnostic);
+    expect(error.details).toEqual({
+      outer: [{ nested: diagnostic, structured: { [key]: "benign-value" } }],
     });
-    expect(error.cause).not.toBe(middle);
-    expect((error.cause as Error).cause).not.toBe(leaf);
-    expect(publicErrorText(error.cause)).not.toContain("nested-cause-secret");
-    expect(publicErrorText(error.cause)).toContain("[REDACTED]");
+    expect(error.cause).toBe(cause);
+    expect(publicErrorText(error)).not.toContain("[REDACTED]");
   });
 
   it("preserves a demonstrably safe recursive cause graph and DOMException identity", () => {

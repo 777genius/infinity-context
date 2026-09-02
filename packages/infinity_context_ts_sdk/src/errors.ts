@@ -1,6 +1,6 @@
 import type { JsonValue } from "./types.js";
 
-const SENSITIVE_KEY_MARKERS = [
+const SENSITIVE_KEY_COMPONENTS = [
   "apikey",
   "token",
   "secret",
@@ -10,6 +10,10 @@ const SENSITIVE_KEY_MARKERS = [
   "authorization",
   "bearer",
 ] as const;
+
+const TEXTUAL_ASSIGNMENT_PATTERN = /(?:(["'])([^"'\\]*(?:\\.[^"'\\]*)*)\1|\b([A-Za-z0-9]+(?:[._-][A-Za-z0-9]+)*|(?:api|access|refresh) +(?:key|token)))\s*[=:]\s*/gi;
+const AUTH_SCHEME_VALUE_PATTERN = /^(?:Basic|Bearer)\s+[A-Za-z0-9._~+/=-]+/i;
+const STANDALONE_AUTH_PATTERN = /\b(Basic|Bearer)(\s+)[A-Za-z0-9._~+/=-]+/gi;
 
 export interface InfinityContextErrorOptions {
   readonly statusCode: number;
@@ -109,19 +113,8 @@ function errorName(cause: unknown): string | undefined {
 }
 
 export function redactSensitiveText(value: string): string {
-  return value
-    .replace(/(authorization:\s*)(?:bearer\s+)?[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]")
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/([?&](?:token|api[_-]?key|secret|password|passwd|credential|authorization)=)[^&\s]+/gi, "$1[REDACTED]")
-    .replace(
-      /(\b(?:api[\s_-]*key|access[\s_-]*token|token|secret|password|passwd|credential|authorization)\b\s*["']?\s*[=:]\s*)(["'])(.*?)\2/gi,
-      "$1$2[REDACTED]$2",
-    )
-    .replace(
-      /(\b(?:api[\s_-]*key|access[\s_-]*token|token|secret|password|passwd|credential|authorization)\b\s*["']?\s*[=:]\s*)[^"'&\s,;}]+/gi,
-      "$1[REDACTED]",
-    )
-    .replace(/(authorization:\s*)[^\n\r\s]+/gi, "$1[REDACTED]");
+  return redactSensitiveAssignments(value)
+    .replace(STANDALONE_AUTH_PATTERN, "$1$2[REDACTED]");
 }
 
 export function redactJson(value: JsonValue | undefined): JsonValue | undefined {
@@ -202,8 +195,61 @@ function isSafeCauseProperty(value: unknown, checked: WeakSet<object>, depth: nu
 }
 
 function isSensitiveKey(key: string): boolean {
-  const normalized = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return SENSITIVE_KEY_MARKERS.some((marker) => normalized.includes(marker));
+  const separated = key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+    .toLowerCase();
+  const components = separated.split(/[^a-z0-9]+/).filter((part) => part.length > 0);
+  const normalized = components.join("");
+  return components.some((component) => (
+    SENSITIVE_KEY_COMPONENTS.some((sensitive) => component === sensitive)
+  )) || SENSITIVE_KEY_COMPONENTS.some((sensitive) => normalized.endsWith(sensitive));
+}
+
+function redactSensitiveAssignments(value: string): string {
+  let output = "";
+  let copiedThrough = 0;
+  TEXTUAL_ASSIGNMENT_PATTERN.lastIndex = 0;
+  for (let match = TEXTUAL_ASSIGNMENT_PATTERN.exec(value); match !== null;
+    match = TEXTUAL_ASSIGNMENT_PATTERN.exec(value)) {
+    const key = match[2] ?? match[3] ?? "";
+    if (!isSensitiveKey(key)) continue;
+    const valueStart = TEXTUAL_ASSIGNMENT_PATTERN.lastIndex;
+    const consumed = consumeAssignedValue(value, valueStart);
+    if (consumed === undefined) continue;
+    output += value.slice(copiedThrough, match.index) + match[0] + consumed.replacement;
+    copiedThrough = consumed.end;
+    TEXTUAL_ASSIGNMENT_PATTERN.lastIndex = consumed.end;
+  }
+  return output + value.slice(copiedThrough);
+}
+
+function consumeAssignedValue(
+  value: string,
+  start: number,
+): { readonly end: number; readonly replacement: string } | undefined {
+  const quote = value[start];
+  if (quote === "\"" || quote === "'") {
+    let cursor = start + 1;
+    while (cursor < value.length) {
+      if (value[cursor] === "\\") {
+        cursor = Math.min(cursor + 2, value.length);
+      } else if (value[cursor] === quote) {
+        return { end: cursor + 1, replacement: `${quote}[REDACTED]${quote}` };
+      } else {
+        cursor += 1;
+      }
+    }
+    return { end: value.length, replacement: `${quote}[REDACTED]` };
+  }
+
+  const authValue = AUTH_SCHEME_VALUE_PATTERN.exec(value.slice(start));
+  if (authValue !== null) {
+    return { end: start + authValue[0].length, replacement: "[REDACTED]" };
+  }
+  let end = start;
+  while (end < value.length && !/[\s&;,}\]]/.test(value[end] ?? "")) end += 1;
+  return end === start ? undefined : { end, replacement: "[REDACTED]" };
 }
 
 function sanitizeUnsafeCause(
