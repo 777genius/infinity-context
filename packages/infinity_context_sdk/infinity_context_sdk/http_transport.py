@@ -164,6 +164,7 @@ class InfinityContextHttpMixin:
                     deadline=deadline,
                     cancellation_event=cancellation_event,
                     transport=cancellable_transport,
+                    max_response_bytes=max_response_bytes,
                 )
             )
         except httpx.TimeoutException as exc:
@@ -180,14 +181,6 @@ class InfinityContextHttpMixin:
         _check_bounded_read_control(cancellation_event, deadline)
         if response.is_error:
             raise to_error(response, mutation=False)
-        if len(response.content) > max_response_bytes:
-            raise InfinityContextError(
-                status_code=response.status_code,
-                code="memory.response_byte_limit_exceeded",
-                message="Infinity Context response exceeds the caller byte limit",
-                retryable=False,
-                unknown_commit_state=False,
-            )
         try:
             value = response.json()
         except ValueError as exc:
@@ -253,6 +246,7 @@ async def _bounded_async_exchange(
     deadline: float,
     cancellation_event: Event | None,
     transport: httpx.AsyncBaseTransport | None,
+    max_response_bytes: int,
 ) -> httpx.Response:
     """Race one async exchange against caller cancellation and a total deadline."""
 
@@ -267,7 +261,13 @@ async def _bounded_async_exchange(
     if time.monotonic() >= deadline:
         await _close_before_control_error(client, _deadline_error())
     request_task = asyncio.create_task(
-        client.request(method, path, json=json),
+        _send_bounded_response(
+            client,
+            method=method,
+            path=path,
+            json=json,
+            max_response_bytes=max_response_bytes,
+        ),
         name="infinity-bounded-read-request",
     )
     deadline_task = asyncio.create_task(
@@ -312,6 +312,63 @@ async def _bounded_async_exchange(
     if cleanup_error is not None:
         raise cleanup_error
     return await request_task
+
+
+async def _send_bounded_response(
+    client: httpx.AsyncClient,
+    *,
+    method: str,
+    path: str,
+    json: dict[str, Any],
+    max_response_bytes: int,
+) -> httpx.Response:
+    """Stream one response without accumulating more than limit plus one bytes."""
+
+    request = client.build_request(method, path, json=json)
+    response = await client.send(request, stream=True)
+    body = bytearray()
+    try:
+        declared_length = _declared_content_length(response.headers)
+        if declared_length is not None and declared_length > max_response_bytes:
+            raise _response_byte_limit_error(response.status_code)
+        async for chunk in response.aiter_bytes():
+            remaining = max_response_bytes + 1 - len(body)
+            if remaining > 0:
+                body.extend(chunk[:remaining])
+            if len(body) > max_response_bytes:
+                raise _response_byte_limit_error(response.status_code)
+    except BaseException as error:
+        try:
+            await response.aclose()
+        except BaseException as cleanup_error:
+            raise error from cleanup_error
+        raise
+    else:
+        await response.aclose()
+    return httpx.Response(
+        response.status_code,
+        headers=response.headers,
+        content=bytes(body),
+        request=request,
+        extensions=response.extensions,
+    )
+
+
+def _declared_content_length(headers: httpx.Headers) -> int | None:
+    value = headers.get("content-length")
+    if value is None or not value.isascii() or not value.isdecimal():
+        return None
+    return int(value)
+
+
+def _response_byte_limit_error(status_code: int) -> InfinityContextError:
+    return InfinityContextError(
+        status_code=status_code,
+        code="memory.response_byte_limit_exceeded",
+        message="Infinity Context response exceeds the caller byte limit",
+        retryable=False,
+        unknown_commit_state=False,
+    )
 
 
 async def _close_before_control_error(

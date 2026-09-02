@@ -100,13 +100,143 @@ def test_python_sdk_fails_closed_on_unattested_malformed_or_oversized_responses(
     assert captured.value.code == "memory.response_byte_limit_exceeded"
 
 
-def test_python_sdk_does_not_leak_opaque_identity_in_validation_errors() -> None:
-    secret = "secret-opaque-identity"
+@pytest.mark.parametrize("status_code", [200, 503])
+def test_python_sdk_rejects_declared_oversize_before_reading_and_closes(
+    status_code: int,
+) -> None:
+    class HostileStream(httpx.AsyncByteStream):
+        def __init__(self) -> None:
+            self.iterations = 0
+            self.closed = False
+
+        async def __aiter__(self):
+            self.iterations += 1
+            yield b"must not be read"
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = HostileStream()
+    client = InfinityContextClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                status_code,
+                headers={"content-length": "65537"},
+                stream=stream,
+            )
+        )
+    )
+
+    with pytest.raises(InfinityContextError) as captured:
+        client.reconcile_exact_document(**INPUT)
+
+    assert captured.value.code == "memory.response_byte_limit_exceeded"
+    assert captured.value.status_code == status_code
+    assert stream.iterations == 0
+    assert stream.closed is True
+
+
+@pytest.mark.parametrize("status_code", [200, 503])
+def test_python_sdk_cleanup_failure_does_not_mask_oversize_error(status_code: int) -> None:
+    class FailingCloseStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"must not be read"
+
+        async def aclose(self) -> None:
+            raise RuntimeError("close failed")
+
+    client = InfinityContextClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                status_code,
+                headers={"content-length": "65537"},
+                stream=FailingCloseStream(),
+            )
+        )
+    )
+
+    with pytest.raises(InfinityContextError) as captured:
+        client.reconcile_exact_document(**INPUT)
+
+    assert captured.value.code == "memory.response_byte_limit_exceeded"
+    assert isinstance(captured.value.__cause__, RuntimeError)
+
+
+@pytest.mark.parametrize(
+    ("status_code", "headers"),
+    [(200, {}), (503, {"content-length": "1"})],
+)
+def test_python_sdk_incrementally_bounds_missing_or_misleading_length_and_closes(
+    status_code: int,
+    headers: dict[str, str],
+) -> None:
+    class HostileStream(httpx.AsyncByteStream):
+        def __init__(self) -> None:
+            self.chunks_read = 0
+            self.closed = False
+
+        async def __aiter__(self):
+            for _ in range(100):
+                self.chunks_read += 1
+                yield b"x" * 32_768
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = HostileStream()
+    client = InfinityContextClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                status_code,
+                headers=headers,
+                stream=stream,
+            )
+        )
+    )
+
+    with pytest.raises(InfinityContextError) as captured:
+        client.reconcile_exact_document(**INPUT)
+
+    assert captured.value.code == "memory.response_byte_limit_exceeded"
+    assert captured.value.status_code == status_code
+    assert stream.chunks_read == 3
+    assert stream.closed is True
+
+
+def test_python_sdk_preserves_bounded_http_error_semantics_after_stream_cleanup() -> None:
+    stream_closed = Event()
+
+    class ErrorStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield json.dumps(
+                {"error": {"code": "memory.denied", "message": "Denied", "retryable": False}}
+            ).encode()
+
+        async def aclose(self) -> None:
+            stream_closed.set()
+
+    client = InfinityContextClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(403, stream=ErrorStream())
+        )
+    )
+
+    with pytest.raises(InfinityContextError) as captured:
+        client.reconcile_exact_document(**INPUT)
+
+    assert captured.value.code == "memory.denied"
+    assert captured.value.status_code == 403
+    assert captured.value.retryable is False
+    assert stream_closed.is_set()
+
+
+def test_python_sdk_does_not_echo_invalid_opaque_value_in_validation_errors() -> None:
+    redaction_probe = "redaction-probe"
     with pytest.raises(ValueError) as captured:
         InfinityContextClient().reconcile_exact_document(
-            **{**INPUT, "source_external_id": f"{secret}\x00"}
+            **{**INPUT, "source_external_id": f"{redaction_probe}\x00"}
         )
-    assert secret not in str(captured.value)
+    assert redaction_probe not in str(captured.value)
 
 
 def test_python_sdk_rejects_every_shared_hostile_decoder_fixture() -> None:

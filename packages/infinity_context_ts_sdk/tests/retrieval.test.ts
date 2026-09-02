@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import type { RequestExecutor, RequestOptions } from "../src/client.js";
+import { ContextClient } from "../src/resources/context.js";
 import { describe, expect, it, vi } from "vitest";
 import {
   CONTEXT_RETRIEVAL_CONTRACT, InfinityContextClient,
@@ -137,6 +139,131 @@ describe("Contract C locator Retrieval", () => {
     });
     expect(performance.now() - started).toBeLessThan(500);
     expect(transport.requests[0]?.signal?.aborted).toBe(true);
+  });
+
+  it("rejects an already-aborted caller before fingerprint or transport work", async () => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 1 } });
+    const controller = new AbortController();
+    controller.abort("cancel before Retrieval entry");
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest");
+    try {
+      await expect(client.context.retrieve(input(), capability, {
+        capabilityFingerprint: capability.capability_fingerprint,
+        profileId: capability.profile_id,
+        requiredProviderLanes: capability.required_provider_lanes,
+      }, { signal: controller.signal })).rejects.toMatchObject({
+        code: "memory.context_retrieval_cancelled", retryable: false,
+      });
+      expect(digest).not.toHaveBeenCalled();
+      expect(transport.requests).toHaveLength(0);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("times out a blocked fingerprint within the entry absolute deadline", async () => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const bounded = input();
+    (bounded.bounds as any).deadlineMs = 20;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 1 } });
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation(
+      () => new Promise<ArrayBuffer>(() => undefined),
+    );
+    const started = performance.now();
+    try {
+      await expect(client.context.retrieve(bounded, capability, {
+        capabilityFingerprint: capability.capability_fingerprint,
+        profileId: capability.profile_id,
+        requiredProviderLanes: capability.required_provider_lanes,
+      })).rejects.toMatchObject({
+        code: "memory.context_retrieval_deadline_exceeded", retryable: true,
+      });
+      expect(performance.now() - started).toBeLessThan(500);
+      expect(transport.requests).toHaveLength(0);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("observes caller cancellation while fingerprinting", async () => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 1 } });
+    const controller = new AbortController();
+    const digest = vi.spyOn(globalThis.crypto.subtle, "digest").mockImplementation(
+      () => new Promise<ArrayBuffer>(() => undefined),
+    );
+    try {
+      const pending = client.context.retrieve(input(), capability, {
+        capabilityFingerprint: capability.capability_fingerprint,
+        profileId: capability.profile_id,
+        requiredProviderLanes: capability.required_provider_lanes,
+      }, { signal: controller.signal });
+      setTimeout(() => controller.abort("cancel fingerprint"), 10);
+      await expect(pending).rejects.toMatchObject({
+        code: "memory.context_retrieval_cancelled", retryable: false,
+      });
+      expect(transport.requests).toHaveLength(0);
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("does not enter transport when synchronous payload work exhausts the deadline", async () => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const bounded = input();
+    (bounded.bounds as any).deadlineMs = 5;
+    const queries = bounded.queries;
+    Object.defineProperty(bounded, "queries", {
+      enumerable: true,
+      get: () => {
+        const until = performance.now() + 20;
+        while (performance.now() < until) { /* hostile synchronous preflight */ }
+        return queries;
+      },
+    });
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 1 } });
+
+    await expect(client.context.retrieve(bounded, capability, {
+      capabilityFingerprint: capability.capability_fingerprint,
+      profileId: capability.profile_id,
+      requiredProviderLanes: capability.required_provider_lanes,
+    })).rejects.toMatchObject({
+      code: "memory.context_retrieval_deadline_exceeded", retryable: true,
+    });
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("passes transport only the positive budget remaining after preflight work", async () => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const bounded = input();
+    const queries = bounded.queries;
+    Object.defineProperty(bounded, "queries", {
+      enumerable: true,
+      get: () => {
+        const until = performance.now() + 15;
+        while (performance.now() < until) { /* hostile synchronous preflight */ }
+        return queries;
+      },
+    });
+    const requests: RequestOptions[] = [];
+    const executor: RequestExecutor = {
+      request: async <T>(options: RequestOptions): Promise<T> => {
+        requests.push(options);
+        throw new Error("stop after observing remaining budget");
+      },
+    };
+    await expect(new ContextClient(executor).retrieve(bounded, capability, {
+      capabilityFingerprint: capability.capability_fingerprint,
+      profileId: capability.profile_id,
+      requiredProviderLanes: capability.required_provider_lanes,
+    })).rejects.toMatchObject({ code: "memory.context_retrieval_unavailable" });
+    expect(requests[0]?.timeoutMs).toBeGreaterThan(0);
+    expect(requests[0]?.timeoutMs).toBeLessThan(900);
   });
 
   it("interrupts a blocked read with the canonical cancellation code", async () => {

@@ -87,31 +87,56 @@ export class ContextClient {
     required: RequiredRetrievalCapability,
     controls: RequestControls = {},
   ): Promise<RetrieveContextResponse> {
-    const attestedCapability = decodeRetrievalCapability(capability);
-    validateRetrievalPreflight(input, attestedCapability, required);
-    const payload = retrievalRequestPayload(input);
-    await verifyRetrievalCapabilityFingerprint(attestedCapability);
-    const transportTimeoutMs = Math.min(
-      controls.timeoutMs ?? input.bounds.deadlineMs,
-      input.bounds.deadlineMs,
-    );
-    const budget = retrievalCallBudget(controls.signal, transportTimeoutMs);
+    const startedAtMs = monotonicNowMs();
+    let budget: ReturnType<typeof retrievalCallBudget> | undefined;
     try {
+      if (controls.signal?.aborted) {
+        throw retrievalClientError(
+          "memory.context_retrieval_cancelled",
+          "Retrieval request was cancelled",
+          false,
+        );
+      }
+      const transportTimeoutMs = Math.min(
+        controls.timeoutMs ?? input.bounds.deadlineMs,
+        input.bounds.deadlineMs,
+      );
+      budget = retrievalCallBudget(controls.signal, transportTimeoutMs, startedAtMs);
+      budget.throwIfExhausted();
+      const attestedCapability = decodeRetrievalCapability(capability);
+      budget.throwIfExhausted();
+      validateRetrievalPreflight(input, attestedCapability, required);
+      budget.throwIfExhausted();
+      const payload = retrievalRequestPayload(input);
+      budget.throwIfExhausted();
+      await abortableRetrievalPreflight(
+        verifyRetrievalCapabilityFingerprint(attestedCapability),
+        budget.signal,
+      );
+      budget.throwIfExhausted();
+      const remainingTimeoutMs = budget.remainingTimeoutMs();
       const response = await this.http.request<Uint8Array | string>({
         method: "POST",
         path: "/v1/context/retrieve",
-        ...requestControls({ ...controls, signal: budget.signal, timeoutMs: transportTimeoutMs }),
+        ...requestControls({
+          ...controls, signal: budget.signal, timeoutMs: remainingTimeoutMs,
+        }),
         json: payload,
         responseType: "bytes",
         maxResponseBytes: input.bounds.responseByteLimit,
         maxErrorResponseBytes: input.bounds.responseByteLimit,
         errorDecoder: retrievalErrorDecoder(input.bounds.responseByteLimit),
       });
-      return decodeRetrieveContextResponseBytes(response, payload, attestedCapability);
+      budget.throwIfExhausted();
+      const decoded = decodeRetrieveContextResponseBytes(response, payload, attestedCapability);
+      budget.throwIfExhausted();
+      return decoded;
     } catch (error) {
-      throw retrievalTransportError(error, budget.timedOut(), controls.signal?.aborted === true);
+      throw retrievalTransportError(
+        error, budget?.timedOut() === true, controls.signal?.aborted === true,
+      );
     } finally {
-      budget.cleanup();
+      budget?.cleanup();
     }
   }
 
@@ -186,25 +211,95 @@ export class ContextClient {
   }
 }
 
-function retrievalCallBudget(caller: AbortSignal | undefined, timeoutMs: number) {
+function retrievalCallBudget(
+  caller: AbortSignal | undefined,
+  timeoutMs: number,
+  startedAtMs: number,
+) {
   const controller = new AbortController();
+  const deadlineAtMs = startedAtMs + timeoutMs;
   let timedOut = false;
-  const onCallerAbort = () => controller.abort(caller?.reason);
-  if (caller?.aborted) onCallerAbort();
-  else caller?.addEventListener("abort", onCallerAbort, { once: true });
-  const timer = setTimeout(() => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onCallerAbort = () => {
+    if (!controller.signal.aborted) controller.abort(caller?.reason);
+  };
+  const onTimeout = () => {
+    if (controller.signal.aborted) return;
     timedOut = true;
     controller.abort(new DOMException("Retrieval deadline exceeded", "TimeoutError"));
-  }, timeoutMs);
-  timer.unref?.();
+  };
+  if (caller?.aborted) onCallerAbort();
+  else caller?.addEventListener("abort", onCallerAbort, { once: true });
+  const remainingMs = () => Math.max(0, deadlineAtMs - monotonicNowMs());
+  if (!controller.signal.aborted) {
+    const remaining = remainingMs();
+    if (remaining <= 0) onTimeout();
+    else {
+      timer = setTimeout(onTimeout, remaining);
+      timer.unref?.();
+    }
+  }
   return {
     signal: controller.signal,
+    throwIfExhausted: () => {
+      if (!controller.signal.aborted && !(remainingMs() > 0)) onTimeout();
+      throwIfRetrievalControl(controller.signal);
+    },
+    remainingTimeoutMs: () => {
+      const remaining = remainingMs();
+      if (!controller.signal.aborted && !(remaining > 0)) onTimeout();
+      throwIfRetrievalControl(controller.signal);
+      return remaining;
+    },
     timedOut: () => timedOut,
     cleanup: () => {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       caller?.removeEventListener("abort", onCallerAbort);
     },
   };
+}
+
+function throwIfRetrievalControl(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason;
+}
+
+function abortableRetrievalPreflight<T>(
+  promise: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => signal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
+function monotonicNowMs(): number {
+  return globalThis.performance?.now() ?? Date.now();
 }
 
 function retrievalTransportError(
