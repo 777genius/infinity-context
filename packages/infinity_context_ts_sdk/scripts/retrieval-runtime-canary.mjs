@@ -1,101 +1,154 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 const commandName = "infinity-context-retrieval-runtime-canary";
-const cliArgs = process.argv.slice(2);
+const capabilityResponseByteLimit = 1_048_576;
 
-if (hasCliFlag(cliArgs, "--help", "-h")) {
-  printHelp(commandName);
-  process.exit(0);
+export async function runRetrievalRuntimeCanaryCli({
+  args = process.argv.slice(2),
+  env = process.env,
+  stdout = process.stdout,
+  sdk: suppliedSdk,
+  requestFixture,
+  exitCodeTarget,
+} = {}) {
+  if (hasCliFlag(args, "--help", "-h")) {
+    printHelp(commandName, stdout);
+    return recordExitCode({ exitCode: 0 }, exitCodeTarget);
+  }
+
+  if (hasCliFlag(args, "--version", "-v")) {
+    stdout.write(`${await packageVersion()}\n`);
+    return recordExitCode({ exitCode: 0 }, exitCodeTarget);
+  }
+
+  try {
+    const result = await runRetrievalRuntimeCanary({ env, sdk: suppliedSdk, requestFixture });
+    stdout.write(`${JSON.stringify(result.report)}\n`);
+    return recordExitCode({ ...result, exitCode: 0 }, exitCodeTarget);
+  } catch (error) {
+    const report = failureReport(error);
+    stdout.write(`${JSON.stringify(report)}\n`);
+    return recordExitCode({ exitCode: 1, report, error }, exitCodeTarget);
+  }
 }
 
-if (hasCliFlag(cliArgs, "--version", "-v")) {
-  process.stdout.write(`${await packageVersion()}\n`);
-  process.exit(0);
+export async function runRetrievalRuntimeCanary({
+  env = process.env,
+  sdk: suppliedSdk,
+  requestFixture,
+} = {}) {
+  const baseUrl = (env.INFINITY_CONTEXT_URL ?? "http://127.0.0.1:7788").replace(/\/$/, "");
+  const token = env.INFINITY_CONTEXT_TOKEN;
+  const spaceId = required(env, "RETRIEVAL_CANARY_SPACE_ID");
+  const memoryScopeId = required(env, "RETRIEVAL_CANARY_MEMORY_SCOPE_ID");
+  const expectedFingerprint = required(env, "RETRIEVAL_CAPABILITY_FINGERPRINT");
+  const expectedProfile = required(env, "RETRIEVAL_PROFILE_ID");
+  const expectedSdkRevision = required(env, "RETRIEVAL_SDK_REVISION");
+  const expectedServiceRevision = required(env, "RETRIEVAL_SERVICE_REVISION");
+  const expectedLocator = required(env, "RETRIEVAL_CANARY_EXPECTED_LOCATOR");
+  const headers = {
+    accept: "application/json",
+    "content-type": "application/json",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
+  const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
+  const sdk = suppliedSdk ?? await import("../dist/index.js");
+  const transport = new sdk.FetchTransport();
+
+  const capabilityResponse = await transport.send({
+    method: "GET",
+    url: new URL(`${baseUrl}/v1/capabilities`),
+    headers: new Headers(headers),
+    signal: AbortSignal.timeout(10_000),
+    responseType: "bytes",
+    maxResponseBytes: capabilityResponseByteLimit,
+    maxErrorResponseBytes: capabilityResponseByteLimit,
+  });
+  if (capabilityResponse.status >= 400) {
+    throw new Error(`Capabilities returned HTTP ${capabilityResponse.status}`);
+  }
+  const capabilityEnvelope = JSON.parse(
+    new TextDecoder("utf-8", { fatal: true }).decode(capabilityResponse.body),
+  );
+  const capability = sdk.decodeRetrievalCapability(capabilityEnvelope?.context?.retrieval);
+  await sdk.verifyRetrievalCapabilityFingerprint(capability);
+
+  const fixture = requestFixture ?? JSON.parse(await readFile(
+    new URL("../fixtures/context_retrieval_v2/request.json", import.meta.url),
+    "utf8",
+  ));
+  const request = {
+    ...fixture,
+    capability_fingerprint: expectedFingerprint,
+    profile_id: expectedProfile,
+    scope: { space_id: spaceId, memory_scope_id: memoryScopeId, thread_id: null },
+    queries: [{
+      query_id: "runtime-canary",
+      query: env.RETRIEVAL_CANARY_QUERY ?? "runtime readiness",
+      weight_micros: 1000000,
+    }],
+  };
+  const response = await transport.send({
+    method: "POST",
+    url: new URL(`${baseUrl}/v1/context/retrieve`),
+    headers: new Headers(headers),
+    body: { kind: "json", value: request },
+    signal: AbortSignal.timeout(request.bounds.deadline_ms),
+    responseType: "bytes",
+    maxResponseBytes: request.bounds.response_byte_limit,
+    maxErrorResponseBytes: request.bounds.response_byte_limit,
+  });
+  if (response.status >= 400) throw new Error(`Retrieval returned HTTP ${response.status}`);
+  const decoded = sdk.decodeRetrieveContextResponseBytes(response.body, request, capability);
+  assertRetrievalRuntimeCanary({
+    capability,
+    response: decoded,
+    expectedFingerprint,
+    expectedProfile,
+    expectedSdkRevision,
+    expectedServiceRevision,
+    expectedLocator,
+  });
+  return {
+    report: {
+      schema_version: "infinity-context-retrieval-runtime-canary.v1",
+      ok: true,
+      capability_fingerprint: capability.capability_fingerprint,
+      profile_id: capability.profile_id,
+      service_revision: capability.service_revision,
+      sdk_revision: capability.sdk_revision,
+      status: decoded.status,
+      candidate_count: decoded.candidates.length,
+      expected_locator: expectedLocator,
+    },
+  };
 }
 
-const baseUrl = (process.env.INFINITY_CONTEXT_URL ?? "http://127.0.0.1:7788").replace(/\/$/, "");
-const token = process.env.INFINITY_CONTEXT_TOKEN;
-const spaceId = required("RETRIEVAL_CANARY_SPACE_ID");
-const memoryScopeId = required("RETRIEVAL_CANARY_MEMORY_SCOPE_ID");
-const expectedFingerprint = required("RETRIEVAL_CAPABILITY_FINGERPRINT");
-const expectedProfile = required("RETRIEVAL_PROFILE_ID");
-const expectedSdkRevision = required("RETRIEVAL_SDK_REVISION");
-const expectedServiceRevision = required("RETRIEVAL_SERVICE_REVISION");
-const expectedLocator = required("RETRIEVAL_CANARY_EXPECTED_LOCATOR");
-const headers = {
-  accept: "application/json",
-  "content-type": "application/json",
-  ...(token ? { authorization: `Bearer ${token}` } : {}),
-};
-const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
-const sdk = await import("../dist/index.js");
+function failureReport(error) {
+  const typed = typeof error === "object" && error !== null ? error : {};
+  return {
+    schema_version: "infinity-context-retrieval-runtime-canary.v1",
+    ok: false,
+    error: {
+      name: typeof typed.name === "string" ? typed.name : "Error",
+      code: typeof typed.code === "string" ? typed.code : "retrieval_runtime_canary_failed",
+      message: error instanceof Error ? error.message : String(error),
+      ...(Number.isInteger(typed.statusCode) ? { status_code: typed.statusCode } : {}),
+      ...(typeof typed.retryable === "boolean" ? { retryable: typed.retryable } : {}),
+      ...(typeof typed.requestId === "string" ? { request_id: typed.requestId } : {}),
+    },
+  };
+}
 
-const transport = new sdk.FetchTransport();
-const capabilitySignal = AbortSignal.timeout(10_000);
-const capabilityResponse = await transport.send({
-  method: "GET",
-  url: new URL(`${baseUrl}/v1/capabilities`),
-  headers: new Headers(headers),
-  signal: capabilitySignal,
-  responseType: "bytes",
-  maxResponseBytes: 1_048_576,
-  maxErrorResponseBytes: 1_048_576,
-});
-if (capabilityResponse.status >= 400) throw new Error(`Capabilities returned HTTP ${capabilityResponse.status}`);
-const capabilityBytes = capabilityResponse.body;
-const capabilityEnvelope = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(capabilityBytes));
-const capability = sdk.decodeRetrievalCapability(capabilityEnvelope?.context?.retrieval);
-await sdk.verifyRetrievalCapabilityFingerprint(capability);
+function recordExitCode(result, target) {
+  if (target !== undefined) target.exitCode = result.exitCode;
+  return result;
+}
 
-const fixture = JSON.parse(await readFile(
-  new URL("../fixtures/context_retrieval_v2/request.json", import.meta.url),
-  "utf8",
-));
-const request = {
-  ...fixture,
-  capability_fingerprint: expectedFingerprint,
-  profile_id: expectedProfile,
-  scope: { space_id: spaceId, memory_scope_id: memoryScopeId, thread_id: null },
-  queries: [{ query_id: "runtime-canary", query: process.env.RETRIEVAL_CANARY_QUERY ?? "runtime readiness", weight_micros: 1000000 }],
-};
-const retrievalSignal = AbortSignal.timeout(request.bounds.deadline_ms + 1000);
-const response = await transport.send({
-  method: "POST",
-  url: new URL(`${baseUrl}/v1/context/retrieve`),
-  headers: new Headers(headers),
-  body: { kind: "json", value: request },
-  signal: retrievalSignal,
-  responseType: "bytes",
-  maxResponseBytes: request.bounds.response_byte_limit,
-  maxErrorResponseBytes: request.bounds.response_byte_limit,
-});
-const bytes = response.body;
-if (response.status >= 400) throw new Error(`Retrieval returned HTTP ${response.status}`);
-const decoded = sdk.decodeRetrieveContextResponseBytes(bytes, request, capability);
-assertRetrievalRuntimeCanary({
-  capability,
-  response: decoded,
-  expectedFingerprint,
-  expectedProfile,
-  expectedSdkRevision,
-  expectedServiceRevision,
-  expectedLocator,
-});
-process.stdout.write(`${JSON.stringify({
-  schema_version: "infinity-context-retrieval-runtime-canary.v1",
-  ok: true,
-  capability_fingerprint: capability.capability_fingerprint,
-  profile_id: capability.profile_id,
-  service_revision: capability.service_revision,
-  sdk_revision: capability.sdk_revision,
-  status: decoded.status,
-  candidate_count: decoded.candidates.length,
-  expected_locator: expectedLocator,
-})}\n`);
-
-function required(name) {
-  const value = process.env[name];
+function required(env, name) {
+  const value = env[name];
   if (value === undefined || value.trim() === "") throw new Error(`${name} is required`);
   return value;
 }
@@ -104,15 +157,8 @@ function hasCliFlag(args, ...flags) {
   return args.some((arg) => flags.includes(arg));
 }
 
-function printHelp(command) {
-  process.stdout.write(`Usage: ${command} [--help] [--version]
-
-Runs the pinned retrieval runtime canary against an Infinity Context service.
-
-Options:
-  -h, --help       Show this help without validating configuration or contacting the service.
-  -v, --version    Print the package version.
-`);
+function printHelp(command, stdout) {
+  stdout.write(`Usage: ${command} [--help] [--version]\n\nRuns the pinned retrieval runtime canary against an Infinity Context service.\n\nOptions:\n  -h, --help       Show this help without validating configuration or contacting the service.\n  -v, --version    Print the package version.\n`);
 }
 
 async function packageVersion() {
@@ -121,4 +167,8 @@ async function packageVersion() {
     throw new Error("SDK package version is invalid");
   }
   return packageJson.version;
+}
+
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await runRetrievalRuntimeCanaryCli({ exitCodeTarget: process });
 }
