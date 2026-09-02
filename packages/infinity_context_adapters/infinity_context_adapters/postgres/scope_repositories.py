@@ -19,7 +19,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from infinity_context_adapters.postgres.document_source_ref_coordination import (
-    lock_thread_fact_writes,
+    lock_exact_thread_lifecycle,
 )
 from infinity_context_adapters.postgres.mappers import (
     memory_scope_row_to_domain,
@@ -335,12 +335,24 @@ class PostgresScopeRepository(ScopeRepositoryPort):
         memory_scope_id: str,
         thread_id: str,
     ) -> SessionDeleteResult:
-        await lock_thread_fact_writes(
+        await lock_exact_thread_lifecycle(
             self._session,
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             thread_id=thread_id,
         )
+        thread_row = (
+            await self._session.execute(
+                select(MemoryThreadRow)
+                .where(
+                    MemoryThreadRow.id == thread_id,
+                    MemoryThreadRow.space_id == space_id,
+                    MemoryThreadRow.memory_scope_id == memory_scope_id,
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one_or_none()
         document_rows = await self._lock_active_thread_rows(
             MemoryDocumentRow,
             space_id=space_id,
@@ -397,6 +409,8 @@ class PostgresScopeRepository(ScopeRepositoryPort):
         )
         for row in document_rows:
             row.status = "deleted"
+        if thread_row is not None:
+            thread_row.status = "deleted"
         return SessionDeleteResult(
             deleted_chunks=len(chunk_ids),
             deleted_facts=len(fact_ids),

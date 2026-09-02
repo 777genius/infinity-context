@@ -30,6 +30,9 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    fence_exact_thread_writer,
+)
 from infinity_context_adapters.postgres.locator_catalog_attestation import (
     lock_and_attest_locator_retrieval_catalog,
 )
@@ -62,6 +65,13 @@ class PostgresProjectedDocumentIngestor:
         async with AsyncSession(self.engine) as session:
             try:
                 async with session.begin():
+                    if command.thread_id is not None:
+                        await fence_exact_thread_writer(
+                            session,
+                            space_id=str(command.space_id),
+                            memory_scope_id=str(command.memory_scope_id),
+                            thread_id=str(command.thread_id),
+                        )
                     await lock_and_attest_locator_retrieval_catalog(session)
                     replay = await self._idempotent_replay(
                         session, command, projection, fingerprint

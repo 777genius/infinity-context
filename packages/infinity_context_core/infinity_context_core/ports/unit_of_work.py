@@ -99,13 +99,11 @@ async def coordinate_fact_source_refs(
     thread_id: str | None,
     source_refs: tuple[SourceRef, ...],
 ) -> None:
-    """Invoke document coordination when the persistence adapter provides it."""
+    """Invoke the required canonical lifecycle coordination port."""
 
-    coordinator = getattr(uow, "coordinate_fact_source_refs", None)
-    if coordinator is not None:
-        await coordinator(
-            space_id=space_id,
-            memory_scope_id=memory_scope_id,
-            thread_id=thread_id,
-            source_refs=source_refs,
-        )
+    await uow.coordinate_fact_source_refs(
+        space_id=space_id,
+        memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
+        source_refs=source_refs,
+    )

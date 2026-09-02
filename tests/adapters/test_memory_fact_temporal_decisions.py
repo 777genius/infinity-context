@@ -121,9 +121,7 @@ def test_supersession_coordinates_all_existing_and_command_source_refs_before_fa
             basis="primary_evidence",
         ),
     )
-    inner = module.create_in_memory_memory_fact_unit_of_work_factory(
-        (predecessor, successor)
-    )
+    inner = module.create_in_memory_memory_fact_unit_of_work_factory((predecessor, successor))
     factory = _RecordingCoordinationFactory(inner)
     command_ref = _source_ref("decision-document")
 
@@ -179,9 +177,7 @@ def test_supersession_rejects_source_ref_change_during_document_coordination() -
         successor,
         source_refs=(_source_ref("concurrent-source"),),
     )
-    inner = module.create_in_memory_memory_fact_unit_of_work_factory(
-        (predecessor, successor)
-    )
+    inner = module.create_in_memory_memory_fact_unit_of_work_factory((predecessor, successor))
     factory = _RecordingCoordinationFactory(inner, locked_replacement=changed_successor)
 
     with pytest.raises(ValueError, match="changed during source coordination"):
@@ -273,6 +269,7 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
     module = importlib.import_module("infinity_context_adapters.features.memory_facts")
     predecessor = replace(
         _fact_snapshot(fact_id="old"),
+        source_refs=(_source_ref("predecessor-document"),),
         text="The API uses version one.",
         temporal_extent=FactTemporalExtent.ongoing_state(
             observed_at=EARLIER,
@@ -282,6 +279,7 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
     )
     successor = replace(
         _fact_snapshot(fact_id="new"),
+        source_refs=(_source_ref("successor-document"),),
         text="The API uses version two.",
         temporal_extent=FactTemporalExtent.ongoing_state(
             observed_at=NOW,
@@ -333,8 +331,28 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
         reason_code="replacement_rejected",
         idempotency_key="reinstate-1",
     )
+    changed_while_coordinating = replace(
+        first.successor,
+        source_refs=(_source_ref("legacy-update-document"),),
+        visibility=replace(first.successor.visibility, version=3),
+    )
+    rejected_factory = _RecordingCoordinationFactory(
+        factory,
+        locked_replacement=changed_while_coordinating,
+    )
+    with pytest.raises(ValueError, match="Reinstatement fact changed during source coordination"):
+        asyncio.run(
+            ReinstateSupersededFactHandler(
+                uow_factory=rejected_factory,
+                clock=FakeClock(LATER),
+                ids=FakeIds(),
+            ).execute(compensation_command)
+        )
+    assert len(factory.temporal_decisions) == 1
+
+    coordinated_factory = _RecordingCoordinationFactory(factory)
     compensator = ReinstateSupersededFactHandler(
-        uow_factory=factory,
+        uow_factory=coordinated_factory,
         clock=FakeClock(LATER),
         ids=FakeIds(
             fact_ids=("restored",),
@@ -360,6 +378,14 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
     assert len(factory.temporal_decisions) == 2
     assert len(factory.supersessions) == 2
     assert replay.replayed
+    assert coordinated_factory.events.index("coordinate") < coordinated_factory.events.index(
+        "get_many_for_update"
+    )
+    assert set(coordinated_factory.coordinated_refs) == {
+        _source_ref("predecessor-document"),
+        _source_ref("successor-document"),
+        _source_ref("incident-1"),
+    }
 
     async def select_current() -> tuple[MemoryFactSnapshot, ...]:
         async with factory() as uow:

@@ -31,13 +31,14 @@ async def active_facts_solely_backed_by_document(session, *, document_id: str) -
                     FROM memory_source_refs ref
                     WHERE ref.fact_id = fact.id
                       AND ref.fact_version = fact.version
-                      AND NOT (
+                      AND NOT COALESCE(
                         (ref.source_type = 'document' AND ref.source_id = :document_id)
                         OR ref.chunk_id IN (
                           SELECT chunk.id
                           FROM memory_chunks chunk
                           WHERE chunk.document_id = :document_id
-                        )
+                        ),
+                        FALSE
                       )
                   )
                 """

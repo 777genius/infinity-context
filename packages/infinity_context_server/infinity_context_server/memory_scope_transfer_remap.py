@@ -104,22 +104,25 @@ def remap_source_ref(
     *,
     fact_id_map: dict[str, str],
     chunk_id_map: dict[str, str],
-    skipped_chunk_ids: set[str],
+    document_id_map: dict[str, str] | None = None,
     extraction_job_id_map: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     chunk_id = item.get("chunk_id")
-    mapped_chunk_id = None
-    if chunk_id is not None and str(chunk_id) not in skipped_chunk_ids:
-        mapped_chunk_id = chunk_id_map.get(str(chunk_id), str(chunk_id))
+    mapped_chunk_id = (
+        chunk_id_map.get(str(chunk_id), str(chunk_id)) if chunk_id is not None else None
+    )
     source_type = str(item.get("source_type") or "")
     source_id = str(item.get("source_id") or "")
     extraction_job_id_map = extraction_job_id_map or {}
+    document_id_map = document_id_map or {}
     return {
         **item,
         "fact_id": fact_id_map.get(str(item["fact_id"]), str(item["fact_id"])),
         "source_id": (
             extraction_job_id_map.get(source_id, source_id)
             if source_type == "asset_extraction"
+            else document_id_map.get(source_id, source_id)
+            if source_type == "document"
             else source_id
         ),
         "chunk_id": mapped_chunk_id,

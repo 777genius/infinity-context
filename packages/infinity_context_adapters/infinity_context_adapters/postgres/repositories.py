@@ -37,7 +37,9 @@ from infinity_context_adapters.postgres.canonical_retrieval_batching import (
     list_anchor_scopes,
 )
 from infinity_context_adapters.postgres.document_source_ref_coordination import (
-    lock_document_for_fact_cleanup,
+    fence_exact_thread_writer,
+    lock_chunk_parent_for_write,
+    lock_document_deletion_evidence,
 )
 from infinity_context_adapters.postgres.mappers import (
     anchor_row_to_domain,
@@ -250,6 +252,13 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         self._session = session
 
     async def create(self, document: MemoryDocument) -> MemoryDocument:
+        if document.thread_id is not None:
+            await fence_exact_thread_writer(
+                self._session,
+                space_id=str(document.space_id),
+                memory_scope_id=str(document.memory_scope_id),
+                thread_id=str(document.thread_id),
+            )
         self._session.add(document_to_row(document))
         try:
             await self._session.flush()
@@ -400,26 +409,14 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         document_id: str,
         now: datetime,
     ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
-        document = await lock_document_for_fact_cleanup(
+        locked = await lock_document_deletion_evidence(
             self._session,
             document_id=document_id,
         )
-        if document is None:
+        if locked is None:
             return None
-
-        chunk_rows = list(
-            (
-                await self._session.execute(
-                    select(MemoryChunkRow)
-                    .where(
-                        MemoryChunkRow.document_id == document_id,
-                        MemoryChunkRow.status == "active",
-                    )
-                    .order_by(MemoryChunkRow.id)
-                    .with_for_update()
-                )
-            ).scalars()
-        )
+        document, locked_chunks = locked
+        chunk_rows = list(locked_chunks)
         deleted_chunk_versions = tuple(
             CanonicalChunkVersion(
                 chunk_id=row.id,
@@ -454,6 +451,14 @@ class PostgresChunkRepository(ChunkRepositoryPort):
         return chunk_row_to_domain(row) if row is not None else None
 
     async def upsert(self, chunk: MemoryChunk) -> UpsertChunkResult:
+        if chunk.thread_id is not None:
+            await fence_exact_thread_writer(
+                self._session,
+                space_id=str(chunk.space_id),
+                memory_scope_id=str(chunk.memory_scope_id),
+                thread_id=str(chunk.thread_id),
+            )
+        await lock_chunk_parent_for_write(self._session, chunk)
         existing = (
             await self._session.execute(
                 select(MemoryChunkRow).where(

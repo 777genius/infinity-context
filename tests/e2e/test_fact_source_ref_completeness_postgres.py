@@ -15,6 +15,7 @@ from infinity_context_adapters.postgres.document_source_ref_coordination import 
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
+    MemoryThreadRow,
 )
 from infinity_context_adapters.postgres.repositories import PostgresCaptureRepository
 from infinity_context_adapters.postgres.unit_of_work import (
@@ -141,7 +142,7 @@ async def _assert_invalid_reference_fails_closed(
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix=f"fact_source_ref_{case}",
+        prefix=f"fact_ref_{case[:16]}",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -150,8 +151,19 @@ async def _assert_invalid_reference_fails_closed(
         await upgrade_schema(engine)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
+            if fact_thread_id is not None:
+                session.add(_thread(fact_thread_id))
             if "cross_scope" in case:
                 session.add(_document("document-foreign", scope_id="scope-foreign"))
+            if case == "inactive_chunk":
+                session.add(_document("document-inactive-chunk"))
+            if case == "inactive_document":
+                session.add(_document("document-inactive", status="deleted"))
+            if "cross_thread" in case:
+                session.add(_document("document-foreign-thread", thread_id="thread-foreign"))
+            if case == "global_fact_private_document":
+                session.add(_document("document-private", thread_id="thread-private"))
+            await session.flush()
             if case == "cross_scope_chunk":
                 session.add(
                     _chunk(
@@ -161,7 +173,6 @@ async def _assert_invalid_reference_fails_closed(
                     )
                 )
             if case == "inactive_chunk":
-                session.add(_document("document-inactive-chunk"))
                 session.add(
                     _chunk(
                         "chunk-inactive",
@@ -169,10 +180,6 @@ async def _assert_invalid_reference_fails_closed(
                         status="deleted",
                     )
                 )
-            if case == "inactive_document":
-                session.add(_document("document-inactive", status="deleted"))
-            if "cross_thread" in case:
-                session.add(_document("document-foreign-thread", thread_id="thread-foreign"))
             if case == "cross_thread_chunk":
                 session.add(
                     _chunk(
@@ -181,8 +188,6 @@ async def _assert_invalid_reference_fails_closed(
                         thread_id="thread-foreign",
                     )
                 )
-            if case == "global_fact_private_document":
-                session.add(_document("document-private", thread_id="thread-private"))
 
         use_case = RememberFactUseCase(
             uow_factory=PostgresUnitOfWorkFactory(
@@ -216,7 +221,7 @@ async def _assert_thread_fact_accepts_visible_evidence(database_url: str) -> Non
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="fact_source_ref_thread_visibility",
+        prefix="fact_ref_visibility",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -225,10 +230,17 @@ async def _assert_thread_fact_accepts_visible_evidence(database_url: str) -> Non
         await upgrade_schema(engine)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
+            session.add(_thread("thread-local"))
+            await session.flush()
             session.add_all(
                 (
                     _document("document-global"),
                     _document("document-exact", thread_id="thread-local"),
+                )
+            )
+            await session.flush()
+            session.add_all(
+                (
                     _chunk("chunk-global", "document-global"),
                     _chunk("chunk-exact", "document-exact", thread_id="thread-local"),
                 )
@@ -264,7 +276,7 @@ async def _assert_chunk_parent_change_fails_closed(database_url: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="fact_source_ref_parent_change",
+        prefix="fact_ref_parent_change",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -280,9 +292,10 @@ async def _assert_chunk_parent_change_fails_closed(database_url: str) -> None:
                 (
                     _document("document-initial"),
                     _document("document-late"),
-                    _chunk("chunk-moving", "document-initial"),
                 )
             )
+            await session.flush()
+            session.add(_chunk("chunk-moving", "document-initial"))
 
         resolved = asyncio.Event()
         coordinator_session = sessions()
@@ -333,15 +346,21 @@ class _InitialResolutionGateSession:
         self._inner = inner
         self._resolved = resolved
         self._release = release
-        self._execute_count = 0
+        self._gated = False
 
     def get_bind(self):
         return self._inner.get_bind()
 
     async def execute(self, statement, *args, **kwargs):
         result = await self._inner.execute(statement, *args, **kwargs)
-        self._execute_count += 1
-        if self._execute_count == 1:
+        rendered = str(statement).upper()
+        is_initial_chunk_parent_resolution = (
+            "MEMORY_CHUNKS.ID" in rendered
+            and "MEMORY_CHUNKS.DOCUMENT_ID" in rendered
+            and "FOR UPDATE" not in rendered
+        )
+        if not self._gated and is_initial_chunk_parent_resolution:
+            self._gated = True
             self._resolved.set()
             await self._release.wait()
         return result
@@ -351,7 +370,7 @@ async def _assert_opposing_order_consolidations_complete(database_url: str) -> N
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="capture_document_union_order",
+        prefix="capture_doc_union",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -364,6 +383,11 @@ async def _assert_opposing_order_consolidations_complete(database_url: str) -> N
                 (
                     _document("document-a"),
                     _document("document-z"),
+                )
+            )
+            await session.flush()
+            session.add_all(
+                (
                     _chunk("chunk-a", "document-a"),
                     _chunk("chunk-z", "document-z"),
                 )
@@ -374,10 +398,11 @@ async def _assert_opposing_order_consolidations_complete(database_url: str) -> N
                 await repository.create(capture)
 
         coordination_counts: dict[str, int] = {}
-        factory = _SlowFirstWriteFactory(
+        factory = _CoordinationBarrierFactory(
             session_factory=sessions,
             clock=_FixedClock(),
             coordination_counts=coordination_counts,
+            participants=2,
         )
         candidates = {
             "capture-a": _candidates(("a", "z")),
@@ -450,22 +475,6 @@ class _MappedExtractor:
         return self._candidates[source.source_id]
 
 
-class _SlowFirstWriteRepository:
-    def __init__(self, inner) -> None:
-        self._inner = inner
-        self._created = 0
-
-    def __getattr__(self, name: str):
-        return getattr(self._inner, name)
-
-    async def create(self, fact):
-        result = await self._inner.create(fact)
-        self._created += 1
-        if self._created == 1:
-            await asyncio.sleep(0.2)
-        return result
-
-
 class _TrackingCaptureRepository:
     def __init__(self, inner, owner) -> None:
         self._inner = inner
@@ -480,15 +489,17 @@ class _TrackingCaptureRepository:
         return capture
 
 
-class _SlowFirstWriteUnitOfWork(PostgresUnitOfWork):
-    def __init__(self, *, coordination_counts: dict[str, int], **kwargs) -> None:
+class _CoordinationBarrierUnitOfWork(PostgresUnitOfWork):
+    def __init__(self, *, coordination_counts, arrived, release, participants, **kwargs) -> None:
         super().__init__(**kwargs)
         self._coordination_counts = coordination_counts
+        self._arrived = arrived
+        self._release = release
+        self._participants = participants
         self._capture_id: str | None = None
 
     async def __aenter__(self):
         entered = await super().__aenter__()
-        self.facts = _SlowFirstWriteRepository(self.facts)
         self.captures = _TrackingCaptureRepository(self.captures, self)
         return entered
 
@@ -496,20 +507,30 @@ class _SlowFirstWriteUnitOfWork(PostgresUnitOfWork):
         assert self._capture_id is not None
         capture_id = self._capture_id
         self._coordination_counts[capture_id] = self._coordination_counts.get(capture_id, 0) + 1
+        self._arrived.add(capture_id)
+        if len(self._arrived) == self._participants:
+            self._release.set()
+        await self._release.wait()
         await super().coordinate_fact_source_refs(**kwargs)
 
 
-class _SlowFirstWriteFactory:
-    def __init__(self, *, session_factory, clock, coordination_counts) -> None:
+class _CoordinationBarrierFactory:
+    def __init__(self, *, session_factory, clock, coordination_counts, participants) -> None:
         self._session_factory = session_factory
         self._clock = clock
         self._coordination_counts = coordination_counts
+        self._participants = participants
+        self._arrived: set[str] = set()
+        self._release = asyncio.Event()
 
-    def __call__(self) -> _SlowFirstWriteUnitOfWork:
-        return _SlowFirstWriteUnitOfWork(
+    def __call__(self) -> _CoordinationBarrierUnitOfWork:
+        return _CoordinationBarrierUnitOfWork(
             session_factory=self._session_factory,
             clock=self._clock,
             coordination_counts=self._coordination_counts,
+            arrived=self._arrived,
+            release=self._release,
+            participants=self._participants,
         )
 
 
@@ -579,6 +600,18 @@ def _document(
         classification="internal",
         status=status,
         retrieval_projected=False,
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def _thread(thread_id: str) -> MemoryThreadRow:
+    return MemoryThreadRow(
+        id=thread_id,
+        space_id="space-local",
+        memory_scope_id="scope-local",
+        external_ref=thread_id,
+        status="active",
         created_at=NOW,
         updated_at=NOW,
     )

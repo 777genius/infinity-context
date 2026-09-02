@@ -8,6 +8,13 @@ from datetime import UTC, datetime, timedelta
 from time import monotonic
 
 import pytest
+from document_fact_source_ref_race_support import (
+    AdmissionGateUnitOfWorkFactory,
+    CanonicalIds,
+    FixedClock,
+    TrackingCanonicalUnitOfWorkFactory,
+    active_facts_solely_backed_by_document,
+)
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactUnitOfWorkFactory,
 )
@@ -20,15 +27,16 @@ from infinity_context_adapters.postgres.models import (
     MemoryFactRow,
     MemoryFactVersionRow,
     MemoryOutboxRow,
+    MemoryThreadRow,
 )
 from infinity_context_adapters.postgres.unit_of_work import (
     PostgresUnitOfWork,
-    PostgresUnitOfWorkFactory,
     build_session_factory,
 )
 from infinity_context_core.application.dto import (
     DeleteDocumentCommand,
     DeleteThreadMemoryCommand,
+    IngestDocumentCommand,
     RememberFactCommand,
     UpdateFactCommand,
 )
@@ -36,6 +44,7 @@ from infinity_context_core.application.use_cases.delete_document import DeleteDo
 from infinity_context_core.application.use_cases.delete_thread_memory import (
     DeleteThreadMemoryUseCase,
 )
+from infinity_context_core.application.use_cases.ingest_document import IngestDocumentUseCase
 from infinity_context_core.application.use_cases.remember_fact import RememberFactUseCase
 from infinity_context_core.application.use_cases.update_fact import UpdateFactUseCase
 from infinity_context_core.domain.entities import (
@@ -50,36 +59,44 @@ from infinity_context_core.domain.entities import (
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.features.memory_facts.public import (
     FactTemporalExtent,
-    MemoryFact as CanonicalMemoryFact,
     MemoryFactEvidenceRef,
-    MemoryFactIdentity as CanonicalMemoryFactIdentity,
-    MemoryFactSourceRef as CanonicalMemoryFactSourceRef,
-    MemoryFactScope as CanonicalMemoryFactScope,
     ReinstateSupersededFactCommand,
     ReinstateSupersededFactHandler,
     SupersedeFactCommand,
     SupersedeFactHandler,
     memory_fact_identity_lock_key,
 )
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFact as CanonicalMemoryFact,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactIdentity as CanonicalMemoryFactIdentity,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactScope as CanonicalMemoryFactScope,
+)
+from infinity_context_core.features.memory_facts.public import (
+    MemoryFactSourceRef as CanonicalMemoryFactSourceRef,
+)
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
-
-from document_fact_source_ref_race_support import (
-    AdmissionGateUnitOfWorkFactory,
-    CanonicalIds,
-    FixedClock,
-    TrackingCanonicalUnitOfWorkFactory,
-    active_facts_solely_backed_by_document,
-)
 
 NOW = datetime(2026, 9, 1, tzinfo=UTC)
 
 
-def test_document_delete_serializes_with_fact_update_when_postgres_is_configured() -> None:
+@pytest.mark.parametrize("move_evidence", (False, True))
+def test_document_delete_serializes_with_fact_update_when_postgres_is_configured(
+    move_evidence: bool,
+) -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_document_delete_serializes_with_fact_update(database_url))
+    asyncio.run(
+        _assert_document_delete_serializes_with_fact_update(
+            database_url,
+            move_evidence=move_evidence,
+        )
+    )
 
 
 def test_document_delete_uses_shared_two_fact_lock_order_when_postgres_is_configured() -> None:
@@ -89,7 +106,7 @@ def test_document_delete_uses_shared_two_fact_lock_order_when_postgres_is_config
     asyncio.run(_assert_document_delete_uses_shared_two_fact_lock_order(database_url))
 
 
-@pytest.mark.parametrize("mutation", ("create", "update"))
+@pytest.mark.parametrize("mutation", ("create", "update", "update_exact_thread"))
 def test_document_delete_admission_rejects_late_document_source_ref_writer(
     mutation: str,
 ) -> None:
@@ -117,12 +134,12 @@ async def _assert_thread_delete_rejects_late_fact_writers(database_url: str) -> 
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="thread_delete_late_fact_writers",
+        prefix="thr_del_late_writers",
         asyncpg=asyncpg,
     )
     await database.recreate()
     engine = build_async_engine(database.app_url)
-    deletion = create_writer = update_writer = None
+    deletion = create_writer = update_writer = ingest_writer = None
     release_delete = asyncio.Event()
     try:
         await upgrade_schema(engine)
@@ -132,7 +149,11 @@ async def _assert_thread_delete_rejects_late_fact_writers(database_url: str) -> 
         chunk = _chunk()
         chunk.thread_id = "thread-race"
         async with sessions.begin() as session:
-            session.add_all((document, chunk))
+            session.add(_thread())
+            await session.flush()
+            session.add(document)
+            await session.flush()
+            session.add(chunk)
         async with sessions.begin() as session:
             await PostgresFactRepository(session, now=NOW).create(
                 _fact(fact_id="fact-update", thread_id="thread-race")
@@ -158,14 +179,35 @@ async def _assert_thread_delete_rejects_late_fact_writers(database_url: str) -> 
         )
         await asyncio.wait_for(admitted.wait(), timeout=2)
 
-        ref = SourceRef("document", "document-race", chunk_id="chunk-race")
-        writer_factory = PostgresUnitOfWorkFactory(
+        document_ref = SourceRef("document", "document-race", chunk_id="chunk-race")
+        manual_ref = SourceRef("manual", "manual-race")
+        create_pid_ready = asyncio.Event()
+        update_pid_ready = asyncio.Event()
+        ingest_pid_ready = asyncio.Event()
+        create_pid: list[int] = []
+        update_pid: list[int] = []
+        ingest_pid: list[int] = []
+        create_factory = _TrackingUnitOfWorkFactory(
             session_factory=sessions,
             clock=clock,
+            pid_ready=create_pid_ready,
+            pid=create_pid,
+        )
+        update_factory = _TrackingUnitOfWorkFactory(
+            session_factory=sessions,
+            clock=clock,
+            pid_ready=update_pid_ready,
+            pid=update_pid,
+        )
+        ingest_factory = _TrackingUnitOfWorkFactory(
+            session_factory=sessions,
+            clock=clock,
+            pid_ready=ingest_pid_ready,
+            pid=ingest_pid,
         )
         create_writer = asyncio.create_task(
             RememberFactUseCase(
-                uow_factory=writer_factory,
+                uow_factory=create_factory,
                 clock=clock,
                 ids=UuidIdGenerator(),
             ).execute(
@@ -175,48 +217,86 @@ async def _assert_thread_delete_rejects_late_fact_writers(database_url: str) -> 
                     thread_id=ThreadId("thread-race"),
                     text="Late thread fact must not survive deletion.",
                     kind=MemoryKind.NOTE,
-                    source_refs=(ref,),
+                    source_refs=(manual_ref,),
                 )
             )
         )
         update_writer = asyncio.create_task(
-            UpdateFactUseCase(uow_factory=writer_factory, clock=clock).execute(
+            UpdateFactUseCase(uow_factory=update_factory, clock=clock).execute(
                 UpdateFactCommand(
                     fact_id="fact-update",
                     expected_version=1,
                     text="Late update must not survive thread deletion.",
-                    source_refs=(ref,),
+                    source_refs=(document_ref,),
                     reason="exercise thread deletion admission",
                 )
             )
         )
-        await asyncio.sleep(0.1)
-        assert not create_writer.done()
-        assert not update_writer.done()
+        ingest_writer = asyncio.create_task(
+            IngestDocumentUseCase(
+                uow_factory=ingest_factory,
+                clock=clock,
+                ids=UuidIdGenerator(),
+            ).execute(
+                IngestDocumentCommand(
+                    space_id=SpaceId("space-race"),
+                    memory_scope_id=MemoryScopeId("scope-race"),
+                    thread_id=ThreadId("thread-race"),
+                    title="Late document",
+                    text="Late document content must not survive thread deletion.",
+                    source_type="document",
+                    source_external_id="late-document",
+                )
+            )
+        )
+        await asyncio.wait_for(create_pid_ready.wait(), timeout=2)
+        await asyncio.wait_for(update_pid_ready.wait(), timeout=2)
+        await asyncio.wait_for(ingest_pid_ready.wait(), timeout=2)
+        await _wait_for_row_lock(engine, create_pid[0])
+        await _wait_for_row_lock(engine, update_pid[0])
+        await _wait_for_row_lock(engine, ingest_pid[0])
 
         release_delete.set()
         result = await asyncio.wait_for(deletion, timeout=5)
         deletion = None
         assert result.deleted_facts == 1
         for writer in (create_writer, update_writer):
-            with pytest.raises(MemoryConflictError, match="deleted document"):
+            with pytest.raises(MemoryConflictError, match="lifecycle|deleted document"):
                 await asyncio.wait_for(writer, timeout=5)
-        create_writer = update_writer = None
+        with pytest.raises(MemoryConflictError, match="lifecycle"):
+            await asyncio.wait_for(ingest_writer, timeout=5)
+        create_writer = update_writer = ingest_writer = None
 
         async with sessions() as session:
-            assert await session.scalar(
-                select(MemoryFactRow.id).where(
-                    MemoryFactRow.thread_id == "thread-race",
-                    MemoryFactRow.status == "active",
+            assert (
+                await session.scalar(
+                    select(MemoryFactRow.id).where(
+                        MemoryFactRow.thread_id == "thread-race",
+                        MemoryFactRow.status == "active",
+                    )
                 )
-            ) is None
+                is None
+            )
+            assert (
+                await session.scalar(
+                    select(MemoryDocumentRow.id).where(
+                        MemoryDocumentRow.thread_id == "thread-race",
+                        MemoryDocumentRow.status == "active",
+                    )
+                )
+                is None
+            )
     finally:
         release_delete.set()
-        for task in (deletion, create_writer, update_writer):
+        for task in (deletion, create_writer, update_writer, ingest_writer):
             if task is not None:
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (deletion, create_writer, update_writer) if task is not None),
+            *(
+                task
+                for task in (deletion, create_writer, update_writer, ingest_writer)
+                if task is not None
+            ),
             return_exceptions=True,
         )
         await engine.dispose()
@@ -275,7 +355,7 @@ async def _assert_delete_admission_rejects_late_reinstatement(database_url: str)
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="document_delete_late_reinstate",
+        prefix="doc_del_reinstate",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -287,6 +367,7 @@ async def _assert_delete_admission_rejects_late_reinstatement(database_url: str)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
             session.add(_document())
+            await session.flush()
             session.add(_chunk())
 
         scope = CanonicalMemoryFactScope("space-race", "scope-race", None)
@@ -432,7 +513,7 @@ async def _assert_delete_admission_rejects_late_source_ref_writer(
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix=f"document_delete_late_{mutation}",
+        prefix=f"doc_del_{mutation}",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -443,14 +524,21 @@ async def _assert_delete_admission_rejects_late_source_ref_writer(
         await upgrade_schema(engine)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
+            if mutation == "update_exact_thread":
+                session.add(_thread("thread-exact-writer"))
+                await session.flush()
             session.add(_document())
+            await session.flush()
             session.add(_chunk())
-        if mutation == "update":
+        if mutation in {"update", "update_exact_thread"}:
             async with sessions.begin() as session:
                 await PostgresFactRepository(session, now=NOW).create(
                     _fact_with_ref(
                         fact_id="fact-update",
                         ref=SourceRef(source_type="manual", source_id="manual-before-delete"),
+                        thread_id=(
+                            "thread-exact-writer" if mutation == "update_exact_thread" else None
+                        ),
                     )
                 )
 
@@ -545,7 +633,7 @@ async def _assert_document_delete_uses_shared_two_fact_lock_order(database_url: 
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="document_delete_two_fact_lock_order",
+        prefix="doc_del_two_fact_order",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -556,7 +644,10 @@ async def _assert_document_delete_uses_shared_two_fact_lock_order(database_url: 
         await upgrade_schema(engine)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
+            session.add_all((_thread("thread-a"), _thread("thread-z")))
+            await session.flush()
             session.add(_document())
+            await session.flush()
             session.add(_chunk())
         async with sessions.begin() as session:
             repository = PostgresFactRepository(session, now=NOW)
@@ -598,11 +689,7 @@ async def _assert_document_delete_uses_shared_two_fact_lock_order(database_url: 
 
         async with sessions() as session:
             facts = tuple(
-                (
-                    await session.execute(
-                        select(MemoryFactRow).order_by(MemoryFactRow.id)
-                    )
-                ).scalars()
+                (await session.execute(select(MemoryFactRow).order_by(MemoryFactRow.id))).scalars()
             )
             versions = tuple(
                 (
@@ -664,15 +751,11 @@ async def _lock_two_facts_in_shared_order(
             (
                 CanonicalMemoryFactIdentity(
                     "fact-a",
-                    CanonicalMemoryFactScope(
-                        "space-race", "scope-race", "thread-z"
-                    ),
+                    CanonicalMemoryFactScope("space-race", "scope-race", "thread-z"),
                 ),
                 CanonicalMemoryFactIdentity(
                     "fact-z",
-                    CanonicalMemoryFactScope(
-                        "space-race", "scope-race", "thread-a"
-                    ),
+                    CanonicalMemoryFactScope("space-race", "scope-race", "thread-a"),
                 ),
             ),
             key=memory_fact_identity_lock_key,
@@ -688,11 +771,15 @@ async def _lock_two_facts_in_shared_order(
     return tuple(identity.fact_id for identity in identities)
 
 
-async def _assert_document_delete_serializes_with_fact_update(database_url: str) -> None:
+async def _assert_document_delete_serializes_with_fact_update(
+    database_url: str,
+    *,
+    move_evidence: bool,
+) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix="document_delete_fact_race",
+        prefix=f"doc_del_fact_{'move' if move_evidence else 'same'}",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -704,7 +791,12 @@ async def _assert_document_delete_serializes_with_fact_update(database_url: str)
         sessions = build_session_factory(engine)
         async with sessions.begin() as session:
             session.add(_document())
+            if move_evidence:
+                session.add(_document(document_id="document-other"))
+            await session.flush()
             session.add(_chunk())
+            if move_evidence:
+                session.add(_chunk(chunk_id="chunk-other", document_id="document-other"))
         async with sessions.begin() as session:
             await PostgresFactRepository(session, now=NOW).create(_fact())
 
@@ -716,7 +808,9 @@ async def _assert_document_delete_serializes_with_fact_update(database_url: str)
         concurrent = current.update(
             expected_version=1,
             text="Concurrent version must survive into the deletion history.",
-            source_refs=current.source_refs,
+            source_refs=(SourceRef("document", "document-other", chunk_id="chunk-other"),)
+            if move_evidence
+            else current.source_refs,
             reason="exercise document deletion race",
             now=NOW + timedelta(seconds=1),
         )
@@ -747,12 +841,14 @@ async def _assert_document_delete_serializes_with_fact_update(database_url: str)
         result = await asyncio.wait_for(delete_task, timeout=5)
         delete_task = None
         assert result.deleted_chunks == 1
-        assert result.deleted_facts == 1
+        assert result.deleted_facts == (0 if move_evidence else 1)
 
         async with sessions() as session:
             document = await session.get(MemoryDocumentRow, "document-race")
             chunk = await session.get(MemoryChunkRow, "chunk-race")
             fact = await session.get(MemoryFactRow, "fact-race")
+            other_document = await session.get(MemoryDocumentRow, "document-other")
+            other_chunk = await session.get(MemoryChunkRow, "chunk-other")
             versions = list(
                 (
                     await session.execute(
@@ -774,20 +870,24 @@ async def _assert_document_delete_serializes_with_fact_update(database_url: str)
         assert chunk is not None and chunk.status == "deleted"
         assert fact is not None
         assert (fact.status, fact.version, fact.text) == (
-            "deleted",
-            3,
+            "active" if move_evidence else "deleted",
+            2 if move_evidence else 3,
             "Concurrent version must survive into the deletion history.",
         )
-        assert [(row.version, row.status) for row in versions] == [
-            (1, "active"),
-            (2, "active"),
-            (3, "deleted"),
-        ]
-        assert event_types == [
+        expected_versions = [(1, "active"), (2, "active")]
+        if not move_evidence:
+            expected_versions.append((3, "deleted"))
+        assert [(row.version, row.status) for row in versions] == expected_versions
+        expected_events = [
             "vector.delete_chunks",
             "cognee.forget_document",
-            "graph.delete_fact",
         ]
+        if not move_evidence:
+            expected_events.append("graph.delete_fact")
+        assert event_types == expected_events
+        if move_evidence:
+            assert other_document is not None and other_document.status == "active"
+            assert other_chunk is not None and other_chunk.status == "active"
     finally:
         if delete_task is not None:
             delete_task.cancel()
@@ -852,16 +952,28 @@ class _TrackingUnitOfWorkFactory:
         )
 
 
-def _document() -> MemoryDocumentRow:
+def _thread(thread_id: str = "thread-race") -> MemoryThreadRow:
+    return MemoryThreadRow(
+        id=thread_id,
+        space_id="space-race",
+        memory_scope_id="scope-race",
+        external_ref=thread_id,
+        status="active",
+        created_at=NOW,
+        updated_at=NOW,
+    )
+
+
+def _document(*, document_id: str = "document-race") -> MemoryDocumentRow:
     return MemoryDocumentRow(
-        id="document-race",
+        id=document_id,
         space_id="space-race",
         memory_scope_id="scope-race",
         thread_id=None,
-        title="Document fact race",
+        title=f"Document fact race {document_id}",
         source_type="document",
-        source_external_id="document-fact-race",
-        content_hash="document-fact-race-hash",
+        source_external_id=document_id,
+        content_hash=f"hash-{document_id}",
         classification="internal",
         status="active",
         created_at=NOW,
@@ -869,17 +981,21 @@ def _document() -> MemoryDocumentRow:
     )
 
 
-def _chunk() -> MemoryChunkRow:
+def _chunk(
+    *,
+    chunk_id: str = "chunk-race",
+    document_id: str = "document-race",
+) -> MemoryChunkRow:
     return MemoryChunkRow(
-        id="chunk-race",
+        id=chunk_id,
         space_id="space-race",
         memory_scope_id="scope-race",
         thread_id=None,
-        document_id="document-race",
+        document_id=document_id,
         episode_id=None,
         source_type="document",
-        source_external_id="document-fact-race",
-        source_hash="document-fact-race-chunk-hash",
+        source_external_id=document_id,
+        source_hash=f"hash-{chunk_id}",
         kind="document_section",
         text="Document fact race evidence.",
         normalized_text="document fact race evidence.",
@@ -926,11 +1042,12 @@ def _fact(
     )
 
 
-def _fact_with_ref(*, fact_id: str, ref: SourceRef) -> MemoryFact:
+def _fact_with_ref(*, fact_id: str, ref: SourceRef, thread_id: str | None = None) -> MemoryFact:
     return MemoryFact.create(
         fact_id=MemoryFactId(fact_id),
         space_id=SpaceId("space-race"),
         memory_scope_id=MemoryScopeId("scope-race"),
+        thread_id=ThreadId(thread_id) if thread_id is not None else None,
         text=f"Fact {fact_id} before concurrent mutation.",
         kind=MemoryKind.NOTE,
         source_refs=(ref,),
