@@ -17,6 +17,9 @@ from infinity_context_server.api.auth import require_service_token
 from infinity_context_server.api.dependencies import get_container
 from infinity_context_server.api.v1 import exact_reconciliation_body as body_boundary
 from infinity_context_server.api.v1.documents import reconcile_exact_document, router
+from infinity_context_server.features.document_ingestion.public import (
+    ReconcileExactDocumentHttpRequest,
+)
 
 
 def _client(handler) -> TestClient:
@@ -296,21 +299,54 @@ def test_deadline_uses_the_typed_field_coercion(deadline_ms) -> None:
     assert response.json()["data"]["state"] == "unavailable"
 
 
-@pytest.mark.parametrize("content_type", [None, "application/vnd.infinity+json"])
+@pytest.mark.parametrize(
+    "content_type", ["application/json", "application/vnd.infinity+json"]
+)
 def test_fastapi_compatible_json_media_types_remain_accepted(content_type) -> None:
     class Handler:
         async def execute(self, query):
             return ingestion.ExactDocumentReconciliation("absent", query.identity)
 
-    headers = {} if content_type is None else {"content-type": content_type}
     response = _client(Handler()).post(
         "/v1/documents/reconcile-exact",
         content=json.dumps(_body()).encode(),
-        headers=headers,
+        headers={"content-type": content_type},
     )
 
     assert response.status_code == 200
     assert response.json()["data"]["state"] == "absent"
+
+
+def test_absent_content_type_matches_native_typed_fastapi_validation() -> None:
+    class Handler:
+        calls = 0
+
+        async def execute(self, _query):
+            self.calls += 1
+
+    handler = Handler()
+    app = _client(handler).app
+    native_calls = 0
+
+    @app.post("/native-body-parsing")
+    async def native_body_parsing(
+        _body: ReconcileExactDocumentHttpRequest,
+    ) -> None:
+        nonlocal native_calls
+        native_calls += 1
+
+    client = TestClient(app)
+    content = json.dumps(_body()).encode()
+    expected = client.post("/native-body-parsing", content=content)
+    response = client.post("/v1/documents/reconcile-exact", content=content)
+
+    assert response.status_code == expected.status_code == 422
+    assert response.json() == expected.json()
+    assert any(
+        error["type"] == "model_attributes_type" and error["loc"] == ["body"]
+        for error in response.json()["detail"]
+    )
+    assert native_calls == handler.calls == 0
 
 
 def test_unsupported_media_type_still_authenticates_before_typed_validation() -> None:
