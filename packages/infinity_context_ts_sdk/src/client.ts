@@ -1,5 +1,12 @@
 import { resolveAuthToken, type AuthTokenProvider } from "./auth.js";
-import { InfinityContextError, networkError, operationAbortError, redactSensitiveText } from "./errors.js";
+import {
+  copyInfinityContextError,
+  createInfinityContextError,
+  type InfinityContextError,
+  networkError,
+  operationAbortError,
+  redactSensitiveText,
+} from "./errors.js";
 import type {
   InfinityContextInstrumentation,
   RequestErrorEvent,
@@ -128,13 +135,14 @@ export class HttpClient implements RequestExecutor {
           }
         }
 
-        const error = options.errorDecoder === undefined
+        const decoded = options.errorDecoder === undefined
           ? toHttpError(
             response.status,
             response.headers,
             typeof response.body === "string" ? response.body : new TextDecoder().decode(response.body),
           )
           : options.errorDecoder(response.status, response.headers, response.body);
+        const error = copyInfinityContextError(decoded) ?? networkError(decoded);
         lastError = error;
         const retry = shouldRetryAttempt(options, attempt, maxAttempts, error, response.status);
         await this.#notifyError(errorEvent(context, error, durationMs), signal);
@@ -142,8 +150,8 @@ export class HttpClient implements RequestExecutor {
         await this.#retry(context, error, attempt, durationMs, signal);
       } catch (error) {
         if (signal?.aborted) throw operationAbortError(signal.reason);
-        if (error instanceof InfinityContextError && error === lastError) throw error;
-        const sdkError = error instanceof InfinityContextError ? error : networkError(error);
+        if (error === lastError) throw copyInfinityContextError(error) ?? networkError(error);
+        const sdkError = copyInfinityContextError(error) ?? networkError(error);
         lastError = sdkError;
         const durationMs = durationSince(started);
         const retry = shouldRetryAttempt(options, attempt, maxAttempts, sdkError);
@@ -153,7 +161,7 @@ export class HttpClient implements RequestExecutor {
       }
     }
 
-    throw lastError ?? new InfinityContextError({
+    throw lastError ?? createInfinityContextError({
       statusCode: 0,
       code: "memory.request_failed",
       message: "Infinity Context request failed",
@@ -329,7 +337,7 @@ function toHttpError(statusCode: number, headers: Headers, body: string): Infini
   const code = String(errorPayload.code ?? detailPayload.code ?? "memory.http_error");
   const message = String((errorPayload.message ?? detailPayload.message ?? body) || code);
   const requestId = headers.get("x-request-id") ?? undefined;
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode,
     code,
     message: redactSensitiveText(message),

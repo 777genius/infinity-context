@@ -1,5 +1,5 @@
 import type { HttpErrorDecoder } from "./client.js";
-import { InfinityContextError, responseByteLimitError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError, responseByteLimitError } from "./errors.js";
 import { assertUnicodeScalarString, pythonTrim } from "./retrieval-canonical.js";
 import { decodeRetrievalJson } from "./retrieval-json.js";
 import type { JsonObject } from "./types.js";
@@ -62,7 +62,7 @@ export function decodeRetrievalError(
       invalid("error.message contains invalid Unicode or controls");
     }
   }
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode,
     code,
     message: error.message,
@@ -82,7 +82,7 @@ function exactObject(value: unknown, keys: readonly string[], path: string): Rec
 }
 
 function invalid(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.context_retrieval_contract_invalid",
     message,

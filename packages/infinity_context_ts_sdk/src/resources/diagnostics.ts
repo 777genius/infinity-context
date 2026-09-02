@@ -1,5 +1,5 @@
 import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import {
   collectCursorItems,
   iterateCursorItems,
@@ -269,7 +269,7 @@ function numericCount(value: JsonValue | undefined): number {
 }
 
 function outboxDrainTimeout(maxAttempts: number, last: OutboxDrainResult | undefined): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.outbox_drain_timeout",
     message: `Outbox did not drain after ${maxAttempts} attempt(s)`,
@@ -285,7 +285,7 @@ function outboxDrainTimeout(maxAttempts: number, last: OutboxDrainResult | undef
 }
 
 function outboxDrainFailure(result: OutboxDrainResult): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.outbox_drain_failed",
     message: "Outbox contains failed items",

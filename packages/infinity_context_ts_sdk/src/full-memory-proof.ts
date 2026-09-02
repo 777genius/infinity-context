@@ -6,7 +6,7 @@ import {
   usedDerivedRetrieval,
   type ContextRetrievalDiagnostics,
 } from "./diagnostics.js";
-import { InfinityContextError } from "./errors.js";
+import { copyInfinityContextError, type InfinityContextError, networkError } from "./errors.js";
 import { ReadScope } from "./payload.js";
 import {
   summarizeSourceEvidenceBatch,
@@ -510,7 +510,7 @@ async function ensureAnchor(
     return (await client.anchors.createAnchor(input)).data;
   } catch (error) {
     if (!isConflict(error)) {
-      throw error;
+      throw copyInfinityContextError(error) ?? networkError(error);
     }
     const afterConflict = await client.anchors.listAnchors({
       spaceSlug: input.spaceSlug,
@@ -520,7 +520,7 @@ async function ensureAnchor(
     });
     const created = afterConflict.data.find((anchor) => anchor.label === input.label);
     if (created === undefined) {
-      throw error;
+      throw copyInfinityContextError(error) ?? networkError(error);
     }
     return created;
   }
@@ -558,7 +558,7 @@ function hasFullMemoryCapabilities(capabilities: InfinityContextCapabilities): b
 }
 
 function isConflict(error: unknown): boolean {
-  return error instanceof InfinityContextError && error.statusCode === 409;
+  return copyInfinityContextError(error)?.statusCode === 409;
 }
 
 function safeRunId(value: string): string {

@@ -1,6 +1,6 @@
 import type { RequestControls } from "../client.js";
 import type { ContextRetrievalComponent } from "../diagnostics.js";
-import { InfinityContextError } from "../errors.js";
+import { copyInfinityContextError, createInfinityContextError, type InfinityContextError } from "../errors.js";
 import { ValueError, type SingleScopeInput } from "../payload.js";
 import type { JsonObject, SourceRef } from "../types.js";
 
@@ -108,13 +108,13 @@ export function normalizeBatchConcurrency(value: number | undefined): number {
 }
 
 export function workflowErrorData(error: unknown): WorkflowErrorData {
-  const record = typeof error === "object" && error !== null ? error as Record<string, unknown> : {};
-  const message = error instanceof Error ? error.message : String(error);
-  const name = error instanceof Error ? error.name : "Error";
-  const code = typeof record.code === "string" ? record.code : undefined;
-  const statusCode = typeof record.statusCode === "number" ? record.statusCode : undefined;
-  const retryable = typeof record.retryable === "boolean" ? record.retryable : undefined;
-  const requestId = typeof record.requestId === "string" ? record.requestId : undefined;
+  const safe = copyInfinityContextError(error);
+  const message = safe?.message ?? "Workflow operation failed";
+  const name = safe?.name ?? "Error";
+  const code = safe?.code;
+  const statusCode = safe?.statusCode;
+  const retryable = safe?.retryable;
+  const requestId = safe?.requestId;
 
   return {
     name,
@@ -127,7 +127,17 @@ export function workflowErrorData(error: unknown): WorkflowErrorData {
 }
 
 export function workflowConflict(error: unknown): boolean {
-  return error instanceof InfinityContextError && error.statusCode === 409;
+  return copyInfinityContextError(error)?.statusCode === 409;
+}
+
+export function safeWorkflowError(error: unknown): InfinityContextError {
+  return copyInfinityContextError(error) ?? createInfinityContextError({
+    statusCode: 0,
+    code: "memory.workflow_failed",
+    message: "Infinity Context workflow failed",
+    retryable: false,
+    cause: error,
+  });
 }
 
 export function workflowControls(input: RequestControls): RequestControls {

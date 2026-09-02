@@ -1,62 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { HttpClient, InfinityContextError } from "../src/index.js";
+import { HttpClient, InfinityContextError, redactSensitiveText } from "../src/index.js";
 
-describe("hostile public Error handling", () => {
-  it.each(["abort", "throw"] as const)(
-    "never invokes hostile inherited Error surfaces for a raw %s",
-    async (mode) => {
-      let getterCalls = 0;
-      class HostileError extends Error {}
-      Object.defineProperties(HostileError.prototype, {
-        name: { get: () => { getterCalls += 1; throw new Error("HOSTILE_NAME_SENTINEL"); } },
-        message: { get: () => { getterCalls += 1; return "api_key=HOSTILE_MESSAGE_SENTINEL"; } },
-        credential: { value: "HOSTILE_INHERITED_SENTINEL" },
-        toString: { value: () => { throw new Error("HOSTILE_TOSTRING_SENTINEL"); } },
-      });
-      const hostile = Object.create(HostileError.prototype) as Error;
-      Object.defineProperty(hostile, "cause", {
-        value: new Error("authorization=Bearer HOSTILE_NESTED_SENTINEL"),
-      });
-      const controller = new AbortController();
-      if (mode === "abort") controller.abort(hostile);
-      const client = new HttpClient({
-        transport: { send: async () => { throw hostile; } },
-        retryPolicy: { maxAttempts: 1 },
-      });
+const EXTERNAL_CAUSE = { name: "Error", message: "External error cause redacted" };
 
-      let caught: unknown;
-      try {
-        await client.request({ method: "GET", path: "/hostile", signal: controller.signal });
-      } catch (error) {
-        caught = error;
-      }
+describe("bounded immutable public Error snapshots", () => {
+  it.each(["abort", "throw"] as const)("does not inspect a hostile Proxy on raw %s", async (mode) => {
+    const traps = { get: 0, getPrototypeOf: 0, ownKeys: 0, descriptor: 0 };
+    const hostile = new Proxy({}, {
+      get: () => { traps.get += 1; throw new Error("GET_TRAP"); },
+      getPrototypeOf: () => { traps.getPrototypeOf += 1; throw new Error("PROTOTYPE_TRAP"); },
+      ownKeys: () => { traps.ownKeys += 1; throw new Error("OWN_KEYS_TRAP"); },
+      getOwnPropertyDescriptor: () => { traps.descriptor += 1; throw new Error("DESCRIPTOR_TRAP"); },
+    });
+    const controller = new AbortController();
+    if (mode === "abort") controller.abort(hostile);
+    const client = new HttpClient({
+      transport: { send: async () => { throw hostile; } },
+      retryPolicy: { maxAttempts: 1 },
+    });
 
-      expect(caught).toBeInstanceOf(InfinityContextError);
-      expect(caught).toMatchObject({
-        code: mode === "abort" ? "memory.request_aborted" : "memory.network_error",
-        retryable: mode !== "abort",
-      });
-      expect(getterCalls).toBe(0);
-      expect((caught as Error).cause).not.toBe(hostile);
-      const exposed = publicErrorText(caught);
-      for (const sentinel of [
-        "HOSTILE_NAME_SENTINEL",
-        "HOSTILE_MESSAGE_SENTINEL",
-        "HOSTILE_INHERITED_SENTINEL",
-        "HOSTILE_TOSTRING_SENTINEL",
-        "HOSTILE_NESTED_SENTINEL",
-      ]) expect(exposed).not.toContain(sentinel);
-      expect(getterCalls).toBe(0);
-    },
-  );
+    await expect(client.request({ method: "GET", path: "/hostile", signal: controller.signal })).rejects.toMatchObject({
+      code: mode === "abort" ? "memory.request_aborted" : "memory.network_error",
+      message: mode === "abort" ? "Infinity Context request aborted" : "Infinity Context request failed",
+      cause: EXTERNAL_CAUSE,
+    });
+    expect(traps).toEqual({ get: 0, getPrototypeOf: 0, ownKeys: 0, descriptor: 0 });
+  });
 
-  it("sanitizes throwing own Error accessors without invoking them", () => {
-    let getterCalls = 0;
-    const hostile = new Error("safe constructor value");
+  it("does not invoke inherited, own, or lazy-stack accessors", () => {
+    let calls = 0;
+    const prototype = Object.create(null) as object;
+    Object.defineProperties(prototype, {
+      name: { get: () => { calls += 1; throw new Error("INHERITED_NAME"); } },
+      message: { get: () => { calls += 1; throw new Error("INHERITED_MESSAGE"); } },
+      toString: { value: () => { calls += 1; throw new Error("TO_STRING"); } },
+    });
+    const hostile = Object.create(prototype) as Error;
     Object.defineProperties(hostile, {
-      name: { get: () => { getterCalls += 1; throw new Error("OWN_NAME_SENTINEL"); } },
-      message: { get: () => { getterCalls += 1; throw new Error("OWN_MESSAGE_SENTINEL"); } },
-      toString: { value: () => { throw new Error("OWN_TOSTRING_SENTINEL"); } },
+      cause: { get: () => { calls += 1; throw new Error("OWN_CAUSE"); } },
+      stack: { get: () => { calls += 1; throw new Error("LAZY_STACK"); } },
     });
 
     const error = new InfinityContextError({
@@ -67,64 +49,165 @@ describe("hostile public Error handling", () => {
       cause: hostile,
     });
 
-    expect(getterCalls).toBe(0);
-    expect(error.cause).not.toBe(hostile);
-    expect(publicErrorText(error)).not.toMatch(/OWN_(?:NAME|MESSAGE|TOSTRING)_SENTINEL/);
-    expect(getterCalls).toBe(0);
+    expect(calls).toBe(0);
+    expect(error.cause).toEqual(EXTERNAL_CAUSE);
+    expect(Object.isFrozen(error.cause)).toBe(true);
+    expect(calls).toBe(0);
   });
 
-  it("does not coerce hostile non-Error throw values", async () => {
-    let coercions = 0;
-    const hostile = {
-      credential: "RAW_THROW_SENTINEL",
-      get name() { throw new Error("RAW_NAME_SENTINEL"); },
-      toString() { coercions += 1; throw new Error("RAW_TOSTRING_SENTINEL"); },
-    };
+  it("does not recognize a forged InfinityContextError prototype", async () => {
+    const forged = Object.create(InfinityContextError.prototype) as InfinityContextError;
+    Object.defineProperties(forged, {
+      code: { get: () => { throw new Error("FORGED_CODE_GETTER"); } },
+      message: { get: () => { throw new Error("FORGED_MESSAGE_GETTER"); } },
+    });
     const client = new HttpClient({
-      transport: { send: async () => { throw hostile; } },
+      transport: { send: async () => { throw forged; } },
       retryPolicy: { maxAttempts: 1 },
     });
-
-    await expect(client.request({ method: "GET", path: "/hostile-value" })).rejects.toMatchObject({
+    await expect(client.request({ method: "GET", path: "/forged" })).rejects.toMatchObject({
       code: "memory.network_error",
       message: "Infinity Context request failed",
-      cause: undefined,
+      cause: EXTERNAL_CAUSE,
     });
-    expect(coercions).toBe(0);
+  });
+
+  it("fails closed on Proxy, cyclic, and 20k-level public details without traversal", () => {
+    let traps = 0;
+    const proxy = new Proxy({}, {
+      get: () => { traps += 1; throw new Error("GET"); },
+      getPrototypeOf: () => { traps += 1; throw new Error("PROTOTYPE"); },
+      ownKeys: () => { traps += 1; throw new Error("KEYS"); },
+      getOwnPropertyDescriptor: () => { traps += 1; throw new Error("DESCRIPTOR"); },
+    });
+    const root: Record<string, unknown> = { proxy };
+    let cursor = root;
+    for (let depth = 0; depth < 20_000; depth += 1) {
+      const next: Record<string, unknown> = {};
+      cursor.next = next;
+      cursor = next;
+    }
+    cursor.cycle = root;
+    const started = performance.now();
+    const error = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "bad request",
+      retryable: false,
+      details: root as never,
+      cause: proxy,
+    });
+
+    expect(performance.now() - started).toBeLessThan(1_000);
+    expect(error.details).toBe("[Untrusted details omitted]");
+    expect(error.cause).toEqual(EXTERNAL_CAUSE);
+    expect(traps).toBe(0);
+  });
+
+  it("bounds a 4MB adversarial text field and redacts whole sensitive fields", () => {
+    const input = `prefix api_key=tail-${"x".repeat(4 * 1024 * 1024)}`;
+    const started = performance.now();
+    const output = redactSensitiveText(input);
+    expect(output).toBe("[REDACTED]");
+    expect(performance.now() - started).toBeLessThan(1_000);
+
+    const benign = "x".repeat(4 * 1024 * 1024);
+    expect(redactSensitiveText(benign).length).toBeLessThanOrEqual(16_384);
   });
 
   it.each([
-    new Error("benign native error"),
-    new TypeError("benign native type error"),
-    new DOMException("benign native abort", "AbortError"),
-  ])("retains benign native error identity for %#", (cause) => {
-    const error = new InfinityContextError({
-      statusCode: 0,
-      code: "memory.network_error",
-      message: "safe public message",
-      retryable: true,
-      cause,
+    "tokenizer is enabled",
+    "the secretary replied",
+    "passwordless login is enabled",
+  ])("preserves benign component boundary: %s", (value) => {
+    expect(redactSensitiveText(value)).toBe(value);
+    expect(redactSensitiveText(redactSensitiveText(value))).toBe(value);
+  });
+
+  it.each([
+    "Authorization: (Bearer SECRET_TAIL)",
+    "authorization=\\\"Basic SECRET_TAIL==\\\"",
+    "escaped {\\\"api_key\\\":\\\"SECRET_TAIL\\\"}",
+    "prefix clientSecret=SECRET_TAIL!",
+    "refresh-token: SECRET_TAIL",
+  ])("redacts the entire escaped or wrapped sensitive field: %s", (value) => {
+    expect(redactSensitiveText(value)).toBe("[REDACTED]");
+    expect(redactSensitiveText(redactSensitiveText(value))).toBe("[REDACTED]");
+  });
+
+  it("snapshots native and branded causes without retaining mutable public state", async () => {
+    const native = new Error("native original");
+    const first = new InfinityContextError({
+      statusCode: 409,
+      code: "memory.conflict",
+      message: "safe original",
+      retryable: false,
+      cause: native,
     });
-    expect(error.cause).toBe(cause);
+    native.message = "api_key=NATIVE_MUTATION";
+    expect(first.cause).toEqual(EXTERNAL_CAUSE);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(Reflect.set(first as unknown as Record<string, unknown>, "message", "api_key=PUBLIC_MUTATION")).toBe(false);
+
+    const client = new HttpClient({
+      transport: { send: async () => { throw first; } },
+      retryPolicy: { maxAttempts: 1 },
+    });
+    let copied: unknown;
+    try { await client.request({ method: "GET", path: "/branded" }); } catch (error) { copied = error; }
+    expect(copied).toBeInstanceOf(InfinityContextError);
+    expect(copied).not.toBe(first);
+    expect(copied).toMatchObject({ code: "memory.conflict", message: "safe original", retryable: false });
+    expect(JSON.stringify(copied)).not.toMatch(/NATIVE_MUTATION|PUBLIC_MUTATION/);
+  });
+
+  it("bounds trusted network details iteratively with one network attempt", async () => {
+    const deepBody = `${'{"next":'.repeat(20_000)}"leaf"${"}".repeat(20_000)}`;
+    let sends = 0;
+    const client = new HttpClient({
+      transport: {
+        send: async () => {
+          sends += 1;
+          return { status: 400, headers: new Headers(), body: deepBody };
+        },
+      },
+      retryPolicy: { maxAttempts: 1 },
+    });
+    const started = performance.now();
+    let caught: unknown;
+    try { await client.request({ method: "GET", path: "/deep" }); } catch (error) { caught = error; }
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(sends).toBe(1);
+    expect(caught).toBeInstanceOf(InfinityContextError);
+    let value = (caught as InfinityContextError).details as Record<string, unknown>;
+    let depth = 0;
+    while (typeof value === "object" && value !== null && "next" in value) {
+      expect(Object.isFrozen(value)).toBe(true);
+      value = value.next as Record<string, unknown>;
+      depth += 1;
+    }
+    expect(depth).toBeLessThanOrEqual(17);
+    expect(value).toBe("[Truncated]");
+  });
+
+  it("bounds branded cause depth and reconstructs every branded cause", () => {
+    let error = new InfinityContextError({
+      statusCode: 0, code: "memory.root", message: "root failure", retryable: false,
+    });
+    for (let depth = 0; depth < 12; depth += 1) {
+      const previous = error;
+      error = new InfinityContextError({
+        statusCode: 0, code: `memory.level_${depth}`, message: `level ${depth}`, retryable: false, cause: previous,
+      });
+      expect(error.cause).not.toBe(previous);
+    }
+    let cause: unknown = error.cause;
+    let depth = 0;
+    while (cause instanceof InfinityContextError) {
+      depth += 1;
+      cause = cause.cause;
+    }
+    expect(depth).toBeLessThanOrEqual(4);
+    expect(cause).toEqual(EXTERNAL_CAUSE);
   });
 });
-
-function publicErrorText(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) return String(value);
-  if (typeof value === "function") return "[function]";
-  if (seen.has(value)) return "[cycle]";
-  seen.add(value);
-  const surfaces: string[] = [];
-  let surface: object | null = value;
-  while (surface !== null) {
-    for (const key of Object.getOwnPropertyNames(surface)) {
-      if (key === "constructor") continue;
-      const descriptor = Object.getOwnPropertyDescriptor(surface, key);
-      surfaces.push(descriptor !== undefined && "value" in descriptor
-        ? `${key}:${publicErrorText(descriptor.value, seen)}`
-        : `${key}:[accessor]`);
-    }
-    surface = Object.getPrototypeOf(surface) as object | null;
-  }
-  return surfaces.join("\n");
-}

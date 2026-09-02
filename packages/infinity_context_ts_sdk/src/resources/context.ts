@@ -28,7 +28,7 @@ import type {
 } from "../retrieval-types.js";
 import { verifyRetrievalCapabilityFingerprint } from "../retrieval-canonical.js";
 import { retrievalErrorDecoder } from "../retrieval-errors.js";
-import { InfinityContextError } from "../errors.js";
+import { copyInfinityContextError, createInfinityContextError, type InfinityContextError } from "../errors.js";
 import { requireAllowedKeys, requireArray, requireEnum, requireInteger, requireString } from "../canonical-validation.js";
 
 export interface ContextScopeInput extends ReadScopeInput, RequestControls {
@@ -212,29 +212,30 @@ function retrievalTransportError(
   timedOut: boolean,
   callerAborted: boolean,
 ): unknown {
-  if (error instanceof InfinityContextError) {
-    if (timedOut || error.code === "memory.request_timeout") {
+  const safe = copyInfinityContextError(error);
+  if (safe !== undefined) {
+    if (timedOut || safe.code === "memory.request_timeout") {
       return retrievalClientError(
         "memory.context_retrieval_deadline_exceeded",
         "Retrieval request exceeded its absolute deadline",
         true,
       );
     }
-    if (callerAborted || error.code === "memory.request_aborted") {
+    if (callerAborted || safe.code === "memory.request_aborted") {
       return retrievalClientError(
         "memory.context_retrieval_cancelled",
         "Retrieval request was cancelled",
         false,
       );
     }
-    if (error.code === "memory.network_error") {
+    if (safe.code === "memory.network_error") {
       return retrievalClientError(
         "memory.context_retrieval_unavailable",
         "Retrieval transport is unavailable",
         true,
       );
     }
-    return error;
+    return safe;
   }
   return retrievalClientError(
     callerAborted ? "memory.context_retrieval_cancelled" :
@@ -248,7 +249,7 @@ function retrievalTransportError(
 }
 
 function retrievalClientError(code: string, message: string, retryable: boolean) {
-  return new InfinityContextError({ statusCode: 0, code, message, retryable });
+  return createInfinityContextError({ statusCode: 0, code, message, retryable });
 }
 
 function contextPayload(

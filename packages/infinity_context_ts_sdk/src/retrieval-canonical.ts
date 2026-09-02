@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import type { RetrievalCapability } from "./retrieval-types.js";
 
 const encoder = new TextEncoder();
@@ -120,7 +120,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function canonicalInvalid(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.context_retrieval_contract_invalid",
     message,
@@ -129,7 +129,7 @@ function canonicalInvalid(message: string): never {
 }
 
 function canonicalCapabilityInvalid(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.context_retrieval_capability_mismatch",
     message,

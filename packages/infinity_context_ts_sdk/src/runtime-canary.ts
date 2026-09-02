@@ -1,7 +1,7 @@
 import type { RequestControls } from "./client.js";
 import type { ContextDiagnostics } from "./context-types.js";
 import type { ContextRetrievalComponent } from "./diagnostics.js";
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import type { InfinityContextClient } from "./infinity-context-client.js";
 import type { ReadScope, ReadScopeInput } from "./payload.js";
 import {
@@ -142,7 +142,7 @@ function runtimeCanaryTimeout(
   maxAttempts: number,
   last: RuntimeCanaryReport | undefined,
 ): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.runtime_canary_timeout",
     message: `Runtime canary did not become ready after ${maxAttempts} attempt(s)`,

@@ -10,6 +10,7 @@ import type { MemoryWorkflowErrorData } from "./memory-source-evidence.js";
 import {
   jsonObjectField,
   optional,
+  safeWorkflowError,
   singleScopeInput,
   workflowControls,
   workflowErrorData,
@@ -182,7 +183,7 @@ export async function optionalInspectionSection<TValue>(
     return await task();
   } catch (error) {
     if (!continueOnError) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     issues.push({ section, error: workflowErrorData(error) });
     return undefined;

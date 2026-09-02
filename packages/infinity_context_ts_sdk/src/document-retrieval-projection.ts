@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import { assertUnicodeScalarString, compareUtf8, pythonTrim } from "./retrieval-canonical.js";
 import type { JsonObject } from "./types.js";
 
@@ -129,5 +129,5 @@ function boundedInteger(value: unknown, minimum: number, maximum: number, path: 
 }
 
 function invalid(message: string): never {
-  throw new InfinityContextError({ statusCode: 0, code: "memory.document_projection_invalid", message, retryable: false });
+  throw createInfinityContextError({ statusCode: 0, code: "memory.document_projection_invalid", message, retryable: false });
 }

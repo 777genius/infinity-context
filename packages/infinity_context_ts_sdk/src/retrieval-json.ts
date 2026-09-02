@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { copyInfinityContextError, createInfinityContextError } from "./errors.js";
 import { assertUnicodeScalarString } from "./retrieval-canonical.js";
 
 /** Strict UTF-8 JSON seam with duplicate detection after JSON string decoding. */
@@ -18,7 +18,8 @@ export function decodeRetrievalJson(
     parser.parse();
     return JSON.parse(text) as unknown;
   } catch (error) {
-    if (error instanceof InfinityContextError) throw error;
+    const safe = copyInfinityContextError(error);
+    if (safe !== undefined) throw safe;
     strictJsonInvalid("payload must be strict UTF-8 JSON");
   }
 }
@@ -128,7 +129,7 @@ function formatPath(path: readonly (string | number)[]): string {
 }
 
 function strictJsonInvalid(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0, code: "memory.context_retrieval_contract_invalid", message, retryable: false,
   });
 }

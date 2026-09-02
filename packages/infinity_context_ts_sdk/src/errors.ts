@@ -1,26 +1,36 @@
 import type { JsonValue } from "./types.js";
 
-const SENSITIVE_KEY_COMPONENTS = [
-  "apikey",
-  "token",
-  "secret",
-  "password",
-  "passwd",
-  "credential",
-  "authorization",
-  "bearer",
-] as const;
+const MAX_MESSAGE_BYTES = 2_048;
+const MAX_CODE_BYTES = 256;
+const MAX_REQUEST_ID_BYTES = 512;
+const MAX_STACK_BYTES = 4_096;
+const MAX_DETAIL_DEPTH = 16;
+const MAX_DETAIL_NODES = 256;
+const MAX_DETAIL_STRING_BYTES = 16_384;
+const MAX_CAUSE_DEPTH = 4;
+const REDACTED = "[REDACTED]";
+const OMITTED_DETAILS = "[Untrusted details omitted]";
+const TRUNCATED = "[Truncated]";
+const CIRCULAR = "[Circular]";
 
-const NATIVE_ERROR_PROTOTYPES = new Map<object, string>([
-  [Error.prototype, "Error"],
-  [EvalError.prototype, "EvalError"],
-  [RangeError.prototype, "RangeError"],
-  [ReferenceError.prototype, "ReferenceError"],
-  [SyntaxError.prototype, "SyntaxError"],
-  [TypeError.prototype, "TypeError"],
-  [URIError.prototype, "URIError"],
-]);
-const NATIVE_STACK_ACCESSOR = Object.getOwnPropertyDescriptor(new Error(), "stack");
+type CauseSnapshot =
+  | string
+  | number
+  | boolean
+  | null
+  | { readonly kind: "external" }
+  | { readonly kind: "sdk"; readonly snapshot: ErrorSnapshot };
+
+interface ErrorSnapshot {
+  readonly statusCode: number;
+  readonly code: string;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly retryAfterMs?: number | undefined;
+  readonly details?: JsonValue | undefined;
+  readonly requestId?: string | undefined;
+  readonly cause?: CauseSnapshot | undefined;
+}
 
 export interface InfinityContextErrorOptions {
   readonly statusCode: number;
@@ -33,6 +43,11 @@ export interface InfinityContextErrorOptions {
   readonly cause?: unknown;
 }
 
+const ERROR_SNAPSHOTS = new WeakMap<object, ErrorSnapshot>();
+const TRUSTED_OPTIONS = new WeakSet<object>();
+const TIMEOUT_REASON = Object.freeze({ kind: "infinity-context-timeout" });
+const EXTERNAL_CAUSE = Object.freeze({ name: "Error", message: "External error cause redacted" });
+
 export class InfinityContextError extends Error {
   readonly statusCode: number;
   readonly code: string;
@@ -42,61 +57,76 @@ export class InfinityContextError extends Error {
   readonly requestId: string | undefined;
 
   constructor(options: InfinityContextErrorOptions) {
-    const message = redactSensitiveText(options.message).slice(0, 500);
-    const cause = sanitizeErrorCause(options.cause);
-    super(message, cause !== undefined ? { cause } : undefined);
+    const trusted = TRUSTED_OPTIONS.has(options);
+    if (trusted) TRUSTED_OPTIONS.delete(options);
+    const snapshot = snapshotOptions(options, trusted);
+    super(snapshot.message, snapshot.cause === undefined ? undefined : { cause: materializeCause(snapshot.cause, 0) });
+    for (const key of Object.getOwnPropertyNames(this)) {
+      if (key !== "message" && key !== "cause" && key !== "stack") Reflect.deleteProperty(this, key);
+    }
     this.name = "InfinityContextError";
-    this.statusCode = options.statusCode;
-    this.code = options.code;
-    this.retryable = options.retryable;
-    this.retryAfterMs = options.retryAfterMs;
-    this.details = redactJson(options.details);
-    this.requestId = options.requestId;
+    this.statusCode = snapshot.statusCode;
+    this.code = snapshot.code;
+    this.retryable = snapshot.retryable;
+    this.retryAfterMs = snapshot.retryAfterMs;
+    this.details = snapshot.details;
+    this.requestId = snapshot.requestId;
+    boundOwnStack(this);
+    ERROR_SNAPSHOTS.set(this, snapshot);
+    Object.freeze(this);
   }
 }
 
+/** Internal SDK construction path. This is intentionally not part of the package exports. */
+export function createInfinityContextError(options: InfinityContextErrorOptions): InfinityContextError {
+  TRUSTED_OPTIONS.add(options);
+  return new InfinityContextError(options);
+}
+
+/** Returns a fresh safe SDK-owned error, never the supplied public object. */
+export function copyInfinityContextError(value: unknown): InfinityContextError | undefined {
+  if (!isWeakKey(value)) return undefined;
+  const snapshot = ERROR_SNAPSHOTS.get(value);
+  return snapshot === undefined ? undefined : constructFromSnapshot(snapshot);
+}
+
+export function timeoutAbortReason(): unknown {
+  return TIMEOUT_REASON;
+}
+
 export function operationAbortError(cause: unknown): InfinityContextError {
-  if (safeErrorName(cause) === "TimeoutError") return networkError(cause);
-  return new InfinityContextError({
+  if (cause === TIMEOUT_REASON) {
+    return createInfinityContextError({
+      statusCode: 0,
+      code: "memory.request_timeout",
+      message: "Infinity Context request timed out",
+      retryable: true,
+      cause,
+    });
+  }
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.request_aborted",
-    message: safeErrorMessage(cause) ?? safeStringCause(cause) ?? "Infinity Context request aborted",
+    message: "Infinity Context request aborted",
     retryable: false,
     cause,
   });
 }
 
 export function networkError(cause: unknown): InfinityContextError {
-  const name = safeErrorName(cause);
-  if (name === "TimeoutError") {
-    return new InfinityContextError({
-      statusCode: 0,
-      code: "memory.request_timeout",
-      message: safeErrorMessage(cause) ?? "Infinity Context request timed out",
-      retryable: true,
-      cause,
-    });
-  }
-  if (name === "AbortError") {
-    return new InfinityContextError({
-      statusCode: 0,
-      code: "memory.request_aborted",
-      message: safeErrorMessage(cause) ?? "Infinity Context request aborted",
-      retryable: false,
-      cause,
-    });
-  }
-  return new InfinityContextError({
+  const branded = copyInfinityContextError(cause);
+  if (branded !== undefined) return branded;
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.network_error",
-    message: safeErrorMessage(cause) ?? "Infinity Context request failed",
+    message: "Infinity Context request failed",
     retryable: true,
     cause,
   });
 }
 
 export function responseByteLimitError(statusCode: number, requestId?: string): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode,
     code: "memory.response_byte_limit_exceeded",
     message: "Infinity Context response exceeds the caller byte limit",
@@ -106,358 +136,239 @@ export function responseByteLimitError(statusCode: number, requestId?: string): 
 }
 
 export function redactSensitiveText(value: string): string {
-  let output = "";
-  let cursor = 0;
-  while (cursor < value.length) {
-    const assignment = scanAssignment(value, cursor);
-    if (assignment !== undefined && isSensitiveKey(assignment.key)) {
-      const assigned = scanAssignedValue(value, assignment.valueStart);
-      if (assigned !== undefined) {
-        output += value.slice(cursor, assignment.valueStart) + assigned.replacement;
-        cursor = assigned.end;
-        continue;
-      }
+  const bounded = boundUtf8(value, MAX_DETAIL_STRING_BYTES);
+  if (bounded === REDACTED) return REDACTED;
+  let word = "";
+  let wordOverflow = false;
+  let previous = "";
+  let previousLowerOrDigit = false;
+  let sensitive = false;
+  const flush = () => {
+    if (word.length > 0) {
+      const component = wordOverflow ? "" : word.toLowerCase();
+      sensitive ||= component === "token" || component === "credential" || component === "secret"
+        || component === "passwd" || component === "password" || component === "authorization"
+        || component === "apikey" || component === "accesstoken" || component === "refreshtoken"
+        || component === "clientsecret" || (previous === "api" && component === "key")
+        || ((previous === "access" || previous === "refresh") && component === "token")
+        || (previous === "client" && component === "secret");
+      previous = component;
     }
-    const auth = scanAuthAtom(value, cursor);
-    if (auth !== undefined) {
-      output += auth.scheme + auth.spacing + "[REDACTED]";
-      cursor = auth.end;
+    word = "";
+    wordOverflow = false;
+    previousLowerOrDigit = false;
+  };
+  for (let index = 0; index < bounded.length; index += 1) {
+    const code = bounded.charCodeAt(index);
+    const lower = code >= 97 && code <= 122;
+    const upper = code >= 65 && code <= 90;
+    const digit = code >= 48 && code <= 57;
+    if (!lower && !upper && !digit) {
+      flush();
       continue;
     }
-    output += value[cursor];
-    cursor += 1;
+    if (upper && previousLowerOrDigit) flush();
+    if (word.length < 32) word += bounded[index];
+    else wordOverflow = true;
+    previousLowerOrDigit = lower || digit;
   }
-  return output;
+  flush();
+  return sensitive || hasAuthPayload(bounded) ? REDACTED : bounded;
 }
 
+/** Public compatibility helper: objects fail closed because their origin is not known. */
 export function redactJson(value: JsonValue | undefined): JsonValue | undefined {
-  if (typeof value === "string") return redactSensitiveText(value);
-  if (value === undefined || value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map((item) => redactJson(item) ?? null);
-  const output: Record<string, JsonValue | undefined> = {};
-  for (const [key, item] of Object.entries(value)) {
-    output[key] = isSensitiveKey(key) ? "[REDACTED]" : redactJson(item);
+  return snapshotPublicDetail(value);
+}
+
+function constructFromSnapshot(snapshot: ErrorSnapshot): InfinityContextError {
+  const options: InfinityContextErrorOptions = {
+    statusCode: snapshot.statusCode,
+    code: snapshot.code,
+    message: snapshot.message,
+    retryable: snapshot.retryable,
+    ...(snapshot.retryAfterMs !== undefined ? { retryAfterMs: snapshot.retryAfterMs } : {}),
+    ...(snapshot.details !== undefined ? { details: snapshot.details } : {}),
+    ...(snapshot.requestId !== undefined ? { requestId: snapshot.requestId } : {}),
+    ...(snapshot.cause !== undefined ? { cause: materializeCause(snapshot.cause, 0) } : {}),
+  };
+  TRUSTED_OPTIONS.add(options);
+  return new InfinityContextError(options);
+}
+
+function snapshotOptions(options: InfinityContextErrorOptions, trusted: boolean): ErrorSnapshot {
+  const cause = snapshotCause(options.cause, 0);
+  return Object.freeze({
+    statusCode: safeNumber(options.statusCode, 0),
+    code: safeText(options.code, "memory.unknown_error", MAX_CODE_BYTES),
+    message: safeText(options.message, "Infinity Context request failed", MAX_MESSAGE_BYTES),
+    retryable: options.retryable === true,
+    ...(typeof options.retryAfterMs === "number" && Number.isFinite(options.retryAfterMs)
+      ? { retryAfterMs: Math.max(0, Math.trunc(options.retryAfterMs)) } : {}),
+    ...(options.details !== undefined
+      ? { details: trusted ? snapshotTrustedDetails(options.details) : snapshotPublicDetail(options.details) } : {}),
+    ...(typeof options.requestId === "string"
+      ? { requestId: safeText(options.requestId, "", MAX_REQUEST_ID_BYTES) } : {}),
+    ...(cause !== undefined ? { cause } : {}),
+  });
+}
+
+function snapshotCause(value: unknown, depth: number): CauseSnapshot | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return safeText(value, "External error cause redacted", MAX_MESSAGE_BYTES);
+  if (value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return safeNumber(value, 0);
+  if (!isWeakKey(value)) return Object.freeze({ kind: "external" });
+  const snapshot = ERROR_SNAPSHOTS.get(value);
+  if (snapshot === undefined || depth >= MAX_CAUSE_DEPTH) return Object.freeze({ kind: "external" });
+  return Object.freeze({ kind: "sdk", snapshot });
+}
+
+function materializeCause(snapshot: CauseSnapshot, depth: number): unknown {
+  if (typeof snapshot !== "object" || snapshot === null) return snapshot;
+  if (snapshot.kind === "external" || depth >= MAX_CAUSE_DEPTH) return EXTERNAL_CAUSE;
+  return constructFromSnapshotWithoutCauseOverflow(snapshot.snapshot, depth + 1);
+}
+
+function constructFromSnapshotWithoutCauseOverflow(snapshot: ErrorSnapshot, depth: number): InfinityContextError {
+  const options: InfinityContextErrorOptions = {
+    statusCode: snapshot.statusCode,
+    code: snapshot.code,
+    message: snapshot.message,
+    retryable: snapshot.retryable,
+    ...(snapshot.retryAfterMs !== undefined ? { retryAfterMs: snapshot.retryAfterMs } : {}),
+    ...(snapshot.details !== undefined ? { details: snapshot.details } : {}),
+    ...(snapshot.requestId !== undefined ? { requestId: snapshot.requestId } : {}),
+    ...(snapshot.cause !== undefined ? { cause: materializeCause(snapshot.cause, depth) } : {}),
+  };
+  TRUSTED_OPTIONS.add(options);
+  return new InfinityContextError(options);
+}
+
+function snapshotPublicDetail(value: JsonValue | undefined): JsonValue | undefined {
+  if (value === undefined || value === null || typeof value === "boolean") return value;
+  if (typeof value === "number") return safeNumber(value, 0);
+  if (typeof value === "string") return safeText(value, "", MAX_DETAIL_STRING_BYTES);
+  return OMITTED_DETAILS;
+}
+
+function snapshotTrustedDetails(root: JsonValue): JsonValue {
+  if (root === null || typeof root !== "object") return snapshotPublicDetail(root) ?? null;
+  type DetailSource = readonly (JsonValue | undefined)[] | { readonly [key: string]: JsonValue | undefined };
+  type DetailTarget = JsonValue[] | Record<string, JsonValue>;
+  type Frame = { source: DetailSource; target: DetailTarget; depth: number };
+  const output: JsonValue[] | Record<string, JsonValue> = Array.isArray(root) ? [] : {};
+  const seen = new WeakMap<object, DetailTarget>([[root, output]]);
+  const frames: Frame[] = [{ source: root, target: output, depth: 0 }];
+  const freeze: object[] = [output];
+  let nodes = 1;
+  let stringBytes = 0;
+  while (frames.length > 0) {
+    const frame = frames.pop()!;
+    const entries: Array<readonly [string, JsonValue | undefined]> = Array.isArray(frame.source)
+      ? frame.source.map((item, index) => [String(index), item] as const)
+      : Object.entries(frame.source);
+    for (const [key, item] of entries) {
+      const assign = (value: JsonValue) => {
+        if (Array.isArray(frame.target)) frame.target.push(value);
+        else frame.target[key] = value;
+      };
+      if (nodes >= MAX_DETAIL_NODES) {
+        assign(TRUNCATED);
+        frames.length = 0;
+        break;
+      }
+      if (sensitiveComponents(key)) { nodes += 1; assign(REDACTED); continue; }
+      nodes += 1;
+      if (frame.depth >= MAX_DETAIL_DEPTH) { assign(TRUNCATED); continue; }
+      if (typeof item === "string") {
+        const remaining = Math.max(0, MAX_DETAIL_STRING_BYTES - stringBytes);
+        const value = safeText(item, "", remaining);
+        stringBytes += utf8Length(value);
+        assign(value);
+      } else if (item === null || typeof item === "boolean") assign(item);
+      else if (typeof item === "number") assign(safeNumber(item, 0));
+      else if (typeof item === "object") {
+        const prior = seen.get(item);
+        if (prior !== undefined) { assign(CIRCULAR); continue; }
+        const child: DetailTarget = Array.isArray(item) ? [] : {};
+        seen.set(item, child);
+        assign(child);
+        freeze.push(child);
+        frames.push({ source: item, target: child, depth: frame.depth + 1 });
+      } else assign(TRUNCATED);
+    }
   }
+  for (let index = freeze.length - 1; index >= 0; index -= 1) Object.freeze(freeze[index]);
   return output;
 }
 
-function scanAssignment(
-  value: string,
-  start: number,
-): { readonly key: string; readonly valueStart: number } | undefined {
-  if (start > 0 && isIdentifierCharacter(value[start - 1])) return undefined;
-  let key: string;
-  let cursor: number;
-  const delimiter = quoteDelimiterAt(value, start);
-  if (delimiter !== undefined) {
-    const closing = value.indexOf(delimiter, start + delimiter.length);
-    if (closing < 0) return undefined;
-    key = value.slice(start + delimiter.length, closing);
-    cursor = closing + delimiter.length;
-  } else {
-    cursor = start;
-    while (cursor < value.length && isIdentifierCharacter(value[cursor])) cursor += 1;
-    if (cursor === start) return undefined;
-    key = value.slice(start, cursor);
-    if (/^(?:api|access|refresh)$/i.test(key)) {
-      const spaceStart = cursor;
-      while (isHorizontalSpace(value[cursor])) cursor += 1;
-      const suffixStart = cursor;
-      while (isAlphaNumeric(value[cursor])) cursor += 1;
-      const suffix = value.slice(suffixStart, cursor);
-      if (/^(?:key|token|secret)$/i.test(suffix)) key += value.slice(spaceStart, cursor);
-      else cursor = spaceStart;
+function safeText(value: unknown, fallback: string, maximumBytes: number): string {
+  return typeof value === "string" ? redactSensitiveText(boundUtf8(value, maximumBytes)) : fallback;
+}
+
+function boundUtf8(value: string, maximumBytes: number): string {
+  if (maximumBytes <= 0 || value.length === 0) return "";
+  let bytes = 0;
+  let end = 0;
+  while (end < value.length) {
+    const code = value.charCodeAt(end);
+    let units = 1;
+    let width = code <= 0x7f ? 1 : code <= 0x7ff ? 2 : 3;
+    if (code >= 0xd800 && code <= 0xdbff && end + 1 < value.length) {
+      const next = value.charCodeAt(end + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        units = 2;
+        width = 4;
+      }
     }
+    if (bytes + width > maximumBytes) break;
+    bytes += width;
+    end += units;
   }
-  while (isHorizontalSpace(value[cursor])) cursor += 1;
-  if (value[cursor] !== "=" && value[cursor] !== ":") return undefined;
-  cursor += 1;
-  while (isHorizontalSpace(value[cursor])) cursor += 1;
-  return { key, valueStart: cursor };
+  return end === value.length ? value : value.slice(0, end);
 }
 
-function scanAssignedValue(
-  value: string,
-  start: number,
-): { readonly end: number; readonly replacement: string } | undefined {
-  const delimiter = quoteDelimiterAt(value, start);
-  if (delimiter !== undefined) {
-    const closing = findClosingQuote(value, start + delimiter.length, delimiter);
-    return closing < 0
-      ? { end: value.length, replacement: `${delimiter}[REDACTED]` }
-      : { end: closing + delimiter.length, replacement: `${delimiter}[REDACTED]${delimiter}` };
-  }
-
-  if (value[start] === "(") {
-    let inner = start + 1;
-    while (isHorizontalSpace(value[inner])) inner += 1;
-    const auth = scanAuthAtom(value, inner, false);
-    if (auth !== undefined) {
-      let end = auth.end;
-      while (isHorizontalSpace(value[end])) end += 1;
-      if (value[end] === ")") end += 1;
-      return { end, replacement: "([REDACTED])" };
-    }
-  }
-
-  const auth = scanAuthAtom(value, start, false);
-  if (auth !== undefined) return { end: auth.end, replacement: "[REDACTED]" };
-  let end = start;
-  while (end < value.length && !isAssignmentBoundary(value[end])) end += 1;
-  return end === start ? undefined : { end, replacement: "[REDACTED]" };
+function utf8Length(value: string): number {
+  return new TextEncoder().encode(value).byteLength;
 }
 
-function scanAuthAtom(
-  value: string,
-  start: number,
-  requireBoundary = true,
-): { readonly end: number; readonly scheme: string; readonly spacing: string } | undefined {
-  if (requireBoundary && start > 0 && isAlphaNumeric(value[start - 1])) return undefined;
-  const scheme = value.slice(start, start + 6).toLowerCase() === "bearer"
-    ? value.slice(start, start + 6)
-    : value.slice(start, start + 5).toLowerCase() === "basic"
-      ? value.slice(start, start + 5)
-      : undefined;
-  if (scheme === undefined) return undefined;
-  let cursor = start + scheme.length;
-  const spacingStart = cursor;
-  while (isHorizontalSpace(value[cursor])) cursor += 1;
-  if (cursor === spacingStart) return undefined;
-  const tokenStart = cursor;
-  while (isAuthTokenCharacter(value[cursor])) cursor += 1;
-  if (cursor === tokenStart) return undefined;
-  return { end: cursor, scheme, spacing: value.slice(spacingStart, tokenStart) };
+function safeNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function quoteDelimiterAt(value: string, start: number): "\"" | "'" | "\\\"" | "\\'" | undefined {
-  if (value[start] === "\"" || value[start] === "'") return value[start] as "\"" | "'";
-  if (value[start] === "\\" && (value[start + 1] === "\"" || value[start + 1] === "'")) {
-    return value.slice(start, start + 2) as "\\\"" | "\\'";
-  }
-  return undefined;
+function sensitiveComponents(value: string): boolean {
+  return redactSensitiveText(value) === REDACTED;
 }
 
-function findClosingQuote(value: string, start: number, delimiter: string): number {
-  if (delimiter.length === 2) return value.indexOf(delimiter, start);
-  let cursor = start;
-  while (cursor < value.length) {
-    if (value[cursor] === "\\") cursor += 2;
-    else if (value[cursor] === delimiter) return cursor;
-    else cursor += 1;
-  }
-  return -1;
-}
-
-function isSensitiveKey(key: string): boolean {
-  const separated = key
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-    .toLowerCase();
-  const components = separated.split(/[^a-z0-9]+/).filter((part) => part.length > 0);
-  const normalized = components.join("");
-  return components.some((component) => SENSITIVE_KEY_COMPONENTS.includes(
-    component as typeof SENSITIVE_KEY_COMPONENTS[number],
-  )) || SENSITIVE_KEY_COMPONENTS.some((sensitive) => normalized.endsWith(sensitive));
-}
-
-function isAlphaNumeric(value: string | undefined): boolean {
-  return value !== undefined && /[A-Za-z0-9]/.test(value);
-}
-
-function isIdentifierCharacter(value: string | undefined): boolean {
-  return value !== undefined && /[A-Za-z0-9._-]/.test(value);
-}
-
-function isHorizontalSpace(value: string | undefined): boolean {
-  return value === " " || value === "\t";
-}
-
-function isAuthTokenCharacter(value: string | undefined): boolean {
-  return value !== undefined && /[A-Za-z0-9._~+/=-]/.test(value);
-}
-
-function isAssignmentBoundary(value: string | undefined): boolean {
-  return value === undefined || /[\s&;,!?}\])]/.test(value);
-}
-
-function sanitizeErrorCause(cause: unknown): unknown {
-  if (isSafeCauseGraph(cause)) return cause;
-  return sanitizeUnsafeCause(cause, new WeakMap<object, Error>(), 0);
-}
-
-function isSafeCauseGraph(
-  cause: unknown,
-  checked = new WeakSet<object>(),
-  depth = 0,
-): boolean {
-  if (cause === undefined || cause === null || typeof cause === "number" || typeof cause === "boolean") {
-    return true;
-  }
-  if (typeof cause === "string") return redactSensitiveText(cause) === cause;
-  if (typeof cause !== "object" || depth >= 100 || !isExactNativeError(cause)) return false;
-  if (checked.has(cause)) return true;
-  checked.add(cause);
-  const message = safeErrorMessage(cause);
-  const name = safeErrorName(cause);
-  if (message === undefined || name === undefined
-    || redactSensitiveText(message) !== message || redactSensitiveText(name) !== name) return false;
-  return safeOwnDescriptors(cause).every(([key, descriptor]) => {
-    if (isSensitiveKey(key)) return false;
-    if (!("value" in descriptor)) return isNativeStackAccessor(key, descriptor);
-    return isSafeCauseProperty(descriptor.value, checked, depth + 1);
-  }) && safeOwnSymbols(cause).length === 0;
-}
-
-function isSafeCauseProperty(value: unknown, checked: WeakSet<object>, depth: number): boolean {
-  if (value === undefined || value === null || typeof value === "number" || typeof value === "boolean") {
-    return true;
-  }
-  if (typeof value === "string") return redactSensitiveText(value) === value;
-  if (typeof value !== "object" || depth >= 100) return false;
-  if (isErrorObject(value)) return isSafeCauseGraph(value, checked, depth);
-  if (checked.has(value)) return true;
-  const prototype = safePrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null && !Array.isArray(value)) return false;
-  checked.add(value);
-  return safeOwnSymbols(value).length === 0 && safeOwnDescriptors(value).every(([key, descriptor]) => (
-    !isSensitiveKey(key)
-    && "value" in descriptor
-    && isSafeCauseProperty(descriptor.value, checked, depth + 1)
-  ));
-}
-
-function sanitizeUnsafeCause(
-  cause: unknown,
-  clones: WeakMap<object, Error>,
-  depth: number,
-): unknown {
-  if (cause === undefined) return undefined;
-  if (typeof cause === "string") return redactSensitiveText(cause).slice(0, 500);
-  if (cause === null || typeof cause === "number" || typeof cause === "boolean") return cause;
-  if (typeof cause !== "object" || !isErrorObject(cause)) return undefined;
-  if (depth >= 100) return new Error("Nested error cause omitted");
-  const existing = clones.get(cause);
-  if (existing !== undefined) return existing;
-  if (isSafeCauseGraph(cause)) return cause;
-
-  const sanitized = new Error(redactSensitiveText(safeErrorMessage(cause) ?? "Error cause omitted").slice(0, 500));
-  clones.set(cause, sanitized);
-  sanitized.name = redactSensitiveText(safeErrorName(cause) ?? "Error").slice(0, 100);
-  const causeDescriptor = safeOwnDescriptor(cause, "cause");
-  const nested = causeDescriptor !== undefined && "value" in causeDescriptor
-    ? sanitizeUnsafeCause(causeDescriptor.value, clones, depth + 1)
-    : undefined;
-  if (nested !== undefined) {
-    Object.defineProperty(sanitized, "cause", { configurable: true, writable: true, value: nested });
-  }
-  return sanitized;
-}
-
-function safeErrorName(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || !isErrorObject(value)) return undefined;
-  const own = safeOwnString(value, "name");
-  if (own !== undefined) return own;
-  const prototype = safePrototypeOf(value);
-  const nativeName = prototype === undefined ? undefined : NATIVE_ERROR_PROTOTYPES.get(prototype);
-  if (nativeName !== undefined) return nativeName;
-  if (isExactDomException(value)) return callNativeDomStringGetter(value, "name");
-  return undefined;
-}
-
-function safeErrorMessage(value: unknown): string | undefined {
-  if (typeof value !== "object" || value === null || !isErrorObject(value)) return undefined;
-  const own = safeOwnString(value, "message");
-  if (own !== undefined) return own;
-  if (isExactNativeError(value)) {
-    return isExactDomException(value) ? callNativeDomStringGetter(value, "message") : "";
-  }
-  return undefined;
-}
-
-function safeStringCause(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-function isErrorObject(value: object): boolean {
-  let prototype = safePrototypeOf(value);
-  while (prototype !== undefined && prototype !== null) {
-    if (NATIVE_ERROR_PROTOTYPES.has(prototype) || prototype === domExceptionPrototype()) return true;
-    prototype = safePrototypeOf(prototype);
+function hasAuthPayload(value: string): boolean {
+  for (let cursor = 0; cursor < value.length; cursor += 1) {
+    const remaining = value.slice(cursor, cursor + 6).toLowerCase();
+    const component = remaining.startsWith("bearer") ? "bearer"
+      : remaining.startsWith("basic") ? "basic" : undefined;
+    if (component === undefined) continue;
+    let after = cursor + component.length;
+    if ((cursor > 0 && /[a-z0-9]/iu.test(value[cursor - 1]))
+      || (after < value.length && /[a-z0-9]/iu.test(value[after]))) continue;
+    const spacing = after;
+    while (value[after] === " " || value[after] === "\t") after += 1;
+    if (after > spacing && after < value.length) return true;
   }
   return false;
 }
 
-function isExactNativeError(value: object): boolean {
-  const prototype = safePrototypeOf(value);
-  return prototype !== undefined
-    && (NATIVE_ERROR_PROTOTYPES.has(prototype) || prototype === domExceptionPrototype());
+function isWeakKey(value: unknown): value is object {
+  return (typeof value === "object" && value !== null) || typeof value === "function";
 }
 
-function isExactDomException(value: object): boolean {
-  return safePrototypeOf(value) === domExceptionPrototype();
-}
-
-function domExceptionPrototype(): object | undefined {
-  return typeof DOMException === "undefined" ? undefined : DOMException.prototype;
-}
-
-function callNativeDomStringGetter(value: object, key: "name" | "message"): string | undefined {
-  const prototype = domExceptionPrototype();
-  if (prototype === undefined) return undefined;
-  const getter = Object.getOwnPropertyDescriptor(prototype, key)?.get;
-  if (getter === undefined) return undefined;
-  try {
-    const result: unknown = Reflect.apply(getter, value, []);
-    return typeof result === "string" ? result : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function safeOwnString(value: object, key: string): string | undefined {
-  const descriptor = safeOwnDescriptor(value, key);
-  return descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string"
-    ? descriptor.value
-    : undefined;
-}
-
-function isNativeStackAccessor(key: string, descriptor: PropertyDescriptor): boolean {
-  return key === "stack"
-    && NATIVE_STACK_ACCESSOR !== undefined
-    && descriptor.get === NATIVE_STACK_ACCESSOR.get
-    && descriptor.set === NATIVE_STACK_ACCESSOR.set;
-}
-
-function safeOwnDescriptor(value: object, key: string): PropertyDescriptor | undefined {
-  try {
-    return Object.getOwnPropertyDescriptor(value, key);
-  } catch {
-    return undefined;
-  }
-}
-
-function safeOwnDescriptors(value: object): ReadonlyArray<readonly [string, PropertyDescriptor]> {
-  try {
-    return Object.getOwnPropertyNames(value).map(
-      (key): readonly [string, PropertyDescriptor] => [key, Object.getOwnPropertyDescriptor(value, key)!],
-    );
-  } catch {
-    return [["<uninspectable>", {}]];
-  }
-}
-
-function safeOwnSymbols(value: object): readonly symbol[] {
-  try {
-    return Object.getOwnPropertySymbols(value);
-  } catch {
-    return [Symbol("uninspectable")];
-  }
-}
-
-function safePrototypeOf(value: object): object | null | undefined {
-  try {
-    return Object.getPrototypeOf(value) as object | null;
-  } catch {
-    return undefined;
-  }
+function boundOwnStack(error: InfinityContextError): void {
+  const descriptor = Object.getOwnPropertyDescriptor(error, "stack");
+  const raw = descriptor !== undefined && "value" in descriptor && typeof descriptor.value === "string"
+    ? descriptor.value : `${error.name}: ${error.message}`;
+  Object.defineProperty(error, "stack", {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: safeText(raw, `${error.name}: ${error.message}`, MAX_STACK_BYTES),
+  });
 }

@@ -1,5 +1,5 @@
 import type { ContextRetrievalComponent } from "../diagnostics.js";
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import type { JsonObject } from "../types.js";
 import type { MemoryBriefDiagnostics, RunMemorySummaryLoopResult } from "./memory.js";
 import type {
@@ -211,7 +211,7 @@ export function assertMemorySummaryLoopPolicy(
     return evaluation;
   }
 
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.summary_loop_policy_failed",
     message: `Memory summary loop policy failed: ${evaluation.errors.join("; ")}`,

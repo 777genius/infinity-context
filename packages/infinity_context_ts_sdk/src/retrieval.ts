@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { copyInfinityContextError, type InfinityContextError } from "./errors.js";
 import { retrievalContributionScorePicos, retrievalPreferenceScores } from "./retrieval-numeric.js";
 import { requestedPreferenceEvidence, validatePreferenceEvidence } from "./retrieval-preferences.js";
 import { decodeRetrievalJson } from "./retrieval-json.js";
@@ -351,10 +351,11 @@ export function decodeRetrieveContextResponseBytes(
     }
     return actual;
   } catch (error) {
-    if (error instanceof InfinityContextError && error.code === "memory.context_retrieval_capability_mismatch") {
-      throw error;
+    const safe = copyInfinityContextError(error);
+    if (safe?.code === "memory.context_retrieval_capability_mismatch") {
+      throw safe;
     }
-    capabilityFail(error instanceof Error ? error.message : "context.retrieval attestation is malformed");
+    capabilityFail("context.retrieval attestation is malformed");
   }
 }
 
@@ -362,8 +363,9 @@ export function decodeRetrieveContextResponseBytes(
   try {
     return decodeCapability(value, "retrieval capability");
   } catch (error) {
-    if (error instanceof InfinityContextError && error.code === "memory.context_retrieval_capability_mismatch") throw error;
-    capabilityFail(error instanceof Error ? error.message : "retrieval capability is malformed");
+    const safe = copyInfinityContextError(error);
+    if (safe?.code === "memory.context_retrieval_capability_mismatch") throw safe;
+    capabilityFail("retrieval capability is malformed");
   }
 }
 
@@ -389,8 +391,9 @@ export function validateRetrievalPreflight(
   try {
     validateContextRetrievalPreflight(request, capability, required);
   } catch (error) {
-    if (error instanceof InfinityContextError && error.code === "memory.context_retrieval_capability_mismatch") throw error;
-    capabilityFail(error instanceof Error ? error.message : "retrieval preflight evidence is malformed");
+    const safe = copyInfinityContextError(error);
+    if (safe?.code === "memory.context_retrieval_capability_mismatch") throw safe;
+    capabilityFail("retrieval preflight evidence is malformed");
   }
 }
 

@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import {
   assertUnicodeScalarString,
   compareUtf8,
@@ -170,7 +170,7 @@ export function freeze<T>(value: T): T {
 }
 
 export function fail(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.context_retrieval_contract_invalid",
     message,
@@ -179,7 +179,7 @@ export function fail(message: string): never {
 }
 
 export function capabilityFail(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.context_retrieval_capability_mismatch",
     message,

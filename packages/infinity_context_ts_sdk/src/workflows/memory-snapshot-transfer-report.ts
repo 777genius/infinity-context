@@ -1,4 +1,4 @@
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import type { JsonObject } from "../types.js";
 import type {
   MemorySnapshotTransferMode,
@@ -149,7 +149,7 @@ export function assertMemorySnapshotTransferPolicy(
     return evaluation;
   }
 
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.snapshot_transfer_policy_failed",
     message: `Memory snapshot transfer policy failed: ${evaluation.errors.join("; ")}`,

@@ -1,4 +1,10 @@
-import { InfinityContextError, networkError, operationAbortError, responseByteLimitError } from "./errors.js";
+import {
+  copyInfinityContextError,
+  networkError,
+  operationAbortError,
+  responseByteLimitError,
+  timeoutAbortReason,
+} from "./errors.js";
 import type { JsonValue, QueryParams } from "./types.js";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -88,7 +94,8 @@ export class FetchTransport implements HttpTransport {
       };
     } catch (error) {
       if (request.signal?.aborted) throw operationAbortError(request.signal.reason);
-      if (error instanceof InfinityContextError) throw error;
+      const sdkError = copyInfinityContextError(error);
+      if (sdkError !== undefined) throw sdkError;
       throw networkError(error);
     }
   }
@@ -196,7 +203,7 @@ export function withTimeout(signal: AbortSignal | undefined, timeoutMs: number):
 
   const timeoutController = new AbortController();
   const timeout = setTimeout(() => {
-    timeoutController.abort(new DOMException("Request timed out", "TimeoutError"));
+    timeoutController.abort(timeoutAbortReason());
   }, timeoutMs);
   timeout.unref?.();
 

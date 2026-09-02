@@ -1,4 +1,4 @@
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import type { RetrievalCandidate } from "./retrieval-types.js";
 
 export interface RequestedPreferenceEvidence {
@@ -70,7 +70,7 @@ function weight(value: unknown, path: string): number {
 }
 
 function fail(message: string): never {
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0, code: "memory.context_retrieval_contract_invalid", message, retryable: false,
   });
 }

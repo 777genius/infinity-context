@@ -498,8 +498,8 @@ describe("transport, retry and errors", () => {
       await expect(client.request({ method: "GET", path: "/failure", signal: controller.signal })).rejects.toMatchObject({
         code: "memory.request_aborted",
         retryable: false,
-        message: reason.message,
-        cause: { name: reason.name, message: reason.message },
+        message: "Infinity Context request aborted",
+        cause: { name: "Error", message: "External error cause redacted" },
       });
       expect(sends).toBe(1);
     },
@@ -509,7 +509,7 @@ describe("transport, retry and errors", () => {
     ["string", "cancel string", "memory.request_aborted", false],
     ["generic Error", new Error("cancel error"), "memory.request_aborted", false],
     ["AbortError", new DOMException("cancel abort", "AbortError"), "memory.request_aborted", false],
-    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_timeout", true],
+    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_aborted", false],
   ] as const)("classifies caller %s reasons from the operation signal", async (_name, reason, code, retryable) => {
     const controller = new AbortController();
     const transport = new HangingTransport();
@@ -522,12 +522,10 @@ describe("transport, retry and errors", () => {
       await request;
       throw new Error("expected request to be cancelled");
     } catch (error) {
-      expect(error).toMatchObject({ code, retryable, message: reason instanceof Error ? reason.message : reason });
-      if (reason instanceof Error) {
-        expect((error as Error).cause).toBe(reason);
-      } else {
-        expect((error as Error).cause).toBe(reason);
-      }
+      expect(error).toMatchObject({ code, retryable, message: "Infinity Context request aborted" });
+      expect((error as Error).cause).toEqual(
+        typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
+      );
     }
     expect(transport.requests).toHaveLength(1);
   });
@@ -536,7 +534,7 @@ describe("transport, retry and errors", () => {
     ["string", "cancel transport string", "memory.request_aborted", false],
     ["generic Error", new Error("cancel transport error"), "memory.request_aborted", false],
     ["AbortError", new DOMException("cancel transport abort", "AbortError"), "memory.request_aborted", false],
-    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_timeout", true],
+    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_aborted", false],
   ] as const)("classifies direct FetchTransport %s abort reasons from the request signal", async (
     _name,
     reason,
@@ -565,13 +563,11 @@ describe("transport, retry and errors", () => {
       expect(error).toMatchObject({
         code,
         retryable,
-        message: reason instanceof Error ? reason.message : reason,
+        message: "Infinity Context request aborted",
       });
-      if (reason instanceof Error) {
-        expect((error as Error).cause).toBe(reason);
-      } else {
-        expect((error as Error).cause).toBe(reason);
-      }
+      expect((error as Error).cause).toEqual(
+        typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
+      );
     }
     expect(fetchCalls).toBe(1);
     expect(cancellations).toBe(1);
@@ -599,8 +595,8 @@ describe("transport, retry and errors", () => {
     await expect(client.system.capabilities({ signal: controller.signal })).rejects.toMatchObject({
       code: "memory.request_aborted",
       retryable: false,
-      message: reason.message,
-      cause: { name: reason.name, message: reason.message },
+      message: "Infinity Context request aborted",
+      cause: { name: "Error", message: "External error cause redacted" },
     });
     expect(transport.requests).toHaveLength(1);
     expect(responses).toBe(1);
@@ -613,7 +609,7 @@ describe("transport, retry and errors", () => {
     await expect(transport.send({
       method: "GET", url: new URL("http://memory.test/capabilities"), headers: new Headers(),
       signal: AbortSignal.timeout(10), responseType: "bytes", maxResponseBytes: 32,
-    })).rejects.toMatchObject({ code: "memory.request_timeout" });
+    })).rejects.toMatchObject({ code: "memory.request_aborted" });
   });
 
   it("aborts and cancels a stalled response stream", async () => {
@@ -818,15 +814,15 @@ describe("transport, retry and errors", () => {
       expect(error).toBeInstanceOf(InfinityContextError);
       const sdkError = error as InfinityContextError;
       expect(sdkError.code).toBe("memory.bad_request");
-      expect(sdkError.message).toBe("bad Authorization: [REDACTED] and ?api_key=[REDACTED]");
+      expect(sdkError.message).toBe("[REDACTED]");
       expect(sdkError.retryable).toBe(false);
     }
   });
 
   it.each(TEXTUAL_REDACTION_CASES)(
-    "redacts %s across public messages, recursive string details, and nested causes",
-    (_name, value, expected, secretParts) => {
-      expect(redactSensitiveText(value)).toBe(expected);
+    "redacts %s while snapshotting external details and causes",
+    (_name, value, _expected, secretParts) => {
+      expect(redactSensitiveText(value)).toBe("[REDACTED]");
       const leaf = new Error(value);
       const middle = new Error("safe middle", { cause: leaf });
       const error = new InfinityContextError({
@@ -837,17 +833,16 @@ describe("transport, retry and errors", () => {
         details: { outer: [{ nested: value }] },
         cause: middle,
       });
-      expect(error.message).toBe(expected);
-      expect(error.details).toEqual({ outer: [{ nested: expected }] });
+      expect(error.message).toBe("[REDACTED]");
+      expect(error.details).toBe("[Untrusted details omitted]");
       expect(error.cause).not.toBe(middle);
-      expect((error.cause as Error).cause).not.toBe(leaf);
       const exposed = publicErrorText(error);
       for (const secret of secretParts) expect(exposed).not.toContain(secret);
-      expect(exposed).toContain("[REDACTED]");
+      expect(exposed).toContain("External error cause redacted");
     },
   );
 
-  it.each(STRUCTURED_SENSITIVE_KEYS)("redacts normalized recursive structured detail key %s", (key) => {
+  it.each(STRUCTURED_SENSITIVE_KEYS)("fails closed on external structured detail key %s", (key) => {
     const secret = `structured-${key}-value`;
     const error = new InfinityContextError({
       statusCode: 400,
@@ -856,10 +851,10 @@ describe("transport, retry and errors", () => {
       retryable: false,
       details: { outer: [{ nested: { [key]: secret } }] },
     });
-    expect(error.details).toEqual({ outer: [{ nested: { [key]: "[REDACTED]" } }] });
+    expect(error.details).toBe("[Untrusted details omitted]");
   });
 
-  it.each(BENIGN_KEY_BOUNDARIES)("preserves benign %s boundaries on every public error surface", (key) => {
+  it.each(BENIGN_KEY_BOUNDARIES)("preserves benign %s message boundaries", (key) => {
     const diagnostic = `${key}=benign-value`;
     const cause = new Error(diagnostic);
     const error = new InfinityContextError({
@@ -871,14 +866,12 @@ describe("transport, retry and errors", () => {
       cause,
     });
     expect(error.message).toBe(diagnostic);
-    expect(error.details).toEqual({
-      outer: [{ nested: diagnostic, structured: { [key]: "benign-value" } }],
-    });
-    expect(error.cause).toBe(cause);
+    expect(error.details).toBe("[Untrusted details omitted]");
+    expect(error.cause).not.toBe(cause);
     expect(publicErrorText(error)).not.toContain("[REDACTED]");
   });
 
-  it("preserves a demonstrably safe recursive cause graph and DOMException identity", () => {
+  it("never preserves a native Error or DOMException cause identity", () => {
     const domCause = new DOMException("caller cancelled", "AbortError");
     const safeCause = new Error("transport stopped", { cause: domCause });
     const error = new InfinityContextError({
@@ -889,12 +882,12 @@ describe("transport, retry and errors", () => {
       cause: safeCause,
     });
 
-    expect(error.cause).toBe(safeCause);
-    expect((error.cause as Error).cause).toBe(domCause);
-    expect((error.cause as Error).cause).toBeInstanceOf(DOMException);
+    expect(error.cause).not.toBe(safeCause);
+    expect(error.cause).not.toBe(domCause);
+    expect(error.cause).toEqual({ name: "Error", message: "External error cause redacted" });
   });
 
-  it("clones only the unsafe portion of a cause graph", () => {
+  it("replaces an external cause graph with one frozen fixed descriptor", () => {
     const safeCause = new DOMException("upstream cancelled", "AbortError");
     const unsafeCause = new Error("credential=private-cause-value", { cause: safeCause });
     const error = new InfinityContextError({
@@ -906,9 +899,8 @@ describe("transport, retry and errors", () => {
     });
 
     expect(error.cause).not.toBe(unsafeCause);
-    expect((error.cause as Error).message).toBe("credential=[REDACTED]");
-    expect((error.cause as Error).cause).toBe(safeCause);
-    expect((error.cause as Error).cause).toBeInstanceOf(DOMException);
+    expect(error.cause).toEqual({ name: "Error", message: "External error cause redacted" });
+    expect(Object.isFrozen(error.cause)).toBe(true);
   });
 
   it("does not expose secrets through public error causes or details", async () => {
@@ -928,7 +920,7 @@ describe("transport, retry and errors", () => {
       const exposed = publicErrorText(error);
       expect(exposed).not.toContain("raw-bearer-secret");
       expect(exposed).not.toContain("nested-api-secret");
-      expect(exposed).toContain("[REDACTED]");
+      expect(exposed).toContain("External error cause redacted");
     }
 
     const sdkError = new InfinityContextError({
