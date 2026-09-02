@@ -33,6 +33,20 @@ import {
 } from "./fixtures.js";
 
 describe("InfinityContextClient", () => {
+  it("downloads byte responses without JSON parsing", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const transport = new RecordingTransport([
+      { status: 200, headers: new Headers(), body: bytes },
+    ]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(client.assets.downloadAsset("asset_1")).resolves.toEqual(bytes);
+  });
+
   it("runs a durable memory summary loop across topology, readiness, evidence and brief", async () => {
     const transport = new RecordingTransport([
       jsonResponse({ data: [] }),

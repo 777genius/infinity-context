@@ -79,7 +79,7 @@
   "tests/unit/test_context_temporal_source_identity_scoring.py": 1758,
   "tests/unit/test_context_temporal_source_turn_order.py": 1034,
   "tests/unit/test_health_capabilities.py": 1551,
-  "tests/unit/test_legacy_and_context_api.py": 2274,
+  "tests/unit/test_legacy_and_context_api.py": 2264,
   "tests/unit/test_local_runbook.py": 1873,
   "tests/unit/test_locomo_failure_analysis.py": 1361,
   "tests/unit/test_mcp_adapter.py": 1220,

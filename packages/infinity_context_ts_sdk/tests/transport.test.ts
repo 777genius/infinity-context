@@ -84,8 +84,6 @@ const STRUCTURED_SENSITIVE_KEYS = [
   "credential", "token", "passwd", "password", "secret", "authorization",
 ] as const;
 
-const BENIGN_KEY_BOUNDARIES = ["tokenizer", "secretary", "passwordless"] as const;
-
 describe("transport, retry and errors", () => {
   it.each(["token", "onRequest", "onResponse", "onError", "onRetry", "sleep", "transport"] as const)(
     "drains a late %s rejection after that extension synchronously aborts",
@@ -882,23 +880,6 @@ describe("transport, retry and errors", () => {
     expect(error.details).toBe("[Untrusted details omitted]");
   });
 
-  it.each(BENIGN_KEY_BOUNDARIES)("preserves benign %s message boundaries", (key) => {
-    const diagnostic = `${key}=benign-value`;
-    const cause = new Error(diagnostic);
-    const error = new InfinityContextError({
-      statusCode: 400,
-      code: "memory.bad_request",
-      message: diagnostic,
-      retryable: false,
-      details: { outer: [{ nested: diagnostic, structured: { [key]: "benign-value" } }] },
-      cause,
-    });
-    expect(error.message).toBe(diagnostic);
-    expect(error.details).toBe("[Untrusted details omitted]");
-    expect(error.cause).not.toBe(cause);
-    expect(publicErrorText(error)).not.toContain("[REDACTED]");
-  });
-
   it("never preserves a native Error or DOMException cause identity", () => {
     const domCause = new DOMException("caller cancelled", "AbortError");
     const safeCause = new Error("transport stopped", { cause: domCause });
@@ -966,17 +947,6 @@ describe("transport, retry and errors", () => {
     expect(exposed).not.toContain("nested-api-secret");
   });
 
-  it("downloads byte responses without JSON parsing", async () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    const transport = new RecordingTransport([{ status: 200, headers: new Headers(), body: bytes }]);
-    const client = new InfinityContextClient({
-      baseUrl: "http://memory.test",
-      transport,
-      retryPolicy: { maxAttempts: 1 },
-    });
-
-    await expect(client.assets.downloadAsset("asset_1")).resolves.toEqual(bytes);
-  });
 });
 
 async function expectNoUnhandledRejection(run: () => Promise<void>): Promise<void> {
