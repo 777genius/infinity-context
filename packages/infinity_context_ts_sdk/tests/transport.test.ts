@@ -30,6 +30,47 @@ const TEXTUAL_REDACTION_CASES = [
   ["password", "password=password-value", "password=[REDACTED]", ["password-value"]],
   ["secret", "secret=secret-value", "secret=[REDACTED]", ["secret-value"]],
   ["authorization", "authorization=authorization-value", "authorization=[REDACTED]", ["authorization-value"]],
+  ["quoted JSON api_key", "{\"api_key\":\"JSON_API_SENTINEL\"}", "{\"api_key\":\"[REDACTED]\"}", ["JSON_API_SENTINEL"]],
+  ["quoted Basic authorization", "authorization=\"Basic BASIC_QUOTED_SENTINEL==\"", "authorization=\"[REDACTED]\"", ["BASIC_QUOTED_SENTINEL"]],
+  ["quoted Bearer authorization", "authorization=\"Bearer BEARER_QUOTED_SENTINEL.abc\"", "authorization=\"[REDACTED]\"", ["BEARER_QUOTED_SENTINEL"]],
+  [
+    "escaped JSON credential delimiters",
+    "escaped {\\\"api_key\\\":\\\"ESCAPED_API_SENTINEL\\\"}",
+    "escaped {\\\"api_key\\\":\\\"[REDACTED]\\\"}",
+    ["ESCAPED_API_SENTINEL"],
+  ],
+  [
+    "escaped quoted Basic authorization",
+    "authorization=\\\"Basic BASIC_WRAPPED_SENTINEL==\\\"",
+    "authorization=\\\"[REDACTED]\\\"",
+    ["BASIC_WRAPPED_SENTINEL"],
+  ],
+  [
+    "parenthesized Basic authorization",
+    "Authorization: (Basic BASIC_PAREN_SENTINEL==)",
+    "Authorization: ([REDACTED])",
+    ["BASIC_PAREN_SENTINEL"],
+  ],
+  [
+    "escaped quoted Bearer authorization",
+    "authorization=\\\"Bearer BEARER_WRAPPED_SENTINEL.abc\\\"",
+    "authorization=\\\"[REDACTED]\\\"",
+    ["BEARER_WRAPPED_SENTINEL"],
+  ],
+  [
+    "parenthesized Bearer authorization",
+    "Authorization: (Bearer BEARER_PAREN_SENTINEL.abc)",
+    "Authorization: ([REDACTED])",
+    ["BEARER_PAREN_SENTINEL"],
+  ],
+  ["access_token", "access_token=ACCESS_TOKEN_SENTINEL!", "access_token=[REDACTED]!", ["ACCESS_TOKEN_SENTINEL"]],
+  ["client_secret", "client_secret=CLIENT_SECRET_SENTINEL?", "client_secret=[REDACTED]?", ["CLIENT_SECRET_SENTINEL"]],
+  [
+    "multiple punctuated credentials",
+    "api_key=FIRST_SENTINEL, authorization=(Bearer SECOND_SENTINEL); client_secret='THIRD_SENTINEL'.",
+    "api_key=[REDACTED], authorization=([REDACTED]); client_secret='[REDACTED]'.",
+    ["FIRST_SENTINEL", "SECOND_SENTINEL", "THIRD_SENTINEL"],
+  ],
   [
     "escaped JSON-like value",
     "prefix {\"api.key\": \"before-\\\"still-secret-after\", \"safe\": true}",
@@ -933,10 +974,21 @@ async function expectNoUnhandledRejection(run: () => Promise<void>): Promise<voi
 }
 
 function publicErrorText(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === null || typeof value !== "object") return String(value);
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return String(value);
+  if (typeof value === "function") return "[function]";
   if (seen.has(value)) return "[cycle]";
   seen.add(value);
-  return Object.getOwnPropertyNames(value)
-    .map((key) => `${key}:${publicErrorText((value as Record<string, unknown>)[key], seen)}`)
-    .join("\n");
+  const surfaces: string[] = [];
+  let surface: object | null = value;
+  while (surface !== null) {
+    for (const key of Object.getOwnPropertyNames(surface)) {
+      if (key === "constructor") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(surface, key);
+      surfaces.push(descriptor !== undefined && "value" in descriptor
+        ? `${key}:${publicErrorText(descriptor.value, seen)}`
+        : `${key}:[accessor]`);
+    }
+    surface = Object.getPrototypeOf(surface) as object | null;
+  }
+  return surfaces.join("\n");
 }
