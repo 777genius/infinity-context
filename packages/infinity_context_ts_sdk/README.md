@@ -4,6 +4,12 @@ TypeScript SDK for the Infinity Context memory API.
 
 The SDK is intentionally HTTP-first. Qdrant, Graphiti, OpenAI embeddings and Postgres stay behind the Infinity Context service boundary; Node/Nest clients should depend on this SDK contract instead of importing server adapters directly.
 
+Built-in HTTP transport error responses have a hard 16,384-byte UTF-8 safety cap
+(`MAX_ERROR_RESPONSE_BYTES`). The default applies even when no per-request limit is
+provided. A smaller `maxErrorResponseBytes` is honored; larger values cannot raise
+the hard cap. Declared and streamed oversized responses fail with
+`memory.response_byte_limit_exceeded` before decoding or JSON parsing.
+
 ## Locator Retrieval numeric boundary
 
 Retrieval accepts `canonical_version` only as a positive JavaScript safe integer

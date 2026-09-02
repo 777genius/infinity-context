@@ -259,6 +259,7 @@ export type {
   RuntimeReadinessReport,
 } from "./runtime.js";
 export { FetchTransport, type HttpRequest, type HttpResponse, type HttpTransport } from "./transport.js";
+export { MAX_ERROR_RESPONSE_BYTES } from "./error-body.js";
 export type {
   ApiEnvelope,
   AssetExtractionDetails,

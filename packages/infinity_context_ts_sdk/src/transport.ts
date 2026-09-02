@@ -5,6 +5,7 @@ import {
   responseByteLimitError,
   timeoutAbortReason,
 } from "./errors.js";
+import { MAX_ERROR_RESPONSE_BYTES } from "./error-body.js";
 import type { JsonValue, QueryParams } from "./types.js";
 
 export type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE" | "PUT";
@@ -77,20 +78,17 @@ export class FetchTransport implements HttpTransport {
       const response = await abortable(this.#fetch(request.url, init), request.signal);
       const readAsBytes = request.responseType === "bytes" ||
         (response.status >= 400 && request.maxErrorResponseBytes !== undefined);
-      const responseBytes = readAsBytes
-        ? await readResponseBytes(
-          response,
-          response.status >= 400 ? request.maxErrorResponseBytes ?? request.maxResponseBytes : request.maxResponseBytes,
-          request.signal,
-        )
-        : undefined;
+      const responseMaximum = response.status >= 400
+        ? errorResponseMaximum(request)
+        : request.maxResponseBytes;
+      const responseBytes = await readResponseBytes(response, responseMaximum, request.signal);
       return {
         status: response.status,
         headers: response.headers,
         body:
           readAsBytes
-            ? responseBytes!
-            : new TextDecoder().decode(await readResponseBytes(response, undefined, request.signal)),
+            ? responseBytes
+            : new TextDecoder().decode(responseBytes),
       };
     } catch (error) {
       if (request.signal?.aborted) throw operationAbortError(request.signal.reason);
@@ -99,6 +97,16 @@ export class FetchTransport implements HttpTransport {
       throw networkError(error);
     }
   }
+}
+
+function errorResponseMaximum(request: HttpRequest): number {
+  const requested = request.maxErrorResponseBytes ??
+    (request.responseType === "bytes" ? request.maxResponseBytes : undefined);
+  if (requested === undefined) return MAX_ERROR_RESPONSE_BYTES;
+  if (!Number.isSafeInteger(requested) || requested < 0) {
+    throw new TypeError("maxErrorResponseBytes must be a non-negative integer");
+  }
+  return Math.min(requested, MAX_ERROR_RESPONSE_BYTES);
 }
 
 async function readResponseBytes(

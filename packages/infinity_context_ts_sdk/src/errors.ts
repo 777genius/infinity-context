@@ -321,14 +321,15 @@ function snapshotTrustedDetails(root: JsonValue): JsonValue {
     };
 
     if (Array.isArray(frame.source)) {
-      const count = Math.min(frame.source.length, MAX_DETAIL_PROPERTIES);
+      const source = frame.source;
+      const count = Math.min(source.length, MAX_DETAIL_PROPERTIES);
       for (let index = 0; index < count; index += 1) {
-        if (!visit(String(index), () => frame.source[index])) break;
+        if (!visit(String(index), () => source[index])) break;
       }
     } else {
-      // Do not materialize an unbounded server object with Object.keys/entries.
-      // The iterator is stopped at the global node bound, so property values and
-      // descriptors beyond that point are never visited.
+      // HTTP error objects reach this path only after their raw JSON input has
+      // passed the hard UTF-8 body cap. Node/property bounds constrain the public
+      // snapshot; they do not claim to bound JavaScript property enumeration.
       const source = frame.source as { readonly [key: string]: JsonValue | undefined };
       let properties = 0;
       for (const key in source) {
@@ -472,8 +473,8 @@ function hasAuthPayload(value: string): boolean {
       : remaining.startsWith("basic") ? "basic" : undefined;
     if (component === undefined) continue;
     let after = cursor + component.length;
-    if ((cursor > 0 && /[a-z0-9]/iu.test(value[cursor - 1]))
-      || (after < value.length && /[a-z0-9]/iu.test(value[after]))) continue;
+    if ((cursor > 0 && /[a-z0-9]/iu.test(value.charAt(cursor - 1)))
+      || (after < value.length && /[a-z0-9]/iu.test(value.charAt(after)))) continue;
     const spacing = after;
     while (value[after] === " " || value[after] === "\t") after += 1;
     if (after > spacing && after < value.length) return true;

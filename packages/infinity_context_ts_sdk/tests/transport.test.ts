@@ -246,6 +246,34 @@ describe("transport, retry and errors", () => {
     expect(calls).toBe(1);
   });
 
+  it("applies the hard error-body cap when callers omit a per-request limit", async () => {
+    const hiddenCode = "memory.hidden_without_explicit_limit";
+    const hidden = JSON.stringify({
+      error: { code: hiddenCode, message: "must not be parsed", retryable: true },
+      padding: "x".repeat(16_384),
+    });
+    let calls = 0;
+    const client = new HttpClient({
+      transport: new FetchTransport((async () => {
+        calls += 1;
+        return new Response(hidden, {
+          status: 503,
+          headers: { "x-request-id": "request-default-hard-cap" },
+        });
+      }) as typeof fetch),
+      retryPolicy: { maxAttempts: 2 },
+    });
+
+    await expect(client.request({ method: "GET", path: "/default-hard-cap" })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded",
+      statusCode: 503,
+      requestId: "request-default-hard-cap",
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+    expect(hidden).toContain(hiddenCode);
+  });
+
   it("retains an exact normal-sized 403 server error code and non-retryable semantics", async () => {
     const transport = new RecordingTransport([
       jsonResponse({ error: { code: "memory.denied", message: "denied", retryable: false } }, 403, {

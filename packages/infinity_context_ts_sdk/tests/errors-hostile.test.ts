@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { HttpClient, InfinityContextError, redactSensitiveText } from "../src/index.js";
+import {
+  HttpClient,
+  InfinityContextError,
+  MAX_ERROR_RESPONSE_BYTES,
+  redactSensitiveText,
+} from "../src/index.js";
 import type { JsonValue } from "../src/types.js";
 
 const EXTERNAL_CAUSE = { name: "Error", message: "External error cause redacted" };
@@ -182,7 +187,7 @@ describe("bounded immutable public Error snapshots", () => {
   });
 
   it("bounds trusted network details iteratively with one network attempt", async () => {
-    const deepBody = `${'{"next":'.repeat(20_000)}"leaf"${"}".repeat(20_000)}`;
+    const deepBody = `${'{"next":'.repeat(1_000)}"leaf"${"}".repeat(1_000)}`;
     let sends = 0;
     const client = new HttpClient({
       transport: {
@@ -210,9 +215,9 @@ describe("bounded immutable public Error snapshots", () => {
     expect(value).toBe("[Truncated]");
   });
 
-  it("replaces a 100KB sensitive server property name before public exposure", async () => {
+  it("replaces a large bounded sensitive server property name before public exposure", async () => {
     const sentinel = "SECRET_KEY_SENTINEL_MUST_NOT_ESCAPE";
-    const sensitiveKey = `${"x".repeat(100_000)}_api_key_${sentinel}`;
+    const sensitiveKey = `${"x".repeat(8_000)}_api_key_${sentinel}`;
     const error = await parsedHttpError(JSON.stringify({
       error: { code: "memory.bad_request", message: "safe failure" },
       [sensitiveKey]: "also hidden",
@@ -225,20 +230,57 @@ describe("bounded immutable public Error snapshots", () => {
     expect(jsonByteLength(error.details)).toBeLessThanOrEqual(DETAIL_BYTE_LIMIT);
   });
 
-  it("stops deterministically on thousands of parsed server properties", async () => {
+  it("stops deterministically on hundreds of bounded parsed server properties", async () => {
     const payload: Record<string, unknown> = {
       error: { code: "memory.bad_request", message: "safe failure" },
     };
-    for (let index = 0; index < 10_000; index += 1) payload[`field_${index}`] = index;
+    for (let index = 0; index < 750; index += 1) payload[`field_${index}`] = index;
     const error = await parsedHttpError(JSON.stringify(payload));
     const details = error.details as Record<string, unknown>;
 
     // The root container also consumes one of the 256 graph nodes.
     expect(Object.keys(details).length).toBeLessThanOrEqual(255);
     expect(details.field_0).toBe(0);
-    expect(details.field_9999).toBeUndefined();
+    expect(details.field_749).toBeUndefined();
     expect(jsonByteLength(details)).toBeLessThanOrEqual(DETAIL_BYTE_LIMIT);
   });
+
+  it.each(["string", "bytes"] as const)(
+    "does not parse an oversized error body supplied by a custom %s transport",
+    async (bodyType) => {
+      const hiddenCode = "memory.hidden_after_hard_cap";
+      const raw = JSON.stringify({
+        error: { code: hiddenCode, message: "must not escape", retryable: true },
+        padding: "x".repeat(MAX_ERROR_RESPONSE_BYTES),
+      });
+      const body = bodyType === "bytes" ? new TextEncoder().encode(raw) : raw;
+      let sends = 0;
+      const client = new HttpClient({
+        transport: {
+          send: async () => {
+            sends += 1;
+            return {
+              status: 418,
+              headers: new Headers({ "x-request-id": "request-hard-cap" }),
+              body,
+            };
+          },
+        },
+        retryPolicy: { maxAttempts: 2 },
+      });
+
+      await expect(client.request({ method: "GET", path: "/oversized-error" })).rejects.toMatchObject({
+        code: "memory.http_error",
+        message: "memory.http_error",
+        statusCode: 418,
+        requestId: "request-hard-cap",
+        retryable: false,
+        details: {},
+      });
+      expect(sends).toBe(1);
+      expect(raw).toContain(hiddenCode);
+    },
+  );
 
   it("caps multibyte server keys by UTF-8 bytes and disambiguates truncated keys", async () => {
     const shared = "😀".repeat(100);

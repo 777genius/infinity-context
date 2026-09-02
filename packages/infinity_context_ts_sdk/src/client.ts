@@ -1,4 +1,5 @@
 import { resolveAuthToken, type AuthTokenProvider } from "./auth.js";
+import { safeErrorBody, type BoundedErrorJsonObject } from "./error-body.js";
 import {
   copyInfinityContextError,
   createInfinityContextError,
@@ -139,7 +140,7 @@ export class HttpClient implements RequestExecutor {
           ? toHttpError(
             response.status,
             response.headers,
-            typeof response.body === "string" ? response.body : new TextDecoder().decode(response.body),
+            response.body,
           )
           : options.errorDecoder(response.status, response.headers, response.body);
         const error = copyInfinityContextError(decoded) ?? networkError(decoded);
@@ -330,12 +331,13 @@ function parseJson(body: string): JsonValue {
   return JSON.parse(body) as JsonValue;
 }
 
-function toHttpError(statusCode: number, headers: Headers, body: string): InfinityContextError {
-  const payload = safeJsonObject(body);
+function toHttpError(statusCode: number, headers: Headers, body: string | Uint8Array): InfinityContextError {
+  const safeBody = safeErrorBody(body);
+  const payload = safeJsonObject(safeBody.json);
   const errorPayload = asRecord(payload.error);
   const detailPayload = asRecord(payload.detail);
   const code = String(errorPayload.code ?? detailPayload.code ?? "memory.http_error");
-  const message = String((errorPayload.message ?? detailPayload.message ?? body) || code);
+  const message = String((errorPayload.message ?? detailPayload.message ?? safeBody.text) || code);
   const requestId = headers.get("x-request-id") ?? undefined;
   return createInfinityContextError({
     statusCode,
@@ -348,13 +350,8 @@ function toHttpError(statusCode: number, headers: Headers, body: string): Infini
   });
 }
 
-function safeJsonObject(body: string): Record<string, JsonValue | undefined> {
-  try {
-    const parsed = JSON.parse(body) as JsonValue;
-    return asRecord(parsed);
-  } catch {
-    return {};
-  }
+function safeJsonObject(body: BoundedErrorJsonObject | undefined): Record<string, JsonValue | undefined> {
+  return body?.value ?? {};
 }
 
 function asRecord(value: unknown): Record<string, JsonValue | undefined> {
