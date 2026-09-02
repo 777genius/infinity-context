@@ -33,7 +33,8 @@ export class InfinityContextError extends Error {
 
   constructor(options: InfinityContextErrorOptions) {
     const message = redactSensitiveText(options.message).slice(0, 500);
-    super(message, options.cause !== undefined ? { cause: options.cause } : undefined);
+    const cause = sanitizeErrorCause(options.cause);
+    super(message, cause !== undefined ? { cause } : undefined);
     this.name = "InfinityContextError";
     this.statusCode = options.statusCode;
     this.code = options.code;
@@ -113,10 +114,14 @@ export function redactSensitiveText(value: string): string {
     .replace(/(authorization:\s*)(?:bearer\s+)?[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
     .replace(/([?&](?:token|api_key|apikey|secret|password)=)[^&\s]+/gi, "$1[REDACTED]")
+    .replace(/(\b(?:api[_-]?key|access[_-]?token|secret|password)\s*[=:]\s*)[^&\s,;]+/gi, "$1[REDACTED]")
     .replace(/(authorization:\s*)[^\n\r\s]+/gi, "$1[REDACTED]");
 }
 
 export function redactJson(value: JsonValue | undefined): JsonValue | undefined {
+  if (typeof value === "string") {
+    return redactSensitiveText(value);
+  }
   if (value === undefined || value === null || typeof value !== "object") {
     return value;
   }
@@ -131,4 +136,21 @@ export function redactJson(value: JsonValue | undefined): JsonValue | undefined 
       : redactJson(item);
   }
   return output;
+}
+
+function sanitizeErrorCause(cause: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+  if (cause === undefined) return undefined;
+  if (typeof cause === "string") return redactSensitiveText(cause).slice(0, 500);
+  if (cause === null || typeof cause === "number" || typeof cause === "boolean") return cause;
+  if (!(cause instanceof Error)) return undefined;
+  if (depth >= 8 || seen.has(cause)) return new Error("Nested error cause omitted");
+
+  seen.add(cause);
+  const nested = sanitizeErrorCause(cause.cause, seen, depth + 1);
+  const sanitized = new Error(
+    redactSensitiveText(cause.message).slice(0, 500),
+    nested !== undefined ? { cause: nested } : undefined,
+  );
+  sanitized.name = redactSensitiveText(cause.name).slice(0, 100);
+  return sanitized;
 }

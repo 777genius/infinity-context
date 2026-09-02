@@ -224,7 +224,12 @@ export class HttpClient implements RequestExecutor {
 
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return promise;
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    // The producer may have aborted the signal synchronously before returning
+    // its promise. Keep observing that promise even though cancellation wins.
+    void promise.catch(() => undefined);
+    return Promise.reject(signal.reason);
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason);
     signal.addEventListener("abort", onAbort, { once: true });

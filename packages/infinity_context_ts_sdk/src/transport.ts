@@ -152,6 +152,10 @@ function cancelReader(
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined, onAbort?: () => void): Promise<T> {
   if (signal === undefined) return promise;
   if (signal.aborted) {
+    // Fetch and stream implementations can synchronously abort while creating
+    // their promise, then reject it later. Cancellation wins, but the original
+    // rejection must still be observed.
+    void promise.catch(() => undefined);
     onAbort?.();
     return Promise.reject(signal.reason);
   }

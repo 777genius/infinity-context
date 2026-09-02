@@ -14,6 +14,77 @@ import {
 } from "./fixtures.js";
 
 describe("transport, retry and errors", () => {
+  it.each(["token", "onRequest", "onResponse", "onError", "onRetry", "sleep", "transport"] as const)(
+    "drains a late %s rejection after that extension synchronously aborts",
+    async (phase) => {
+      const controller = new AbortController();
+      const failure = new Error(`late ${phase} failure`);
+      const abortThenReject = <T,>(): Promise<T> => {
+        controller.abort(new Error(`cancel during ${phase}`));
+        return new Promise<T>((_resolve, reject) => queueMicrotask(() => reject(failure)));
+      };
+      const success = { status: 200, headers: new Headers(), body: "{}" };
+      const failingTransport = {
+        send: () => phase === "transport"
+          ? abortThenReject<never>()
+          : phase === "onResponse"
+            ? Promise.resolve(success)
+            : Promise.reject(new Error("transport unavailable")),
+      };
+      const client = new HttpClient({
+        ...(phase === "token" ? { token: () => abortThenReject<string>() } : {}),
+        transport: failingTransport,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          ...(phase === "onRequest" ? { onRequest: () => abortThenReject<void>() } : {}),
+          ...(phase === "onResponse" ? { onResponse: () => abortThenReject<void>() } : {}),
+          ...(phase === "onError" ? { onError: () => abortThenReject<void>() } : {}),
+          ...(phase === "onRetry" ? { onRetry: () => abortThenReject<void>() } : {}),
+        },
+        sleep: phase === "sleep" ? () => abortThenReject<void>() : async () => undefined,
+      });
+
+      await expectNoUnhandledRejection(async () => {
+        await expect(client.request({
+          method: "GET", path: "/late-rejection", signal: controller.signal,
+        })).rejects.toMatchObject({ code: "memory.request_aborted", retryable: false });
+      });
+    },
+  );
+
+  it.each(["fetch", "stream read"] as const)(
+    "drains a late %s rejection after synchronous cancellation",
+    async (phase) => {
+      const controller = new AbortController();
+      const failure = new Error(`late ${phase} failure`);
+      const abortThenReject = <T,>(): Promise<T> => {
+        controller.abort(new Error(`cancel during ${phase}`));
+        return new Promise<T>((_resolve, reject) => queueMicrotask(() => reject(failure)));
+      };
+      const reader = {
+        read: () => abortThenReject<ReadableStreamReadResult<Uint8Array>>(),
+        cancel: async () => undefined,
+        releaseLock: () => undefined,
+      };
+      const response = {
+        status: 200,
+        headers: new Headers(),
+        body: { getReader: () => reader },
+      } as unknown as Response;
+      const fetchLike = (() => phase === "fetch"
+        ? abortThenReject<Response>()
+        : Promise.resolve(response)) as typeof fetch;
+      const transport = new FetchTransport(fetchLike);
+
+      await expectNoUnhandledRejection(async () => {
+        await expect(transport.send({
+          method: "GET", url: new URL("http://memory.test/late-rejection"),
+          headers: new Headers(), signal: controller.signal,
+        })).rejects.toMatchObject({ code: "memory.request_aborted", retryable: false });
+      });
+    },
+  );
+
   it("stops bounded byte responses before buffering beyond the limit", async () => {
     const fetchLike = (async () => new Response("x".repeat(33))) as typeof fetch;
     const transport = new FetchTransport(fetchLike);
@@ -355,7 +426,7 @@ describe("transport, retry and errors", () => {
         code: "memory.request_aborted",
         retryable: false,
         message: reason.message,
-        cause: reason,
+        cause: { name: reason.name, message: reason.message },
       });
       expect(sends).toBe(1);
     },
@@ -379,7 +450,12 @@ describe("transport, retry and errors", () => {
       throw new Error("expected request to be cancelled");
     } catch (error) {
       expect(error).toMatchObject({ code, retryable, message: reason instanceof Error ? reason.message : reason });
-      expect((error as Error).cause).toBe(reason);
+      if (reason instanceof Error) {
+        expect((error as Error).cause).not.toBe(reason);
+        expect((error as Error).cause).toMatchObject({ name: reason.name, message: reason.message });
+      } else {
+        expect((error as Error).cause).toBe(reason);
+      }
     }
     expect(transport.requests).toHaveLength(1);
   });
@@ -419,7 +495,12 @@ describe("transport, retry and errors", () => {
         retryable,
         message: reason instanceof Error ? reason.message : reason,
       });
-      expect((error as Error).cause).toBe(reason);
+      if (reason instanceof Error) {
+        expect((error as Error).cause).not.toBe(reason);
+        expect((error as Error).cause).toMatchObject({ name: reason.name, message: reason.message });
+      } else {
+        expect((error as Error).cause).toBe(reason);
+      }
     }
     expect(fetchCalls).toBe(1);
     expect(cancellations).toBe(1);
@@ -448,7 +529,7 @@ describe("transport, retry and errors", () => {
       code: "memory.request_aborted",
       retryable: false,
       message: reason.message,
-      cause: reason,
+      cause: { name: reason.name, message: reason.message },
     });
     expect(transport.requests).toHaveLength(1);
     expect(responses).toBe(1);
@@ -671,6 +752,41 @@ describe("transport, retry and errors", () => {
     }
   });
 
+  it("does not expose secrets through public error causes or details", async () => {
+    const nested = new Error("upstream api_key=nested-api-secret");
+    const raw = new Error("request failed with Bearer raw-bearer-secret", { cause: nested });
+    const client = new HttpClient({
+      transport: { send: async () => { throw raw; } },
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    try {
+      await client.request({ method: "GET", path: "/secret-failure" });
+      throw new Error("expected request to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InfinityContextError);
+      expect((error as Error).cause).not.toBe(raw);
+      const exposed = publicErrorText(error);
+      expect(exposed).not.toContain("raw-bearer-secret");
+      expect(exposed).not.toContain("nested-api-secret");
+      expect(exposed).toContain("[REDACTED]");
+    }
+
+    const sdkError = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "Authorization: Bearer message-secret",
+      retryable: false,
+      details: { diagnostic: "api_key=details-secret" },
+      cause: raw,
+    });
+    const exposed = publicErrorText(sdkError);
+    expect(exposed).not.toContain("message-secret");
+    expect(exposed).not.toContain("details-secret");
+    expect(exposed).not.toContain("raw-bearer-secret");
+    expect(exposed).not.toContain("nested-api-secret");
+  });
+
   it("downloads byte responses without JSON parsing", async () => {
     const bytes = new Uint8Array([1, 2, 3]);
     const transport = new RecordingTransport([{ status: 200, headers: new Headers(), body: bytes }]);
@@ -683,3 +799,26 @@ describe("transport, retry and errors", () => {
     await expect(client.assets.downloadAsset("asset_1")).resolves.toEqual(bytes);
   });
 });
+
+async function expectNoUnhandledRejection(run: () => Promise<void>): Promise<void> {
+  const unhandled: unknown[] = [];
+  const listener = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", listener);
+  try {
+    await run();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    process.removeListener("unhandledRejection", listener);
+  }
+  expect(unhandled).toEqual([]);
+}
+
+function publicErrorText(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === null || typeof value !== "object") return String(value);
+  if (seen.has(value)) return "[cycle]";
+  seen.add(value);
+  return Object.getOwnPropertyNames(value)
+    .map((key) => `${key}:${publicErrorText((value as Record<string, unknown>)[key], seen)}`)
+    .join("\n");
+}
