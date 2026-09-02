@@ -55,22 +55,23 @@ export async function runRetrievalRuntimeCanary({
   };
   const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
   const sdk = suppliedSdk ?? await import("../dist/index.js");
-  const transport = new sdk.FetchTransport();
+  const http = new sdk.HttpClient({
+    baseUrl,
+    timeoutMs: 0,
+    retryPolicy: { maxAttempts: 1 },
+  });
 
-  const capabilityResponse = await transport.send({
+  const capabilityResponse = await http.request({
     method: "GET",
-    url: new URL(`${baseUrl}/v1/capabilities`),
-    headers: new Headers(headers),
-    signal: AbortSignal.timeout(10_000),
+    path: "/v1/capabilities",
+    headers,
+    timeoutMs: 10_000,
     responseType: "bytes",
     maxResponseBytes: capabilityResponseByteLimit,
     maxErrorResponseBytes: capabilityResponseByteLimit,
   });
-  if (capabilityResponse.status >= 400) {
-    throw new Error(`Capabilities returned HTTP ${capabilityResponse.status}`);
-  }
   const capabilityEnvelope = JSON.parse(
-    new TextDecoder("utf-8", { fatal: true }).decode(capabilityResponse.body),
+    new TextDecoder("utf-8", { fatal: true }).decode(capabilityResponse),
   );
   const capability = sdk.decodeRetrievalCapability(capabilityEnvelope?.context?.retrieval);
   await sdk.verifyRetrievalCapabilityFingerprint(capability);
@@ -90,18 +91,17 @@ export async function runRetrievalRuntimeCanary({
       weight_micros: 1000000,
     }],
   };
-  const response = await transport.send({
+  const response = await http.request({
     method: "POST",
-    url: new URL(`${baseUrl}/v1/context/retrieve`),
-    headers: new Headers(headers),
-    body: { kind: "json", value: request },
-    signal: AbortSignal.timeout(request.bounds.deadline_ms),
+    path: "/v1/context/retrieve",
+    headers,
+    json: request,
+    timeoutMs: request.bounds.deadline_ms,
     responseType: "bytes",
     maxResponseBytes: request.bounds.response_byte_limit,
     maxErrorResponseBytes: request.bounds.response_byte_limit,
   });
-  if (response.status >= 400) throw new Error(`Retrieval returned HTTP ${response.status}`);
-  const decoded = sdk.decodeRetrieveContextResponseBytes(response.body, request, capability);
+  const decoded = sdk.decodeRetrieveContextResponseBytes(response, request, capability);
   assertRetrievalRuntimeCanary({
     capability,
     response: decoded,
