@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from types import TracebackType
 
+from infinity_context_core.domain.entities import SourceRef
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.features.memory_facts.public import (
     MemoryFactIdPort,
@@ -47,6 +48,9 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 )
 from infinity_context_adapters.postgres.canonical_keyword_trigram import (
     ensure_canonical_keyword_trigram_access_path,
+)
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    coordinate_document_source_ref_write,
 )
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
@@ -945,6 +949,22 @@ class PostgresUnitOfWork:
                 raise MemoryConflictError(_BENCHMARK_WRITER_FENCE_MESSAGE) from exc
             raise MemoryConflictError("Canonical write conflicted with existing data") from exc
         self._committed = True
+
+    async def coordinate_fact_source_refs(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        source_refs: tuple[SourceRef, ...],
+    ) -> None:
+        if self._session is None:
+            raise RuntimeError("UnitOfWork is not open")
+        await coordinate_document_source_ref_write(
+            self._session,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            source_refs=source_refs,
+        )
 
     async def rollback(self) -> None:
         if self._session is None:

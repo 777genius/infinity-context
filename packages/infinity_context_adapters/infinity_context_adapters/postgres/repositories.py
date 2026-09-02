@@ -36,6 +36,9 @@ from infinity_context_adapters.postgres.canonical_retrieval_batching import (
     keyword_search_many,
     list_anchor_scopes,
 )
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    lock_document_for_fact_cleanup,
+)
 from infinity_context_adapters.postgres.mappers import (
     anchor_row_to_domain,
     anchor_to_row,
@@ -397,7 +400,10 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         document_id: str,
         now: datetime,
     ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
-        document = await self._session.get(MemoryDocumentRow, document_id)
+        document = await lock_document_for_fact_cleanup(
+            self._session,
+            document_id=document_id,
+        )
         if document is None:
             return None
 

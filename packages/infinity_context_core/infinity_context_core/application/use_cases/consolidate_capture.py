@@ -55,7 +55,10 @@ from infinity_context_core.ports.auto_memory import (
 )
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
+from infinity_context_core.ports.unit_of_work import (
+    UnitOfWorkFactoryPort,
+    coordinate_fact_source_refs,
+)
 
 RESOLVER_VERSION = "capture-resolver-v1"
 
@@ -380,6 +383,12 @@ class ConsolidateCaptureUseCase:
                     has_pending_duplicate=False,
                 )
                 if auto_apply.allowed and not (candidate.valid_from or candidate.valid_until):
+                    await coordinate_fact_source_refs(
+                        uow,
+                        space_id=str(current.space_id),
+                        memory_scope_id=str(current.memory_scope_id),
+                        source_refs=source_refs,
+                    )
                     fact = MemoryFact.create(
                         fact_id=MemoryFactId(self._ids.new_id("fact")),
                         space_id=current.space_id,

@@ -294,6 +294,25 @@ class ReinstateSupersededFactHandler:
                 or original.scope != command.scope
             ):
                 raise ValueError("Decision is not a supersession in the requested scope")
+            observed_predecessor = await uow.facts.get(
+                MemoryFactIdentity(
+                    fact_id=original.target_fact_id,
+                    scope=original.scope,
+                )
+            )
+            if observed_predecessor is None:
+                raise LookupError("Supersession compensation fact not found")
+            await uow.coordinate_source_refs(
+                scope=original.scope,
+                source_refs=tuple(
+                    dict.fromkeys(
+                        (
+                            *observed_predecessor.source_refs,
+                            *(evidence.source_ref for evidence in command.evidence_refs),
+                        )
+                    )
+                ),
+            )
             identities = tuple(
                 sorted(
                     (

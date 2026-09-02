@@ -137,12 +137,14 @@ class ReviewedFactMutationExecutor:
 
     async def remember(self, decision: ReviewedFactDecision) -> ReviewedFactMutationResult:
         _require_no_target(decision)
+        await self._coordinate_candidate(decision.candidate)
         now = self.clock.now()
         saved = await self._create_candidate(decision.candidate, now=now)
         return await self._emit_single(saved, FACT_CREATED_EVENT, now=now)
 
     async def correct(self, decision: ReviewedFactDecision) -> ReviewedFactMutationResult:
         target = _require_target(decision)
+        await self._coordinate_candidate(decision.candidate)
         current = await self._load_target(target)
         _require_candidate_trust(
             decision.candidate,
@@ -189,6 +191,7 @@ class ReviewedFactMutationExecutor:
         decision: ReviewedFactDecision,
     ) -> ReviewedFactMutationResult:
         target = _require_target(decision)
+        await self._coordinate_candidate(decision.candidate)
         current = await self._load_target(target)
         _require_candidate_trust(
             decision.candidate,
@@ -211,6 +214,7 @@ class ReviewedFactMutationExecutor:
     ) -> ReviewedFactMutationResult:
         target = _require_target(decision)
         await self.transaction.lock_scope(target.identity.scope)
+        await self._coordinate_candidate(decision.candidate)
         predecessor_snapshot = await self._load_target(target)
         _require_candidate_trust(
             decision.candidate,
@@ -322,6 +326,7 @@ class ReviewedFactMutationExecutor:
         decision: ReviewedFactDecision,
     ) -> ReviewedFactMutationResult:
         target = _require_target(decision)
+        await self._coordinate_candidate(decision.candidate)
         challenged_snapshot = await self._load_target(target)
         _require_candidate_trust(
             decision.candidate,
@@ -426,6 +431,12 @@ class ReviewedFactMutationExecutor:
             code_scope=candidate.code_scope,
         )
         return await self.transaction.facts.create(aggregate.to_snapshot())
+
+    async def _coordinate_candidate(self, candidate: ReviewedFactCandidate) -> None:
+        await self.transaction.coordinate_source_refs(
+            scope=candidate.scope,
+            source_refs=candidate.source_refs,
+        )
 
     async def _load_target(self, target: ReviewedFactTarget) -> MemoryFactSnapshot:
         current = await self.transaction.facts.get_for_update(target.identity)

@@ -8,7 +8,10 @@ from datetime import UTC, datetime, timedelta
 from time import monotonic
 
 import pytest
-from infinity_context_adapters.noop import SystemClock
+from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
+    PostgresMemoryFactUnitOfWorkFactory,
+)
+from infinity_context_adapters.noop import SystemClock, UuidIdGenerator
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
 from infinity_context_adapters.postgres.fact_repositories import PostgresFactRepository
 from infinity_context_adapters.postgres.models import (
@@ -22,8 +25,14 @@ from infinity_context_adapters.postgres.unit_of_work import (
     PostgresUnitOfWork,
     build_session_factory,
 )
-from infinity_context_core.application.dto import DeleteDocumentCommand
+from infinity_context_core.application.dto import (
+    DeleteDocumentCommand,
+    RememberFactCommand,
+    UpdateFactCommand,
+)
 from infinity_context_core.application.use_cases.delete_document import DeleteDocumentUseCase
+from infinity_context_core.application.use_cases.remember_fact import RememberFactUseCase
+from infinity_context_core.application.use_cases.update_fact import UpdateFactUseCase
 from infinity_context_core.domain.entities import (
     MemoryFact,
     MemoryFactId,
@@ -33,13 +42,30 @@ from infinity_context_core.domain.entities import (
     SpaceId,
     ThreadId,
 )
+from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.features.memory_facts.public import (
+    FactTemporalExtent,
+    MemoryFact as CanonicalMemoryFact,
+    MemoryFactEvidenceRef,
     MemoryFactIdentity as CanonicalMemoryFactIdentity,
+    MemoryFactSourceRef as CanonicalMemoryFactSourceRef,
     MemoryFactScope as CanonicalMemoryFactScope,
+    ReinstateSupersededFactCommand,
+    ReinstateSupersededFactHandler,
+    SupersedeFactCommand,
+    SupersedeFactHandler,
     memory_fact_identity_lock_key,
 )
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
+
+from document_fact_source_ref_race_support import (
+    AdmissionGateUnitOfWorkFactory,
+    CanonicalIds,
+    FixedClock,
+    TrackingCanonicalUnitOfWorkFactory,
+    active_facts_solely_backed_by_document,
+)
 
 NOW = datetime(2026, 9, 1, tzinfo=UTC)
 
@@ -56,6 +82,293 @@ def test_document_delete_uses_shared_two_fact_lock_order_when_postgres_is_config
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_document_delete_uses_shared_two_fact_lock_order(database_url))
+
+
+@pytest.mark.parametrize("mutation", ("create", "update"))
+def test_document_delete_admission_rejects_late_document_source_ref_writer(
+    mutation: str,
+) -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_delete_admission_rejects_late_source_ref_writer(database_url, mutation))
+
+
+def test_document_delete_admission_rejects_late_fact_reinstatement() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_delete_admission_rejects_late_reinstatement(database_url))
+
+
+async def _assert_delete_admission_rejects_late_reinstatement(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix="document_delete_late_reinstate",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    deletion = reinstatement = None
+    release_delete = asyncio.Event()
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_document())
+            session.add(_chunk())
+
+        scope = CanonicalMemoryFactScope("space-race", "scope-race", None)
+        source_ref = CanonicalMemoryFactSourceRef(
+            source_type="document",
+            source_id="document-race",
+            chunk_id="chunk-race",
+        )
+        predecessor = CanonicalMemoryFact.remember(
+            identity=CanonicalMemoryFactIdentity("fact-old", scope),
+            text="The document originally supported version one.",
+            source_refs=(source_ref,),
+            now=NOW,
+            temporal_extent=FactTemporalExtent.ongoing_state(
+                observed_at=NOW,
+                valid_from=NOW,
+                basis="primary_evidence",
+            ),
+        ).to_snapshot()
+        successor = CanonicalMemoryFact.remember(
+            identity=CanonicalMemoryFactIdentity("fact-new", scope),
+            text="The document later supported version two.",
+            source_refs=(source_ref,),
+            now=NOW + timedelta(seconds=2),
+            temporal_extent=FactTemporalExtent.ongoing_state(
+                observed_at=NOW + timedelta(seconds=2),
+                valid_from=NOW + timedelta(seconds=2),
+                basis="primary_evidence",
+            ),
+        ).to_snapshot()
+        canonical_clock = FixedClock(NOW + timedelta(seconds=2))
+        canonical_factory = PostgresMemoryFactUnitOfWorkFactory(
+            session_factory=sessions,
+            clock=canonical_clock,
+        )
+        async with canonical_factory() as uow:
+            await uow.coordinate_source_refs(scope=scope, source_refs=(source_ref,))
+            await uow.facts.create(predecessor)
+            await uow.facts.create(successor)
+            await uow.commit()
+        superseded = await SupersedeFactHandler(
+            uow_factory=canonical_factory,
+            clock=canonical_clock,
+            ids=CanonicalIds("supersede"),
+        ).execute(
+            SupersedeFactCommand(
+                successor_identity=successor.identity,
+                predecessor_identity=predecessor.identity,
+                expected_successor_version=1,
+                expected_predecessor_version=1,
+                effective_at=NOW + timedelta(seconds=2),
+                evidence_refs=(
+                    MemoryFactEvidenceRef(
+                        evidence_id="supersession-evidence",
+                        source_ref=source_ref,
+                    ),
+                ),
+                actor_id="reviewer",
+                reason_code="accepted_replacement",
+                idempotency_key="supersede-race",
+            )
+        )
+
+        admitted = asyncio.Event()
+        delete_clock = FixedClock(NOW + timedelta(seconds=3))
+        deletion = asyncio.create_task(
+            DeleteDocumentUseCase(
+                uow_factory=AdmissionGateUnitOfWorkFactory(
+                    session_factory=sessions,
+                    clock=delete_clock,
+                    admitted=admitted,
+                    release=release_delete,
+                ),
+                clock=delete_clock,
+            ).execute(DeleteDocumentCommand(document_id="document-race"))
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=2)
+
+        writer_pid_ready = asyncio.Event()
+        writer_pid: list[int] = []
+        reinstatement = asyncio.create_task(
+            ReinstateSupersededFactHandler(
+                uow_factory=TrackingCanonicalUnitOfWorkFactory(
+                    session_factory=sessions,
+                    clock=FixedClock(NOW + timedelta(seconds=4)),
+                    pid_ready=writer_pid_ready,
+                    pid=writer_pid,
+                ),
+                clock=FixedClock(NOW + timedelta(seconds=4)),
+                ids=CanonicalIds("reinstate"),
+            ).execute(
+                ReinstateSupersededFactCommand(
+                    scope=scope,
+                    supersession_decision_id=superseded.decision.decision_id,
+                    expected_rejected_successor_version=2,
+                    expected_original_predecessor_version=2,
+                    evidence_refs=(
+                        MemoryFactEvidenceRef(
+                            evidence_id="reinstatement-evidence",
+                            source_ref=source_ref,
+                        ),
+                    ),
+                    actor_id="reviewer",
+                    reason_code="replacement_rejected",
+                    idempotency_key="reinstate-race",
+                )
+            )
+        )
+        await asyncio.wait_for(writer_pid_ready.wait(), timeout=2)
+        await _wait_for_row_lock(engine, writer_pid[0])
+
+        release_delete.set()
+        await asyncio.wait_for(deletion, timeout=5)
+        deletion = None
+        with pytest.raises(MemoryConflictError, match="deleted document"):
+            await asyncio.wait_for(reinstatement, timeout=5)
+        reinstatement = None
+        async with sessions() as session:
+            assert (
+                await active_facts_solely_backed_by_document(
+                    session,
+                    document_id="document-race",
+                )
+                == 0
+            )
+    finally:
+        release_delete.set()
+        for task in (deletion, reinstatement):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (deletion, reinstatement) if task is not None),
+            return_exceptions=True,
+        )
+        await engine.dispose()
+        await database.drop()
+
+
+async def _assert_delete_admission_rejects_late_source_ref_writer(
+    database_url: str,
+    mutation: str,
+) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix=f"document_delete_late_{mutation}",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    deletion = writer = None
+    release_delete = asyncio.Event()
+    try:
+        await upgrade_schema(engine)
+        sessions = build_session_factory(engine)
+        async with sessions.begin() as session:
+            session.add(_document())
+            session.add(_chunk())
+        if mutation == "update":
+            async with sessions.begin() as session:
+                await PostgresFactRepository(session, now=NOW).create(
+                    _fact_with_ref(
+                        fact_id="fact-update",
+                        ref=SourceRef(source_type="manual", source_id="manual-before-delete"),
+                    )
+                )
+
+        admitted = asyncio.Event()
+        clock = SystemClock()
+        deletion = asyncio.create_task(
+            DeleteDocumentUseCase(
+                uow_factory=AdmissionGateUnitOfWorkFactory(
+                    session_factory=sessions,
+                    clock=clock,
+                    admitted=admitted,
+                    release=release_delete,
+                ),
+                clock=clock,
+            ).execute(DeleteDocumentCommand(document_id="document-race"))
+        )
+        await asyncio.wait_for(admitted.wait(), timeout=2)
+
+        writer_pid_ready = asyncio.Event()
+        writer_pid: list[int] = []
+        writer_factory = _TrackingUnitOfWorkFactory(
+            session_factory=sessions,
+            clock=clock,
+            pid_ready=writer_pid_ready,
+            pid=writer_pid,
+        )
+        ref = SourceRef(
+            source_type="document",
+            source_id="document-race",
+            chunk_id="chunk-race",
+        )
+        if mutation == "create":
+            writer = asyncio.create_task(
+                RememberFactUseCase(
+                    uow_factory=writer_factory,
+                    clock=clock,
+                    ids=UuidIdGenerator(),
+                ).execute(
+                    RememberFactCommand(
+                        space_id=SpaceId("space-race"),
+                        memory_scope_id=MemoryScopeId("scope-race"),
+                        thread_id=None,
+                        text="Late document-backed fact.",
+                        kind=MemoryKind.NOTE,
+                        source_refs=(ref,),
+                    )
+                )
+            )
+        else:
+            writer = asyncio.create_task(
+                UpdateFactUseCase(uow_factory=writer_factory, clock=clock).execute(
+                    UpdateFactCommand(
+                        fact_id="fact-update",
+                        expected_version=1,
+                        text="Late source-ref replacement.",
+                        source_refs=(ref,),
+                        reason="exercise document deletion admission",
+                    )
+                )
+            )
+        await asyncio.wait_for(writer_pid_ready.wait(), timeout=2)
+        await _wait_for_row_lock(engine, writer_pid[0])
+
+        release_delete.set()
+        deleted = await asyncio.wait_for(deletion, timeout=5)
+        deletion = None
+        assert deleted.document.status.value == "deleted"
+        with pytest.raises(MemoryConflictError, match="deleted document"):
+            await asyncio.wait_for(writer, timeout=5)
+        writer = None
+
+        async with sessions() as session:
+            phantom_count = await active_facts_solely_backed_by_document(
+                session,
+                document_id="document-race",
+            )
+        assert phantom_count == 0
+    finally:
+        release_delete.set()
+        for task in (deletion, writer):
+            if task is not None:
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (deletion, writer) if task is not None),
+            return_exceptions=True,
+        )
+        await engine.dispose()
+        await database.drop()
 
 
 async def _assert_document_delete_uses_shared_two_fact_lock_order(database_url: str) -> None:
@@ -439,5 +752,17 @@ def _fact(
                 chunk_id="chunk-race",
             ),
         ),
+        now=NOW,
+    )
+
+
+def _fact_with_ref(*, fact_id: str, ref: SourceRef) -> MemoryFact:
+    return MemoryFact.create(
+        fact_id=MemoryFactId(fact_id),
+        space_id=SpaceId("space-race"),
+        memory_scope_id=MemoryScopeId("scope-race"),
+        text=f"Fact {fact_id} before concurrent mutation.",
+        kind=MemoryKind.NOTE,
+        source_refs=(ref,),
         now=NOW,
     )

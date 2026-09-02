@@ -41,6 +41,9 @@ from infinity_context_adapters.features.memory_facts.postgres_temporal_decision_
     PostgresFactSupersessionRepository,
     PostgresFactTemporalDecisionRepository,
 )
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    coordinate_document_source_ref_write,
+)
 from infinity_context_adapters.postgres.fact_selection_conditions import (
     memory_fact_selection_conditions,
 )
@@ -498,6 +501,19 @@ class PostgresMemoryFactTransaction:
             {"identity": lock_identity},
         )
 
+    async def coordinate_source_refs(
+        self,
+        *,
+        scope: MemoryFactScope,
+        source_refs: tuple[MemoryFactSourceRef, ...],
+    ) -> None:
+        await coordinate_document_source_ref_write(
+            self._session,
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            source_refs=source_refs,
+        )
+
 
 class PostgresMemoryFactUnitOfWork:
     """One transaction for fact snapshots, version history and outbox intents."""
@@ -531,6 +547,16 @@ class PostgresMemoryFactUnitOfWork:
         if self._session is None:
             raise RuntimeError("Memory fact unit of work is not open")
         await self._transaction.lock_scope(scope)
+
+    async def coordinate_source_refs(
+        self,
+        *,
+        scope: MemoryFactScope,
+        source_refs: tuple[MemoryFactSourceRef, ...],
+    ) -> None:
+        if self._session is None:
+            raise RuntimeError("Memory fact unit of work is not open")
+        await self._transaction.coordinate_source_refs(scope=scope, source_refs=source_refs)
 
     async def __aexit__(
         self,

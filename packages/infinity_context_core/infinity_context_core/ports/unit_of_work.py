@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Protocol
 
+from infinity_context_core.domain.entities import SourceRef
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.ports.assets import (
     AssetRepositoryPort,
@@ -71,6 +72,15 @@ class UnitOfWorkPort(Protocol):
     async def commit(self) -> None:
         """Commit canonical changes."""
 
+    async def coordinate_fact_source_refs(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        source_refs: tuple[SourceRef, ...],
+    ) -> None:
+        """Coordinate canonical document evidence before locking fact aggregates."""
+
     async def rollback(self) -> None:
         """Rollback canonical changes."""
 
@@ -78,3 +88,21 @@ class UnitOfWorkPort(Protocol):
 class UnitOfWorkFactoryPort(Protocol):
     def __call__(self) -> UnitOfWorkPort:
         """Create a fresh unit of work for one use case execution."""
+
+
+async def coordinate_fact_source_refs(
+    uow: UnitOfWorkPort,
+    *,
+    space_id: str,
+    memory_scope_id: str,
+    source_refs: tuple[SourceRef, ...],
+) -> None:
+    """Invoke document coordination when the persistence adapter provides it."""
+
+    coordinator = getattr(uow, "coordinate_fact_source_refs", None)
+    if coordinator is not None:
+        await coordinator(
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            source_refs=source_refs,
+        )
