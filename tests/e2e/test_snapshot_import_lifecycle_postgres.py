@@ -25,19 +25,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
 
 
-@pytest.mark.parametrize("invalid_ref", (False, True))
-def test_snapshot_import_remaps_and_validates_document_refs(invalid_ref: bool) -> None:
+@pytest.mark.parametrize("case", ("remap", "external_id", "missing_chunk"))
+def test_snapshot_import_remaps_and_validates_document_refs(case: str) -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
-    asyncio.run(_assert_snapshot_import(database_url, invalid_ref=invalid_ref))
+    asyncio.run(_assert_snapshot_import(database_url, case=case))
 
 
-async def _assert_snapshot_import(database_url: str, *, invalid_ref: bool) -> None:
+async def _assert_snapshot_import(database_url: str, *, case: str) -> None:
     asyncpg = pytest.importorskip("asyncpg")
     database = PostgresTestDatabase.from_url(
         database_url,
-        prefix=f"snapshot_ref_{'reject' if invalid_ref else 'remap'}",
+        prefix=f"snapshot_ref_{case}",
         asyncpg=asyncpg,
     )
     await database.recreate()
@@ -69,14 +69,17 @@ async def _assert_snapshot_import(database_url: str, *, invalid_ref: bool) -> No
             )
             await session.commit()
 
-        if invalid_ref:
+        if case == "missing_chunk":
             with pytest.raises(MemoryConflictError):
                 await import_memory_scope_payload(
                     engine=engine,
                     now=NOW,
                     space_id="space-import",
                     memory_scope_id="scope-base",
-                    payload=_snapshot(source_document_id="missing-document"),
+                    payload=_snapshot(
+                        source_document_id="document-source",
+                        source_chunk_id="missing-chunk",
+                    ),
                     dry_run=False,
                     merge_strategy="create_new_memory_scope",
                 )
@@ -94,7 +97,11 @@ async def _assert_snapshot_import(database_url: str, *, invalid_ref: bool) -> No
             now=NOW,
             space_id="space-import",
             memory_scope_id="scope-base",
-            payload=_snapshot(source_document_id="document-source"),
+            payload=_snapshot(
+                source_document_id=(
+                    "external-document-ref" if case == "external_id" else "document-source"
+                )
+            ),
             dry_run=False,
             merge_strategy="create_new_memory_scope",
         )
@@ -125,7 +132,10 @@ async def _assert_snapshot_import(database_url: str, *, invalid_ref: bool) -> No
             ).scalar_one()
         assert document.id != "document-source"
         assert chunk.id != "chunk-source"
-        assert (ref.source_id, ref.chunk_id) == (document.id, chunk.id)
+        expected_source_id = (
+            "external-document-ref" if case == "external_id" else document.id
+        )
+        assert (ref.source_id, ref.chunk_id) == (expected_source_id, chunk.id)
         assert (document.thread_id, chunk.thread_id, fact.thread_id) != (
             "thread-source",
             "thread-source",
@@ -137,7 +147,11 @@ async def _assert_snapshot_import(database_url: str, *, invalid_ref: bool) -> No
         await database.drop()
 
 
-def _snapshot(*, source_document_id: str) -> dict[str, object]:
+def _snapshot(
+    *,
+    source_document_id: str,
+    source_chunk_id: str = "chunk-source",
+) -> dict[str, object]:
     timestamp = NOW.isoformat()
     return {
         "schema_version": 9,
@@ -184,7 +198,7 @@ def _snapshot(*, source_document_id: str) -> dict[str, object]:
                 "fact_version": 1,
                 "source_type": "document",
                 "source_id": source_document_id,
-                "chunk_id": "chunk-source",
+                "chunk_id": source_chunk_id,
             }
         ],
     }

@@ -24,7 +24,6 @@ from infinity_context_core.features.memory_facts.application import (
     MemoryFactLifecycleUseCases,
     MemoryFactReadUseCases,
     MemoryFactTemporalUseCases,
-    memory_fact_identity_lock_key,
     ReinstateSupersededFactCommand,
     ReinstateSupersededFactHandler,
     ReinstateSupersededFactResult,
@@ -46,6 +45,7 @@ from infinity_context_core.features.memory_facts.application import (
     UpdateFactHandler,
     UpdateFactResult,
     UpdateFactUseCase,
+    memory_fact_identity_lock_key,
 )
 from infinity_context_core.features.memory_facts.domain import (
     FEATURE_ID,
