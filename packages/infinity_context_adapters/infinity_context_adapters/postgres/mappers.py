@@ -600,6 +600,7 @@ def suggestion_to_row(suggestion: MemorySuggestion) -> MemorySuggestionRow:
         id=str(suggestion.id),
         space_id=str(suggestion.space_id),
         memory_scope_id=str(suggestion.memory_scope_id),
+        thread_id=suggestion.thread_id,
         candidate_text=suggestion.candidate_text,
         kind=suggestion.kind.value,
         operation=suggestion.operation.value,
@@ -631,6 +632,7 @@ def suggestion_to_json(suggestion: MemorySuggestion) -> dict[str, object]:
         "id": str(suggestion.id),
         "space_id": str(suggestion.space_id),
         "memory_scope_id": str(suggestion.memory_scope_id),
+        "thread_id": suggestion.thread_id,
         "candidate_text": suggestion.candidate_text,
         "kind": suggestion.kind.value,
         "operation": suggestion.operation.value,
@@ -673,6 +675,7 @@ def suggestion_from_json(payload: Mapping[str, object]) -> MemorySuggestion:
         id=MemorySuggestionId(_required_json_text(payload, "id")),
         space_id=SpaceId(_required_json_text(payload, "space_id")),
         memory_scope_id=MemoryScopeId(_required_json_text(payload, "memory_scope_id")),
+        thread_id=_optional_json_text(payload.get("thread_id")),
         candidate_text=_required_json_text(payload, "candidate_text"),
         kind=MemoryKind(_required_json_text(payload, "kind")),
         operation=SuggestionOperation(_required_json_text(payload, "operation")),
@@ -705,6 +708,7 @@ def suggestion_row_to_domain(row: MemorySuggestionRow) -> MemorySuggestion:
         id=MemorySuggestionId(row.id),
         space_id=SpaceId(row.space_id),
         memory_scope_id=MemoryScopeId(row.memory_scope_id),
+        thread_id=getattr(row, "thread_id", None),
         candidate_text=row.candidate_text,
         kind=MemoryKind(row.kind),
         operation=SuggestionOperation(getattr(row, "operation", None) or "add"),
@@ -761,6 +765,7 @@ def _optional_json_datetime(value: object) -> datetime | None:
 
 
 def apply_suggestion_to_row(suggestion: MemorySuggestion, row: MemorySuggestionRow) -> None:
+    row.thread_id = suggestion.thread_id
     row.candidate_text = suggestion.candidate_text
     row.kind = suggestion.kind.value
     row.operation = suggestion.operation.value

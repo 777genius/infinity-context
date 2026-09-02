@@ -667,6 +667,7 @@ class MemorySuggestionRow(Base):
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
     space_id: Mapped[str] = mapped_column(String(80), nullable=False)
     memory_scope_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    thread_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     candidate_text: Mapped[str] = mapped_column(Text, nullable=False)
     kind: Mapped[str] = mapped_column(String(80), nullable=False)
     operation: Mapped[str] = mapped_column(String(40), nullable=False, default="add")

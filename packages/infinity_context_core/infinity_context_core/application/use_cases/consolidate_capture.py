@@ -233,6 +233,7 @@ class ConsolidateCaptureUseCase:
                     category=taxonomy.category,
                     repository_id=repository_id,
                     code_scope_id=code_scope_id,
+                    thread_id=str(current.thread_id) if current.thread_id else None,
                 )
                 if fingerprint in seen_fingerprints:
                     resolver_rejected_codes.append("duplicate_candidate_in_capture")
@@ -276,10 +277,12 @@ class ConsolidateCaptureUseCase:
                         category=duplicate_taxonomy.category,
                         repository_id=repository_id,
                         code_scope_id=code_scope_id,
+                        thread_id=str(current.thread_id) if current.thread_id else None,
                     )
                     duplicate_pending = await uow.suggestions.find_pending_duplicate(
                         space_id=str(current.space_id),
                         memory_scope_id=str(current.memory_scope_id),
+                        thread_id=str(current.thread_id) if current.thread_id else None,
                         candidate_fingerprint=duplicate_fingerprint,
                         operation=SuggestionOperation.REVIEW.value,
                         target_fact_id=str(active_duplicate.id),
@@ -300,6 +303,7 @@ class ConsolidateCaptureUseCase:
                         suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                         space_id=current.space_id,
                         memory_scope_id=current.memory_scope_id,
+                        thread_id=current.thread_id,
                         candidate_text=candidate.text,
                         kind=candidate.kind,
                         source_refs=candidate.source_refs,
@@ -368,6 +372,7 @@ class ConsolidateCaptureUseCase:
                 duplicate = await uow.suggestions.find_pending_duplicate(
                     space_id=str(current.space_id),
                     memory_scope_id=str(current.memory_scope_id),
+                    thread_id=str(current.thread_id) if current.thread_id else None,
                     candidate_fingerprint=fingerprint,
                     operation=_suggestion_operation(candidate.operation_hint).value,
                     target_fact_id=candidate.target_fact_id,
@@ -415,6 +420,7 @@ class ConsolidateCaptureUseCase:
                     suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                     space_id=current.space_id,
                     memory_scope_id=current.memory_scope_id,
+                    thread_id=current.thread_id,
                     candidate_text=candidate.text,
                     kind=candidate.kind,
                     source_refs=source_refs,
@@ -706,9 +712,11 @@ def _candidate_fingerprint(
     category: str,
     repository_id: str | None,
     code_scope_id: str | None,
+    thread_id: str | None = None,
 ) -> str:
     raw = (
-        f"{space_id}:{memory_scope_id}:{repository_id or ''}:{code_scope_id or ''}:"
+        f"{space_id}:{memory_scope_id}:{thread_id or ''}:{repository_id or ''}:"
+        f"{code_scope_id or ''}:"
         f"{operation}:{target_fact_id or ''}:{category}:{text}"
     )
     return sha256(raw.encode("utf-8")).hexdigest()

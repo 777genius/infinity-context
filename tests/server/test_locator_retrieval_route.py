@@ -20,7 +20,8 @@ from infinity_context_server.auth_tokens import MEMORY_PERMISSION_READ, ActiveSe
 
 
 class _Service:
-    async def execute(self, request):
+    async def execute(self, request, *, deadline_monotonic):
+        assert asyncio.get_running_loop().time() < deadline_monotonic
         return core.LocatorRetrievalResponse(
             status="unqualified",
             capability_fingerprint=request.capability_fingerprint,
@@ -151,6 +152,7 @@ def test_timeout_cancels_retrieval_and_disconnect_tasks() -> None:
                 await route._execute_with_disconnect(
                     SimpleNamespace(receive=receive),
                     operation(),
+                    deadline_monotonic=asyncio.get_running_loop().time() + 0.01,
                 )
         assert operation_cancelled.is_set()
         assert receive_cancelled.is_set()
@@ -184,10 +186,70 @@ def test_repeated_cancellation_waits_for_retrieval_cleanup() -> None:
             await route._execute_with_disconnect(
                 SimpleNamespace(receive=receive),
                 operation(),
+                deadline_monotonic=asyncio.get_running_loop().time() + 1,
             )
         assert cleanup_started.is_set()
         assert cleanup_finished.is_set()
         while current.cancelling():
             current.uncancel()
+
+    asyncio.run(scenario())
+
+
+def test_disconnect_cleanup_cannot_outlive_absolute_deadline() -> None:
+    async def scenario() -> None:
+        cleanup_started = asyncio.Event()
+        release_cleanup = asyncio.Event()
+
+        async def operation() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cleanup_started.set()
+                await release_cleanup.wait()
+
+        async def receive() -> dict[str, str]:
+            return {"type": "http.disconnect"}
+
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(TimeoutError):
+            await route._execute_with_disconnect(
+                SimpleNamespace(receive=receive),
+                operation(),
+                deadline_monotonic=started + 0.02,
+            )
+        assert cleanup_started.is_set()
+        assert asyncio.get_running_loop().time() - started < 0.2
+        release_cleanup.set()
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+
+
+def test_repeated_deadlines_release_handler_capacity() -> None:
+    async def scenario() -> None:
+        cancelled = 0
+
+        async def operation() -> None:
+            nonlocal cancelled
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled += 1
+
+        async def receive() -> dict[str, str]:
+            await asyncio.Event().wait()
+            return {"type": "http.disconnect"}
+
+        started = asyncio.get_running_loop().time()
+        for _ in range(10):
+            with pytest.raises(TimeoutError):
+                await route._execute_with_disconnect(
+                    SimpleNamespace(receive=receive),
+                    operation(),
+                    deadline_monotonic=asyncio.get_running_loop().time() + 0.005,
+                )
+        assert cancelled == 10
+        assert asyncio.get_running_loop().time() - started < 0.5
 
     asyncio.run(scenario())

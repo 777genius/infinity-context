@@ -64,7 +64,11 @@ async def retrieve_context(
                 )
             response = await _execute_with_disconnect(
                 http_request,
-                service.execute(context_building.retrieval_request_to_core(resolved)),
+                service.execute(
+                    context_building.retrieval_request_to_core(resolved),
+                    deadline_monotonic=deadline,
+                ),
+                deadline_monotonic=deadline,
             )
             _check_deadline(deadline)
             body = context_building.retrieval_response_to_contract(response).to_dict()
@@ -206,14 +210,20 @@ def _authorize(http_request: Request, request: RetrieveContextRequestDto) -> Non
         raise MemoryForbiddenError("Retrieval scope is forbidden") from exc
 
 
-async def _execute_with_disconnect(request: Request, awaitable):
+async def _execute_with_disconnect(
+    request: Request,
+    awaitable,
+    *,
+    deadline_monotonic: float,
+):
     operation = asyncio.create_task(awaitable)
     disconnected = asyncio.create_task(_wait_for_disconnect(request))
     try:
-        done, _ = await asyncio.wait(
-            {operation, disconnected},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        async with asyncio.timeout_at(deadline_monotonic):
+            done, _ = await asyncio.wait(
+                {operation, disconnected},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
         if disconnected in done and disconnected.result():
             raise asyncio.CancelledError
         return await operation
@@ -222,7 +232,8 @@ async def _execute_with_disconnect(request: Request, awaitable):
             if not task.done():
                 task.cancel()
         _, cleanup_cancellation = await complete_despite_cancellation(
-            asyncio.gather(operation, disconnected, return_exceptions=True)
+            asyncio.gather(operation, disconnected, return_exceptions=True),
+            deadline_monotonic=deadline_monotonic,
         )
         if cleanup_cancellation is not None:
             raise cleanup_cancellation

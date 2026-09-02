@@ -263,17 +263,13 @@ class IngestEpisodeUseCase:
                         suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                         space_id=command.space_id,
                         memory_scope_id=command.memory_scope_id,
+                        thread_id=command.thread_id,
                         candidate_text=candidate.text,
                         kind=candidate.kind,
                         source_refs=candidate.source_refs,
                         safe_reason=decision.reason,
                         confidence=decision.confidence,
                         trust_level=decision.trust_level,
-                        review_payload=(
-                            {"canonical_source_thread_id": str(command.thread_id)}
-                            if command.thread_id is not None
-                            else None
-                        ),
                         now=now,
                     )
                     saved = await uow.suggestions.create(suggestion)

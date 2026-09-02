@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from datetime import datetime
 from hashlib import sha256
 from typing import Any
@@ -49,6 +50,7 @@ def build_thread_id_map(
     threads: list[dict[str, Any]] | None = None,
     memory_scope_id: str,
     import_batch_id: str,
+    referenced_thread_ids: Iterable[str] = (),
 ) -> dict[str, str]:
     threads = threads or []
     source_thread_ids = sorted(
@@ -58,6 +60,7 @@ def build_thread_id_map(
             for episode in episodes
             if episode.get("id") is not None
         }
+        | {str(thread_id) for thread_id in referenced_thread_ids}
     )
     return {
         thread_id: stable_id("thread", memory_scope_id, thread_id, import_batch_id)

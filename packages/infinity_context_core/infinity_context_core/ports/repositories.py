@@ -563,6 +563,7 @@ class SuggestionRepositoryPort(Protocol):
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         candidate_fingerprint: str,
         operation: str,
         target_fact_id: str | None,

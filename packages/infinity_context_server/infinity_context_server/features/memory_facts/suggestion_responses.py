@@ -48,6 +48,7 @@ def suggestion_to_response(suggestion: object) -> dict[str, Any]:
         "id": str(_required_value(suggestion, "id")),
         "space_id": str(_required_value(suggestion, "space_id")),
         "memory_scope_id": str(_required_value(suggestion, "memory_scope_id")),
+        "thread_id": _value(suggestion, "thread_id", None),
         "candidate_text": _required_value(suggestion, "candidate_text"),
         "kind": _enum_or_text(_required_value(suggestion, "kind")),
         "operation": _enum_or_text(_required_value(suggestion, "operation")),

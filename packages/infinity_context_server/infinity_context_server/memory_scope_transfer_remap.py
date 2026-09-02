@@ -274,7 +274,7 @@ def _remap_capture_idempotency_key(
 def _remap_optional_thread_id(value: object, thread_id_map: dict[str, str]) -> str | None:
     if value is None:
         return None
-    return thread_id_map.get(str(value))
+    return thread_id_map.get(str(value), str(value))
 
 
 def _remap_capture_evidence_refs(

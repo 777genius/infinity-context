@@ -15,6 +15,7 @@ from infinity_context_adapters.postgres.models import (
     MemoryScopeRow,
     MemorySourceRefRow,
     MemorySpaceRow,
+    MemoryThreadRow,
 )
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_server.memory_scope_transfer import import_memory_scope_payload
@@ -31,6 +32,136 @@ def test_snapshot_import_remaps_and_validates_document_refs(case: str) -> None:
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_snapshot_import(database_url, case=case))
+
+
+@pytest.mark.parametrize("case", ("active_thread", "skipped_evidence", "deleted_thread"))
+def test_snapshot_import_fences_threads_and_closes_skipped_evidence(case: str) -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_snapshot_thread_fence(database_url, case=case))
+
+
+async def _assert_snapshot_thread_fence(database_url: str, *, case: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    database = PostgresTestDatabase.from_url(
+        database_url,
+        prefix=f"snapshot_fence_{case}",
+        asyncpg=asyncpg,
+    )
+    await database.recreate()
+    engine = build_async_engine(database.app_url)
+    try:
+        await upgrade_schema(engine)
+        async with AsyncSession(engine) as session:
+            session.add(
+                MemorySpaceRow(
+                    id="space-import",
+                    slug="space-import",
+                    name="Import space",
+                    status="active",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await session.flush()
+            session.add(
+                MemoryScopeRow(
+                    id="scope-base",
+                    space_id="space-import",
+                    external_ref="base",
+                    name="Base",
+                    status="active",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            await session.flush()
+            session.add(
+                MemoryThreadRow(
+                    id="thread-source",
+                    space_id="space-import",
+                    memory_scope_id="scope-base",
+                    external_ref="thread-source",
+                    status="deleted" if case == "deleted_thread" else "active",
+                    created_at=NOW,
+                    updated_at=NOW,
+                )
+            )
+            if case == "skipped_evidence":
+                session.add(
+                    MemoryDocumentRow(
+                        id="document-source",
+                        space_id="space-import",
+                        memory_scope_id="scope-base",
+                        thread_id="thread-source",
+                        title="Existing document",
+                        source_type="text",
+                        source_external_id="existing",
+                        content_hash="existing-document-hash",
+                        classification="unknown",
+                        status="active",
+                        retrieval_projected=False,
+                        created_at=NOW,
+                        updated_at=NOW,
+                    )
+                )
+            await session.commit()
+
+        payload = _snapshot(source_document_id="document-source")
+        payload["threads"] = []
+        if case == "deleted_thread":
+            payload["facts"] = []
+            payload["chunks"] = []
+            payload["source_refs"] = []
+            with pytest.raises(MemoryConflictError, match="neither active nor created"):
+                await import_memory_scope_payload(
+                    engine=engine,
+                    now=NOW,
+                    space_id="space-import",
+                    memory_scope_id="scope-base",
+                    payload=payload,
+                    dry_run=False,
+                    merge_strategy="skip_existing",
+                )
+        elif case == "skipped_evidence":
+            result = await import_memory_scope_payload(
+                engine=engine,
+                now=NOW,
+                space_id="space-import",
+                memory_scope_id="scope-base",
+                payload=payload,
+                dry_run=False,
+                merge_strategy="skip_existing",
+            )
+            assert result["status"] == "ok"
+            assert result["imported"]["facts"] == 0
+            assert result["imported"]["chunks"] == 0
+            assert result["imported"]["source_refs"] == 0
+            async with AsyncSession(engine) as session:
+                assert await session.scalar(select(func.count()).select_from(MemoryFactRow)) == 0
+                assert (
+                    await session.scalar(select(func.count()).select_from(MemorySourceRefRow)) == 0
+                )
+        else:
+            result = await import_memory_scope_payload(
+                engine=engine,
+                now=NOW,
+                space_id="space-import",
+                memory_scope_id="scope-base",
+                payload=payload,
+                dry_run=False,
+                merge_strategy="skip_existing",
+            )
+            assert result["status"] == "ok"
+            async with AsyncSession(engine) as session:
+                document = await session.get(MemoryDocumentRow, "document-source")
+                fact = await session.get(MemoryFactRow, "fact-source")
+            assert document is not None and document.thread_id == "thread-source"
+            assert fact is not None and fact.thread_id == "thread-source"
+    finally:
+        await engine.dispose()
+        await database.drop()
 
 
 async def _assert_snapshot_import(database_url: str, *, case: str) -> None:

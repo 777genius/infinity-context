@@ -7,9 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from infinity_context_adapters.postgres.document_source_ref_coordination import (
-    lock_exact_thread_lifecycle,
-)
 from infinity_context_adapters.postgres.models import (
     MemoryAnchorRow,
     MemoryAssetExtractionArtifactRow,
@@ -37,6 +34,7 @@ from infinity_context_server import memory_scope_transfer_context as _context
 from infinity_context_server import memory_scope_transfer_extractions as _extractions
 from infinity_context_server import memory_scope_transfer_fact_coordination as _fact_coordination
 from infinity_context_server import memory_scope_transfer_facts as _facts
+from infinity_context_server import memory_scope_transfer_lifecycle as _lifecycle
 from infinity_context_server import memory_scope_transfer_records as _records
 from infinity_context_server import memory_scope_transfer_remap as _remap
 from infinity_context_server import memory_scope_transfer_scope as _scope
@@ -401,6 +399,15 @@ async def import_memory_scope_payload(
     context_link_suggestions = list(payload.get("context_link_suggestions", []))
     relations = list(payload.get("relations", []))
     source_refs = list(payload.get("source_refs", []))
+    declared_thread_ids = _lifecycle.referenced_thread_ids(
+        facts=facts,
+        documents=documents,
+        episodes=episodes,
+        chunks=chunks,
+        assets=assets,
+        asset_extraction_jobs=asset_extraction_jobs,
+        captures=captures,
+    )
     if not dry_run and _records.contains_redacted_memory(
         payload,
         facts=facts,
@@ -507,6 +514,7 @@ async def import_memory_scope_payload(
                 episodes=episodes,
                 memory_scope_id=target_memory_scope_id,
                 import_batch_id=import_batch_id,
+                referenced_thread_ids=declared_thread_ids,
             )
         if episodes and not dry_run and not thread_id_map:
             thread_id_map = _support.build_thread_id_map(
@@ -570,6 +578,7 @@ async def import_memory_scope_payload(
                 context_links=context_links,
                 context_link_suggestions=context_link_suggestions,
                 relations=relations,
+                source_refs=source_refs,
             )
             result: dict[str, object] = {
                 "status": "ok",
@@ -618,6 +627,7 @@ async def import_memory_scope_payload(
             context_links=context_links,
             context_link_suggestions=context_link_suggestions,
             relations=relations,
+            source_refs=source_refs,
         )
         superseded_fact_ids: set[str] = set()
         if merge_strategy == "supersede_matching_facts":
@@ -634,6 +644,31 @@ async def import_memory_scope_payload(
                 )
                 for fact_id in superseded_fact_ids
             }
+
+        (
+            target_thread_ids,
+            creatable_thread_ids,
+            referenced_thread_id_map,
+        ) = _lifecycle.plan_snapshot_thread_fences(
+            threads=threads,
+            facts=facts,
+            documents=documents,
+            episodes=episodes,
+            chunks=chunks,
+            assets=assets,
+            asset_extraction_jobs=asset_extraction_jobs,
+            captures=captures,
+            skipped=skipped,
+            thread_id_map=thread_id_map,
+            create_new_memory_scope=merge_strategy == "create_new_memory_scope",
+        )
+        await _lifecycle.fence_snapshot_import_threads(
+            session,
+            space_id=space_id,
+            memory_scope_id=target_memory_scope_id,
+            thread_ids=target_thread_ids,
+            creatable_thread_ids=creatable_thread_ids,
+        )
 
         imported_fact_versions: dict[str, int] = {}
         mapped_facts: list[dict[str, Any]] = []
@@ -670,7 +705,13 @@ async def import_memory_scope_payload(
             space_id=space_id,
             memory_scope_id=target_memory_scope_id,
             now=now,
+            referenced_thread_id_map=referenced_thread_id_map,
         )
+        # Document-backed chunks are guarded by a database trigger that resolves
+        # their canonical parent at INSERT time. Flush threads and documents
+        # first instead of relying on SQLAlchemy table ordering for unrelated
+        # mapped rows.
+        await session.flush()
         for episode in episodes:
             if str(episode["id"]) in skipped["episodes"]:
                 continue
@@ -715,20 +756,6 @@ async def import_memory_scope_payload(
                     now=now,
                     payload={"chunk_id": str(mapped["id"])},
                 )
-            )
-        import_thread_ids = {
-            str(item["thread_id"])
-            for item in (*mapped_facts, *documents, *chunks)
-            if item.get("thread_id") is not None
-        }
-        for thread_id in sorted(
-            thread_id_map.get(thread_id, thread_id) for thread_id in import_thread_ids
-        ):
-            await lock_exact_thread_lifecycle(
-                session,
-                space_id=space_id,
-                memory_scope_id=target_memory_scope_id,
-                thread_id=thread_id,
             )
         # Canonical evidence must exist before it can be validated and locked, while
         # fact rows must not be staged until the complete batch is coordinated.
@@ -861,6 +888,11 @@ async def import_memory_scope_payload(
             now=now,
         )
         imported_refs_by_fact = {row.fact_id for row in mapped_source_ref_rows}
+        declared_refs_by_fact = {
+            fact_id_map.get(str(ref["fact_id"]), str(ref["fact_id"]))
+            for ref in source_refs
+            if str(ref.get("fact_id")) not in skipped["facts"]
+        }
         session.add_all(mapped_source_ref_rows)
         for relation in relations:
             if str(relation["id"]) in skipped["relations"]:
@@ -883,7 +915,7 @@ async def import_memory_scope_payload(
                 )
             )
         for fact_id, fact_version in imported_fact_versions.items():
-            if fact_id in imported_refs_by_fact:
+            if fact_id in imported_refs_by_fact or fact_id in declared_refs_by_fact:
                 continue
             session.add(
                 MemorySourceRefRow(

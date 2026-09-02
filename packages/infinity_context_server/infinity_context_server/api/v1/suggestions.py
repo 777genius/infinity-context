@@ -55,10 +55,10 @@ async def create_suggestion(
         container,
         space_id=request.space_id,
         memory_scope_id=request.memory_scope_id,
-        thread_id=None,
+        thread_id=request.thread_id,
         space_slug=request.space_slug,
         memory_scope_external_ref=request.memory_scope_external_ref,
-        thread_external_ref=None,
+        thread_external_ref=request.thread_external_ref,
         thread_required=False,
     )
     repository_id, code_scope_id = _request_code_scope(http_request)
@@ -67,6 +67,7 @@ async def create_suggestion(
             request,
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
+            thread_id=scope.thread_id,
             repository_id=repository_id,
             code_scope_id=code_scope_id,
         )
@@ -138,10 +139,10 @@ async def create_suggestions_batch(
         container,
         space_id=request.space_id,
         memory_scope_id=request.memory_scope_id,
-        thread_id=None,
+        thread_id=request.thread_id,
         space_slug=request.space_slug,
         memory_scope_external_ref=request.memory_scope_external_ref,
-        thread_external_ref=None,
+        thread_external_ref=request.thread_external_ref,
         thread_required=False,
     )
     repository_id, code_scope_id = _request_code_scope(http_request)
@@ -150,6 +151,7 @@ async def create_suggestions_batch(
             request,
             space_id=scope.space_id,
             memory_scope_id=scope.memory_scope_id,
+            thread_id=scope.thread_id,
             repository_id=repository_id,
             code_scope_id=code_scope_id,
         )

@@ -829,6 +829,7 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         candidate_fingerprint: str,
         operation: str,
         target_fact_id: str | None,
@@ -840,6 +841,11 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
             MemorySuggestionRow.candidate_fingerprint == candidate_fingerprint,
             MemorySuggestionRow.operation == operation,
         ]
+        conditions.append(
+            MemorySuggestionRow.thread_id.is_(None)
+            if thread_id is None
+            else MemorySuggestionRow.thread_id == thread_id
+        )
         if target_fact_id:
             conditions.append(MemorySuggestionRow.target_fact_id == target_fact_id)
         else:

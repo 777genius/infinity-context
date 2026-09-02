@@ -15,6 +15,17 @@ from infinity_context_server.retrieval_profile_composition import (
 )
 
 
+def _deadline(seconds: float = 1.0) -> float:
+    return asyncio.get_running_loop().time() + seconds
+
+
+def _execute(service, request=object(), *, seconds: float = 1.0):
+    async def scenario():
+        return await service.execute(request, deadline_monotonic=_deadline(seconds))
+
+    return asyncio.run(scenario())
+
+
 def test_profile_query_fence_spans_delegate_and_releases_on_failure(monkeypatch) -> None:
     events: list[str] = []
     registry = _QueryFenceRegistry(events)
@@ -32,7 +43,7 @@ def test_profile_query_fence_spans_delegate_and_releases_on_failure(monkeypatch)
     )
 
     with pytest.raises(RuntimeError, match="synthetic_query_failure"):
-        asyncio.run(service.execute(object()))
+        _execute(service)
 
     assert events == ["begin", "execute", "finish:lease-active"]
 
@@ -54,7 +65,7 @@ def test_profile_query_registers_runtime_before_admission(monkeypatch) -> None:
         lambda _self, _active, **_kwargs: _SuccessfulQueryDelegate(),
     )
 
-    assert asyncio.run(service.execute(object())) == "profile"
+    assert _execute(service) == "profile"
     assert events == ["register", "begin", "finish:lease-active"]
 
 
@@ -76,7 +87,7 @@ def test_query_cancellation_waits_for_durable_fence_close(monkeypatch) -> None:
             lambda _self, _active, **_kwargs: delegate,
         )
 
-        query = asyncio.create_task(service.execute(object()))
+        query = asyncio.create_task(service.execute(object(), deadline_monotonic=_deadline()))
         await delegate.started.wait()
         query.cancel()
         await registry.close_started.wait()
@@ -111,7 +122,7 @@ def test_query_cancellation_during_admission_still_closes_committed_fence(
             lambda _self, _active, **_kwargs: _UnexpectedQueryDelegate(),
         )
 
-        query = asyncio.create_task(service.execute(object()))
+        query = asyncio.create_task(service.execute(object(), deadline_monotonic=_deadline()))
         await registry.admission_started.wait()
         query.cancel()
         await asyncio.sleep(0)
@@ -137,7 +148,7 @@ def test_absent_or_unavailable_admitted_profile_fails_closed(status) -> None:
         service_revision="1" * 40,
     )
     with pytest.raises(RuntimeError, match="retrieval_profile_query_unavailable"):
-        asyncio.run(service.execute(object()))
+        _execute(service)
 
 
 def test_descriptor_without_active_profile_fails_closed() -> None:
@@ -169,7 +180,7 @@ def test_exact_close_mismatch_fails_closed_and_is_observable(monkeypatch) -> Non
         lambda _self, _active, **_kwargs: _SuccessfulQueryDelegate(),
     )
     with pytest.raises(RuntimeError, match="query_fenced"):
-        asyncio.run(service.execute(object()))
+        _execute(service)
     assert diagnostics.events == [("active-a", "query_fence_close_failed")]
 
 
@@ -191,6 +202,60 @@ def test_admitted_query_does_not_repeat_cold_provider_health_probe() -> None:
 
     assert all(lane.healthy for lane in descriptor.provider_lanes)
     assert all(lane.profile_qualified for lane in descriptor.provider_lanes)
+
+
+def test_blocked_admission_is_cancelled_at_absolute_deadline(monkeypatch) -> None:
+    async def scenario() -> None:
+        registry = _NeverAdmissionRegistry()
+        service = ProfileAwareLocatorRetrievalService(
+            registry=registry,
+            projection=object(),
+            sessions=object(),
+            query_embeddings=object(),
+            service_revision="1" * 40,
+        )
+        monkeypatch.setattr(
+            ProfileAwareLocatorRetrievalService,
+            "_service_for_active",
+            lambda _self, _active, **_kwargs: _UnexpectedQueryDelegate(),
+        )
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(TimeoutError):
+            await service.execute(object(), deadline_monotonic=started + 0.02)
+        assert asyncio.get_running_loop().time() - started < 0.2
+        assert registry.admission_cancelled.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_blocked_finish_is_cancelled_and_fence_expires_at_request_deadline(
+    monkeypatch,
+) -> None:
+    async def scenario() -> None:
+        diagnostics = _Diagnostics()
+        registry = _NeverFinishRegistry([])
+        service = ProfileAwareLocatorRetrievalService(
+            registry=registry,
+            projection=object(),
+            sessions=object(),
+            query_embeddings=object(),
+            service_revision="1" * 40,
+            diagnostics=diagnostics,
+        )
+        monkeypatch.setattr(
+            ProfileAwareLocatorRetrievalService,
+            "_service_for_active",
+            lambda _self, _active, **_kwargs: _SuccessfulQueryDelegate(),
+        )
+        started = asyncio.get_running_loop().time()
+        with pytest.raises(TimeoutError):
+            await service.execute(object(), deadline_monotonic=started + 0.02)
+        assert asyncio.get_running_loop().time() - started < 0.2
+        assert registry.finish_cancelled.is_set()
+        assert registry.admitted_ttl.total_seconds() <= 0.02
+        assert diagnostics.events == [("active-a", "query_fence_close_failed")]
+
+    asyncio.run(scenario())
 
 
 class _NeverProbeProjection:
@@ -228,6 +293,36 @@ class _QueryFenceRegistry:
         if self.close_error:
             raise RuntimeError("retrieval_profile_query_fenced")
         self.events.append(f"finish:{activation_lease_id}")
+
+
+class _NeverAdmissionRegistry:
+    def __init__(self):
+        self.admission_cancelled = asyncio.Event()
+
+    async def begin_profile_query(self, *_args, **_kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.admission_cancelled.set()
+
+
+class _NeverFinishRegistry(_QueryFenceRegistry):
+    def __init__(self, events):
+        super().__init__(events)
+        self.finish_cancelled = asyncio.Event()
+        self.admitted_ttl = None
+
+    async def begin_profile_query(self, *args, now, expires_at, **kwargs):
+        self.admitted_ttl = expires_at - now
+        return await super().begin_profile_query(
+            *args, now=now, expires_at=expires_at, **kwargs
+        )
+
+    async def finish_profile_query(self, *args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.finish_cancelled.set()
 
 
 class _SlowCloseRegistry(_QueryFenceRegistry):
