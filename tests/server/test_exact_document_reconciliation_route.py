@@ -48,6 +48,29 @@ def _body(**changes):
     return value
 
 
+def _assert_sdk_compatible_unavailable(payload) -> None:
+    """Assert the generation bindings required by the official TypeScript decoder."""
+
+    data = payload["data"]
+    assert data == {
+        "contract_version": "document-reconciliation.v1",
+        "state": "unavailable",
+        "scope": {
+            "space_id": "space",
+            "memory_scope_id": "scope",
+            "thread_id": "thread",
+        },
+        "source_type": "opaque-kind",
+        "source_external_id": "opaque-id",
+        "document_id": None,
+        "canonical_status": None,
+        "projection_generation": "projection-1",
+        "profile_generation": "profile-1",
+        "visibility": "unavailable",
+        "idempotency_key_matches": None,
+    }
+
+
 def test_route_returns_exact_visibility_without_a_mutation() -> None:
     class Handler:
         calls = 0
@@ -92,8 +115,18 @@ def test_route_converts_deadline_to_bounded_unavailable_state() -> None:
 
     response = _client(Handler()).post("/v1/documents/reconcile-exact", json=_body(deadline_ms=50))
     assert response.status_code == 200
-    assert response.json()["data"]["state"] == "unavailable"
-    assert response.json()["data"]["visibility"] == "unavailable"
+    _assert_sdk_compatible_unavailable(response.json())
+
+
+def test_endpoint_timeout_preserves_sdk_generation_bindings() -> None:
+    class Handler:
+        async def execute(self, _query):
+            raise TimeoutError("canonical reconciliation timed out")
+
+    response = _client(Handler()).post("/v1/documents/reconcile-exact", json=_body())
+
+    assert response.status_code == 200
+    _assert_sdk_compatible_unavailable(response.json())
 
 
 def test_route_rejects_malformed_and_unsupported_contracts() -> None:

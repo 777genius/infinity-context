@@ -35,6 +35,7 @@ from infinity_context_server.api.policy import ensure_server_writes_enabled
 from infinity_context_server.api.v1.exact_reconciliation_body import (
     ExactReconciliationRoute,
     cache_exact_reconciliation_request,
+    exact_reconciliation_unavailable_response,
 )
 from infinity_context_server.api.v1.scope_resolution import (
     resolve_existing_single_scope,
@@ -133,13 +134,9 @@ async def reconcile_exact_document(
             )
         )
     except TimeoutError:
-        result = document_ingestion_server.ExactDocumentReconciliation(
-            "unavailable", identity, visibility="unavailable"
-        )
+        return exact_reconciliation_unavailable_response(request)
     except Exception:
-        result = document_ingestion_server.ExactDocumentReconciliation(
-            "unavailable", identity, visibility="unavailable"
-        )
+        return exact_reconciliation_unavailable_response(request)
     return ExactDocumentReconciliationResultDto(
         contract_version=EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
         state=result.state,

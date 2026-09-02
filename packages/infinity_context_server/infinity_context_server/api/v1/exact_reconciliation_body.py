@@ -75,7 +75,7 @@ class ExactReconciliationRoute(APIRoute):
                         status_code=status.HTTP_408_REQUEST_TIMEOUT,
                         detail="Exact document reconciliation request deadline exceeded",
                     ) from exc
-                return _unavailable_response(dto)
+                return exact_reconciliation_unavailable_response(dto)
 
         return bounded_handler
 
@@ -208,7 +208,7 @@ async def _complete_cleanup_preserving_cancellation(
     return cancellation
 
 
-def _unavailable_response(
+def exact_reconciliation_unavailable_response(
     request: document_ingestion.ReconcileExactDocumentHttpRequest,
 ) -> JSONResponse:
     body = ExactDocumentReconciliationResultDto(
@@ -219,6 +219,8 @@ def _unavailable_response(
         space_id=request.space_id,
         memory_scope_id=request.memory_scope_id,
         thread_id=request.thread_id,
+        projection_generation=request.projection_generation,
+        profile_generation=request.profile_generation,
         visibility="unavailable",
     ).to_dict()
     return JSONResponse(content=body)
@@ -242,5 +244,6 @@ __all__ = (
     "MAX_EXACT_RECONCILIATION_BODY_BYTES",
     "cache_exact_reconciliation_request",
     "cached_exact_reconciliation_request",
+    "exact_reconciliation_unavailable_response",
     "execute_with_disconnect",
 )
