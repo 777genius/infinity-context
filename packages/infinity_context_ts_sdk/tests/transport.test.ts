@@ -5,6 +5,7 @@ import {
   FetchTransport,
   HttpClient,
   parseRetryAfterMs,
+  redactSensitiveText,
 } from "../src/index.js";
 import {
   HangingTransport,
@@ -451,8 +452,7 @@ describe("transport, retry and errors", () => {
     } catch (error) {
       expect(error).toMatchObject({ code, retryable, message: reason instanceof Error ? reason.message : reason });
       if (reason instanceof Error) {
-        expect((error as Error).cause).not.toBe(reason);
-        expect((error as Error).cause).toMatchObject({ name: reason.name, message: reason.message });
+        expect((error as Error).cause).toBe(reason);
       } else {
         expect((error as Error).cause).toBe(reason);
       }
@@ -496,8 +496,7 @@ describe("transport, retry and errors", () => {
         message: reason instanceof Error ? reason.message : reason,
       });
       if (reason instanceof Error) {
-        expect((error as Error).cause).not.toBe(reason);
-        expect((error as Error).cause).toMatchObject({ name: reason.name, message: reason.message });
+        expect((error as Error).cause).toBe(reason);
       } else {
         expect((error as Error).cause).toBe(reason);
       }
@@ -750,6 +749,118 @@ describe("transport, retry and errors", () => {
       expect(sdkError.message).toBe("bad Authorization: [REDACTED] and ?api_key=[REDACTED]");
       expect(sdkError.retryable).toBe(false);
     }
+  });
+
+  it.each([
+    ["token", "token=token-value", "token=[REDACTED]"],
+    ["credential", "credential: credential-value", "credential: [REDACTED]"],
+    ["passwd", "passwd=passwd-value", "passwd=[REDACTED]"],
+    ["authorization", "authorization=authorization-value", "authorization=[REDACTED]"],
+    ["quoted api_key", '"api_key": "quoted api key value"', '"api_key": "[REDACTED]"'],
+    ["hyphenated api-key", "api-key=hyphenated-value", "api-key=[REDACTED]"],
+    ["spaced api key", "api key: spaced-value", "api key: [REDACTED]"],
+    ["underscored api_key", "api_key=underscored-value", "api_key=[REDACTED]"],
+  ] as const)("redacts %s assignments from public messages", (_name, value, expected) => {
+    expect(redactSensitiveText(value)).toBe(expected);
+    expect(new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: value,
+      retryable: false,
+    }).message).toBe(expected);
+  });
+
+  it.each([
+    ["api-key", "api key value"],
+    ["api key", "api key value"],
+    ["api_key", "api key value"],
+    ["token", "token value"],
+    ["credential", "credential value"],
+    ["passwd", "passwd value"],
+    ["authorization", "authorization value"],
+  ] as const)("redacts recursive structured detail key %s", (key, secret) => {
+    const error = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "bad request",
+      retryable: false,
+      details: { outer: [{ nested: { [key]: secret } }] },
+    });
+    expect(error.details).toEqual({ outer: [{ nested: { [key]: "[REDACTED]" } }] });
+  });
+
+  it.each([
+    "token=string-detail-secret",
+    "credential: string-detail-secret",
+    "passwd=string-detail-secret",
+    "authorization=string-detail-secret",
+    '"api_key": "string detail secret"',
+  ])("redacts recursive string details containing %s", (diagnostic) => {
+    const error = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "bad request",
+      retryable: false,
+      details: { outer: [{ nested: diagnostic }] },
+    });
+    expect(publicErrorText(error.details)).not.toContain("string-detail-secret");
+    expect(publicErrorText(error.details)).not.toContain("string detail secret");
+    expect(publicErrorText(error.details)).toContain("[REDACTED]");
+  });
+
+  it.each([
+    ["token", "token=nested-cause-secret"],
+    ["credential", "credential=nested-cause-secret"],
+    ["passwd", "passwd=nested-cause-secret"],
+    ["authorization", "authorization=nested-cause-secret"],
+    ["quoted api_key", '"api_key":"nested-cause-secret"'],
+  ] as const)("redacts %s in nested causes", (_name, message) => {
+    const leaf = new Error(message);
+    const middle = new Error("safe middle", { cause: leaf });
+    const error = new InfinityContextError({
+      statusCode: 0,
+      code: "memory.network_error",
+      message: "request failed",
+      retryable: true,
+      cause: middle,
+    });
+    expect(error.cause).not.toBe(middle);
+    expect((error.cause as Error).cause).not.toBe(leaf);
+    expect(publicErrorText(error.cause)).not.toContain("nested-cause-secret");
+    expect(publicErrorText(error.cause)).toContain("[REDACTED]");
+  });
+
+  it("preserves a demonstrably safe recursive cause graph and DOMException identity", () => {
+    const domCause = new DOMException("caller cancelled", "AbortError");
+    const safeCause = new Error("transport stopped", { cause: domCause });
+    const error = new InfinityContextError({
+      statusCode: 0,
+      code: "memory.request_aborted",
+      message: "request aborted",
+      retryable: false,
+      cause: safeCause,
+    });
+
+    expect(error.cause).toBe(safeCause);
+    expect((error.cause as Error).cause).toBe(domCause);
+    expect((error.cause as Error).cause).toBeInstanceOf(DOMException);
+  });
+
+  it("clones only the unsafe portion of a cause graph", () => {
+    const safeCause = new DOMException("upstream cancelled", "AbortError");
+    const unsafeCause = new Error("credential=private-cause-value", { cause: safeCause });
+    const error = new InfinityContextError({
+      statusCode: 0,
+      code: "memory.network_error",
+      message: "request failed",
+      retryable: true,
+      cause: unsafeCause,
+    });
+
+    expect(error.cause).not.toBe(unsafeCause);
+    expect((error.cause as Error).message).toBe("credential=[REDACTED]");
+    expect((error.cause as Error).cause).toBe(safeCause);
+    expect((error.cause as Error).cause).toBeInstanceOf(DOMException);
   });
 
   it("does not expose secrets through public error causes or details", async () => {

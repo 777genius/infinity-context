@@ -1,7 +1,6 @@
 import type { JsonValue } from "./types.js";
 
 const SENSITIVE_KEY_MARKERS = [
-  "api_key",
   "apikey",
   "token",
   "secret",
@@ -113,8 +112,15 @@ export function redactSensitiveText(value: string): string {
   return value
     .replace(/(authorization:\s*)(?:bearer\s+)?[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [REDACTED]")
-    .replace(/([?&](?:token|api_key|apikey|secret|password)=)[^&\s]+/gi, "$1[REDACTED]")
-    .replace(/(\b(?:api[_-]?key|access[_-]?token|secret|password)\s*[=:]\s*)[^&\s,;]+/gi, "$1[REDACTED]")
+    .replace(/([?&](?:token|api[_-]?key|secret|password|passwd|credential|authorization)=)[^&\s]+/gi, "$1[REDACTED]")
+    .replace(
+      /(\b(?:api[\s_-]*key|access[\s_-]*token|token|secret|password|passwd|credential|authorization)\b\s*["']?\s*[=:]\s*)(["'])(.*?)\2/gi,
+      "$1$2[REDACTED]$2",
+    )
+    .replace(
+      /(\b(?:api[\s_-]*key|access[\s_-]*token|token|secret|password|passwd|credential|authorization)\b\s*["']?\s*[=:]\s*)[^"'&\s,;}]+/gi,
+      "$1[REDACTED]",
+    )
     .replace(/(authorization:\s*)[^\n\r\s]+/gi, "$1[REDACTED]");
 }
 
@@ -130,27 +136,103 @@ export function redactJson(value: JsonValue | undefined): JsonValue | undefined 
   }
   const output: Record<string, JsonValue | undefined> = {};
   for (const [key, item] of Object.entries(value)) {
-    const normalized = key.toLowerCase();
-    output[key] = SENSITIVE_KEY_MARKERS.some((marker) => normalized.includes(marker))
+    output[key] = isSensitiveKey(key)
       ? "[REDACTED]"
       : redactJson(item);
   }
   return output;
 }
 
-function sanitizeErrorCause(cause: unknown, seen = new WeakSet<object>(), depth = 0): unknown {
+function sanitizeErrorCause(cause: unknown): unknown {
+  if (isSafeCauseGraph(cause)) return cause;
+  return sanitizeUnsafeCause(cause, new WeakMap<object, Error>(), 0);
+}
+
+function isSafeCauseGraph(
+  cause: unknown,
+  checked = new WeakSet<object>(),
+  depth = 0,
+): boolean {
+  if (cause === undefined || cause === null || typeof cause === "number" || typeof cause === "boolean") {
+    return true;
+  }
+  if (typeof cause === "string") return redactSensitiveText(cause) === cause;
+  if (!(cause instanceof Error) || depth >= 100) return false;
+  if (checked.has(cause)) return true;
+  checked.add(cause);
+  if (redactSensitiveText(cause.message) !== cause.message
+    || redactSensitiveText(cause.name) !== cause.name) {
+    return false;
+  }
+  return Object.getOwnPropertyNames(cause).every((key) => {
+    if (isSensitiveKey(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(cause, key);
+    if (descriptor === undefined) return false;
+    if (!("value" in descriptor)) {
+      if (key !== "stack") return false;
+      try {
+        return cause.stack === undefined || redactSensitiveText(cause.stack) === cause.stack;
+      } catch {
+        return false;
+      }
+    }
+    return isSafeCauseProperty(descriptor.value, checked, depth + 1);
+  })
+    && Object.getOwnPropertySymbols(cause).length === 0
+    && (!("cause" in cause) || Object.hasOwn(cause, "cause"));
+}
+
+function isSafeCauseProperty(value: unknown, checked: WeakSet<object>, depth: number): boolean {
+  if (value === undefined || value === null || typeof value === "number" || typeof value === "boolean") {
+    return true;
+  }
+  if (typeof value === "string") return redactSensitiveText(value) === value;
+  if (value instanceof Error) return isSafeCauseGraph(value, checked, depth);
+  if (typeof value !== "object" || depth >= 100) return false;
+  if (checked.has(value)) return true;
+  checked.add(value);
+  if (Object.getOwnPropertySymbols(value).length > 0) return false;
+  return Object.getOwnPropertyNames(value).every((key) => {
+    if (isSensitiveKey(key)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined
+      && "value" in descriptor
+      && isSafeCauseProperty(descriptor.value, checked, depth + 1);
+  });
+}
+
+function isSensitiveKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return SENSITIVE_KEY_MARKERS.some((marker) => normalized.includes(marker));
+}
+
+function sanitizeUnsafeCause(
+  cause: unknown,
+  clones: WeakMap<object, Error>,
+  depth: number,
+): unknown {
   if (cause === undefined) return undefined;
   if (typeof cause === "string") return redactSensitiveText(cause).slice(0, 500);
   if (cause === null || typeof cause === "number" || typeof cause === "boolean") return cause;
   if (!(cause instanceof Error)) return undefined;
-  if (depth >= 8 || seen.has(cause)) return new Error("Nested error cause omitted");
+  if (depth >= 100) return new Error("Nested error cause omitted");
+  const existing = clones.get(cause);
+  if (existing !== undefined) return existing;
+  if (isSafeCauseGraph(cause)) return cause;
 
-  seen.add(cause);
-  const nested = sanitizeErrorCause(cause.cause, seen, depth + 1);
-  const sanitized = new Error(
-    redactSensitiveText(cause.message).slice(0, 500),
-    nested !== undefined ? { cause: nested } : undefined,
-  );
+  const sanitized = new Error(redactSensitiveText(cause.message).slice(0, 500));
+  clones.set(cause, sanitized);
   sanitized.name = redactSensitiveText(cause.name).slice(0, 100);
+  const causeDescriptor = Object.getOwnPropertyDescriptor(cause, "cause");
+  const nested = causeDescriptor !== undefined && "value" in causeDescriptor
+    ? sanitizeUnsafeCause(causeDescriptor.value, clones, depth + 1)
+    : undefined;
+  if (nested !== undefined) {
+    Object.defineProperty(sanitized, "cause", {
+      configurable: true,
+      writable: true,
+      value: nested,
+    });
+  }
   return sanitized;
 }
