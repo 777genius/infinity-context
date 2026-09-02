@@ -1,7 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { HttpClient, InfinityContextError, redactSensitiveText } from "../src/index.js";
+import type { JsonValue } from "../src/types.js";
 
 const EXTERNAL_CAUSE = { name: "Error", message: "External error cause redacted" };
+const DETAIL_BYTE_LIMIT = 16_384;
+
+async function parsedHttpError(body: string): Promise<InfinityContextError> {
+  const client = new HttpClient({
+    transport: { send: async () => ({ status: 400, headers: new Headers(), body }) },
+    retryPolicy: { maxAttempts: 1 },
+  });
+  try {
+    await client.request({ method: "GET", path: "/server-error" });
+  } catch (error) {
+    expect(error).toBeInstanceOf(InfinityContextError);
+    return error as InfinityContextError;
+  }
+  throw new Error("Expected the HTTP request to fail");
+}
+
+function jsonByteLength(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+}
 
 describe("bounded immutable public Error snapshots", () => {
   it.each(["abort", "throw"] as const)("does not inspect a hostile Proxy on raw %s", async (mode) => {
@@ -188,6 +208,123 @@ describe("bounded immutable public Error snapshots", () => {
     }
     expect(depth).toBeLessThanOrEqual(17);
     expect(value).toBe("[Truncated]");
+  });
+
+  it("replaces a 100KB sensitive server property name before public exposure", async () => {
+    const sentinel = "SECRET_KEY_SENTINEL_MUST_NOT_ESCAPE";
+    const sensitiveKey = `${"x".repeat(100_000)}_api_key_${sentinel}`;
+    const error = await parsedHttpError(JSON.stringify({
+      error: { code: "memory.bad_request", message: "safe failure" },
+      [sensitiveKey]: "also hidden",
+    }));
+    const exposed = JSON.stringify(error.details);
+
+    expect(exposed).toContain("[REDACTED_KEY]");
+    expect(exposed).not.toContain(sentinel);
+    expect(exposed).not.toContain("also hidden");
+    expect(jsonByteLength(error.details)).toBeLessThanOrEqual(DETAIL_BYTE_LIMIT);
+  });
+
+  it("stops deterministically on thousands of parsed server properties", async () => {
+    const payload: Record<string, unknown> = {
+      error: { code: "memory.bad_request", message: "safe failure" },
+    };
+    for (let index = 0; index < 10_000; index += 1) payload[`field_${index}`] = index;
+    const error = await parsedHttpError(JSON.stringify(payload));
+    const details = error.details as Record<string, unknown>;
+
+    // The root container also consumes one of the 256 graph nodes.
+    expect(Object.keys(details).length).toBeLessThanOrEqual(255);
+    expect(details.field_0).toBe(0);
+    expect(details.field_9999).toBeUndefined();
+    expect(jsonByteLength(details)).toBeLessThanOrEqual(DETAIL_BYTE_LIMIT);
+  });
+
+  it("caps multibyte server keys by UTF-8 bytes and disambiguates truncated keys", async () => {
+    const shared = "😀".repeat(100);
+    const error = await parsedHttpError(JSON.stringify({
+      error: { code: "memory.bad_request", message: "safe failure" },
+      [`${shared}first`]: "one",
+      [`${shared}second`]: "two",
+    }));
+    const details = error.details as Record<string, unknown>;
+    const keys = Object.keys(details).filter((key) => key !== "error");
+
+    expect(keys).toHaveLength(2);
+    expect(new Set(keys).size).toBe(2);
+    expect(keys.every((key) => new TextEncoder().encode(key).byteLength <= 256)).toBe(true);
+    expect(Object.values(details).filter((value) => value === "one" || value === "two")).toHaveLength(2);
+  });
+
+  it("keeps colliding sanitized sensitive keys unique without exposing their names", async () => {
+    const sentinel = "SECRET_SENTINEL";
+    const error = await parsedHttpError(JSON.stringify({
+      error: { code: "memory.bad_request", message: "safe failure" },
+      [`api_key_${sentinel}`]: "first hidden value",
+      [`Bearer_${sentinel}`]: "second hidden value",
+      authorization: "third hidden value",
+    }));
+    const details = error.details as Record<string, unknown>;
+    const exposed = JSON.stringify(details);
+
+    expect(details["[REDACTED_KEY]"]).toBe("[REDACTED]");
+    expect(details["[REDACTED_KEY]_2"]).toBe("[REDACTED]");
+    expect(details["[REDACTED_KEY]_3"]).toBe("[REDACTED]");
+    expect(exposed).not.toMatch(/SECRET_SENTINEL|api_key|Bearer|authorization|hidden value/);
+  });
+
+  it("preserves normal useful parsed server details", async () => {
+    const error = await parsedHttpError(JSON.stringify({
+      error: { code: "memory.conflict", message: "Version conflict", retryable: false },
+      current_version: 7,
+      resource_id: "fact_123",
+      conflicts: ["title", "summary"],
+    }));
+
+    expect(error).toMatchObject({ code: "memory.conflict", message: "Version conflict", retryable: false });
+    expect(error.details).toMatchObject({
+      current_version: 7,
+      resource_id: "fact_123",
+      conflicts: ["title", "summary"],
+    });
+  });
+
+  it("includes escaped keys and values in the aggregate public detail byte bound", async () => {
+    const payload: Record<string, unknown> = {
+      error: { code: "memory.bad_request", message: "safe failure" },
+    };
+    for (let index = 0; index < 256; index += 1) {
+      payload[`${'"\\\n'.repeat(80)}_${index}`] = '"\\\n'.repeat(2_000);
+    }
+    const error = await parsedHttpError(JSON.stringify(payload));
+
+    expect(jsonByteLength(error.details)).toBeLessThanOrEqual(DETAIL_BYTE_LIMIT);
+  });
+
+  it("bounds property reads for an instrumented trusted parsed object", async () => {
+    const target: Record<string, JsonValue> = {
+      error: { code: "memory.bad_request", message: "safe failure" },
+    };
+    for (let index = 0; index < 5_000; index += 1) target[`field_${index}`] = index;
+    const traps = { ownKeys: 0, descriptors: 0, gets: 0 };
+    const instrumented = new Proxy(target, {
+      ownKeys: (value) => { traps.ownKeys += 1; return Reflect.ownKeys(value); },
+      getOwnPropertyDescriptor: (value, key) => {
+        traps.descriptors += 1;
+        return Reflect.getOwnPropertyDescriptor(value, key);
+      },
+      get: (value, key, receiver) => { traps.gets += 1; return Reflect.get(value, key, receiver); },
+    });
+    const parse = vi.spyOn(JSON, "parse").mockReturnValue(instrumented);
+    try {
+      await parsedHttpError("instrumented trusted payload");
+    } finally {
+      parse.mockRestore();
+    }
+
+    expect(traps.ownKeys).toBe(1);
+    expect(traps.gets).toBeLessThanOrEqual(258);
+    expect(traps.descriptors).toBeLessThanOrEqual(513);
   });
 
   it("bounds branded cause depth and reconstructs every branded cause", () => {

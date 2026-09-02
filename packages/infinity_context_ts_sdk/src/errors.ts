@@ -6,7 +6,10 @@ const MAX_REQUEST_ID_BYTES = 512;
 const MAX_STACK_BYTES = 4_096;
 const MAX_DETAIL_DEPTH = 16;
 const MAX_DETAIL_NODES = 256;
+const MAX_DETAIL_PROPERTIES = 256;
 const MAX_DETAIL_STRING_BYTES = 16_384;
+const MAX_DETAIL_KEY_BYTES = 256;
+const MAX_DETAIL_BYTES = 16_384;
 const MAX_CAUSE_DEPTH = 4;
 const REDACTED = "[REDACTED]";
 const OMITTED_DETAILS = "[Untrusted details omitted]";
@@ -259,48 +262,169 @@ function snapshotTrustedDetails(root: JsonValue): JsonValue {
   type Frame = { source: DetailSource; target: DetailTarget; depth: number };
   const output: JsonValue[] | Record<string, JsonValue> = Array.isArray(root) ? [] : {};
   const seen = new WeakMap<object, DetailTarget>([[root, output]]);
+  const sizes = new WeakMap<object, number>([[output, 0]]);
   const frames: Frame[] = [{ source: root, target: output, depth: 0 }];
   const freeze: object[] = [output];
   let nodes = 1;
-  let stringBytes = 0;
+  // This tracks the exact UTF-8 size of JSON.stringify(output), including
+  // property names and structural punctuation. Empty root containers cost 2.
+  let detailBytes = 2;
   while (frames.length > 0) {
     const frame = frames.pop()!;
-    const entries: Array<readonly [string, JsonValue | undefined]> = Array.isArray(frame.source)
-      ? frame.source.map((item, index) => [String(index), item] as const)
-      : Object.entries(frame.source);
-    for (const [key, item] of entries) {
-      const assign = (value: JsonValue) => {
+    const visit = (sourceKey: string, readItem: () => JsonValue | undefined): boolean => {
+      const sensitive = !Array.isArray(frame.target) && sensitiveDetailKey(sourceKey);
+      const key = Array.isArray(frame.target)
+        ? sourceKey : safeDetailKey(sourceKey, frame.target, sensitive);
+      const assign = (value: JsonValue): boolean => {
+        const valueBytes = jsonBytes(value);
+        const size = sizes.get(frame.target) ?? 0;
+        const separatorBytes = size === 0 ? 0 : 1;
+        const propertyBytes = Array.isArray(frame.target) ? 0 : jsonBytes(key) + 1;
+        if (detailBytes + separatorBytes + propertyBytes + valueBytes > MAX_DETAIL_BYTES) return false;
         if (Array.isArray(frame.target)) frame.target.push(value);
-        else frame.target[key] = value;
+        else Object.defineProperty(frame.target, key, {
+          configurable: true, enumerable: true, writable: true, value,
+        });
+        sizes.set(frame.target, size + 1);
+        detailBytes += separatorBytes + propertyBytes + valueBytes;
+        return true;
       };
       if (nodes >= MAX_DETAIL_NODES) {
-        assign(TRUNCATED);
         frames.length = 0;
-        break;
+        return false;
       }
-      if (sensitiveComponents(key)) { nodes += 1; assign(REDACTED); continue; }
+      if (sensitive) { nodes += 1; return assign(REDACTED); }
       nodes += 1;
-      if (frame.depth >= MAX_DETAIL_DEPTH) { assign(TRUNCATED); continue; }
+      if (frame.depth >= MAX_DETAIL_DEPTH) return assign(TRUNCATED);
+      const item = readItem();
       if (typeof item === "string") {
-        const remaining = Math.max(0, MAX_DETAIL_STRING_BYTES - stringBytes);
-        const value = safeText(item, "", remaining);
-        stringBytes += utf8Length(value);
-        assign(value);
-      } else if (item === null || typeof item === "boolean") assign(item);
-      else if (typeof item === "number") assign(safeNumber(item, 0));
+        const value = safeText(item, "", MAX_DETAIL_STRING_BYTES);
+        if (assign(value)) return true;
+        const fitted = fitJsonString(
+          value,
+          remainingValueBytes(frame.target, key, detailBytes, sizes.get(frame.target) ?? 0),
+        );
+        return fitted !== undefined && assign(fitted);
+      } else if (item === null || typeof item === "boolean") return assign(item);
+      else if (typeof item === "number") return assign(safeNumber(item, 0));
       else if (typeof item === "object") {
         const prior = seen.get(item);
-        if (prior !== undefined) { assign(CIRCULAR); continue; }
+        if (prior !== undefined) return assign(CIRCULAR);
         const child: DetailTarget = Array.isArray(item) ? [] : {};
+        if (!assign(child)) return false;
         seen.set(item, child);
-        assign(child);
+        sizes.set(child, 0);
         freeze.push(child);
         frames.push({ source: item, target: child, depth: frame.depth + 1 });
-      } else assign(TRUNCATED);
+        return true;
+      } else return assign(TRUNCATED);
+    };
+
+    if (Array.isArray(frame.source)) {
+      const count = Math.min(frame.source.length, MAX_DETAIL_PROPERTIES);
+      for (let index = 0; index < count; index += 1) {
+        if (!visit(String(index), () => frame.source[index])) break;
+      }
+    } else {
+      // Do not materialize an unbounded server object with Object.keys/entries.
+      // The iterator is stopped at the global node bound, so property values and
+      // descriptors beyond that point are never visited.
+      const source = frame.source as { readonly [key: string]: JsonValue | undefined };
+      let properties = 0;
+      for (const key in source) {
+        if (properties >= MAX_DETAIL_PROPERTIES) break;
+        if (!Object.hasOwn(source, key)) continue;
+        properties += 1;
+        if (!visit(key, () => source[key])) break;
+      }
     }
   }
   for (let index = freeze.length - 1; index >= 0; index -= 1) Object.freeze(freeze[index]);
   return output;
+}
+
+function safeDetailKey(
+  source: string,
+  target: Record<string, JsonValue>,
+  sensitive: boolean,
+): string {
+  const base = sensitive ? "[REDACTED_KEY]" : boundUtf8(source, MAX_DETAIL_KEY_BYTES);
+  if (!Object.hasOwn(target, base)) return base;
+  let collision = 2;
+  while (collision <= MAX_DETAIL_NODES) {
+    const suffix = `_${collision}`;
+    const candidate = `${boundUtf8(base, MAX_DETAIL_KEY_BYTES - utf8Length(suffix))}${suffix}`;
+    if (!Object.hasOwn(target, candidate)) return candidate;
+    collision += 1;
+  }
+  return `[COLLISION_${collision}]`;
+}
+
+function sensitiveDetailKey(value: string): boolean {
+  let component = "";
+  let overflow = false;
+  let previous = "";
+  let previousLowerOrDigit = false;
+  const flush = (): boolean => {
+    if (component.length === 0) return false;
+    const current = overflow ? "" : component.toLowerCase();
+    const sensitive = current === "token" || current === "credential" || current === "secret"
+      || current === "passwd" || current === "password"
+      || current === "authorization" || current === "apikey" || current === "accesstoken"
+      || current === "refreshtoken" || current === "clientsecret" || current === "basic"
+      || current === "bearer" || (previous === "api" && current === "key")
+      || ((previous === "access" || previous === "refresh") && current === "token")
+      || (previous === "client" && current === "secret");
+    previous = current;
+    component = "";
+    overflow = false;
+    previousLowerOrDigit = false;
+    return sensitive;
+  };
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    const lower = code >= 97 && code <= 122;
+    const upper = code >= 65 && code <= 90;
+    const digit = code >= 48 && code <= 57;
+    if (!lower && !upper && !digit) {
+      if (flush()) return true;
+      continue;
+    }
+    if (upper && previousLowerOrDigit && flush()) return true;
+    if (component.length < 32) component += value[index];
+    else overflow = true;
+    previousLowerOrDigit = lower || digit;
+  }
+  return flush();
+}
+
+function jsonBytes(value: JsonValue | string): number {
+  const encoded = JSON.stringify(value);
+  return encoded === undefined ? 0 : utf8Length(encoded);
+}
+
+function remainingValueBytes(
+  target: JsonValue[] | Record<string, JsonValue>,
+  key: string,
+  detailBytes: number,
+  size: number,
+): number {
+  const separatorBytes = size === 0 ? 0 : 1;
+  const propertyBytes = Array.isArray(target) ? 0 : jsonBytes(key) + 1;
+  return Math.max(0, MAX_DETAIL_BYTES - detailBytes - separatorBytes - propertyBytes);
+}
+
+function fitJsonString(value: string, maximumJsonBytes: number): string | undefined {
+  if (maximumJsonBytes < 2) return undefined;
+  let bytes = 2;
+  let end = 0;
+  for (const character of value) {
+    const characterBytes = jsonBytes(character) - 2;
+    if (bytes + characterBytes > maximumJsonBytes) break;
+    bytes += characterBytes;
+    end += character.length;
+  }
+  return value.slice(0, end);
 }
 
 function safeText(value: unknown, fallback: string, maximumBytes: number): string {
