@@ -1,5 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import * as sdk from "../src/index.js";
@@ -80,6 +84,37 @@ describe("Retrieval runtime canary policy", () => {
       expect(() =>
         assertRetrievalRuntimeCanary({ capability, response, ...expected, [key]: "wrong" }),
       ).toThrow(/immutable canary pins/);
+    }
+  });
+
+  it("executes through a package-bin symlink and reports a controlled failure", async () => {
+    const root = await mkdtemp(join(tmpdir(), "retrieval-canary-bin-"));
+    const bin = join(root, "node_modules", ".bin", "infinity-context-retrieval-runtime-canary");
+    const cli = fileURLToPath(new URL("../scripts/retrieval-runtime-canary.mjs", import.meta.url));
+    try {
+      await mkdir(dirname(bin), { recursive: true });
+      await symlink(cli, bin);
+
+      const result = spawnSync(process.execPath, [bin], {
+        encoding: "utf8",
+        env: {},
+        timeout: 2_000,
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.signal).toBeNull();
+      expect(result.status).toBe(1);
+      expect(result.stderr).toBe("");
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        schema_version: "infinity-context-retrieval-runtime-canary.v1",
+        ok: false,
+        error: {
+          name: "Error",
+          message: "RETRIEVAL_CANARY_SPACE_ID is required",
+        },
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

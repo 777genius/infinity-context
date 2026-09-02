@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { readFile, realpath } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 const commandName = "infinity-context-retrieval-runtime-canary";
 const capabilityResponseByteLimit = 1_048_576;
@@ -169,6 +169,7 @@ async function packageVersion() {
   return packageJson.version;
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] !== undefined
+  && await realpath(fileURLToPath(import.meta.url)) === await realpath(process.argv[1])) {
   await runRetrievalRuntimeCanaryCli({ exitCodeTarget: process });
 }
