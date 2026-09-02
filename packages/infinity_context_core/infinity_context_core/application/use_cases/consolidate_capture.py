@@ -153,6 +153,7 @@ class ConsolidateCaptureUseCase:
 
             created_ids: list[str] = []
             auto_applied_ids: list[str] = []
+            pending_auto_applied_facts: list[MemoryFact] = []
             resolver_rejected_codes: list[str] = []
             pending_suggestion_count = await uow.suggestions.count_for_scope(
                 space_id=str(current.space_id),
@@ -383,12 +384,6 @@ class ConsolidateCaptureUseCase:
                     has_pending_duplicate=False,
                 )
                 if auto_apply.allowed and not (candidate.valid_from or candidate.valid_until):
-                    await coordinate_fact_source_refs(
-                        uow,
-                        space_id=str(current.space_id),
-                        memory_scope_id=str(current.memory_scope_id),
-                        source_refs=source_refs,
-                    )
                     fact = MemoryFact.create(
                         fact_id=MemoryFactId(self._ids.new_id("fact")),
                         space_id=current.space_id,
@@ -403,17 +398,7 @@ class ConsolidateCaptureUseCase:
                         code_scope_id=code_scope_id,
                         now=now,
                     )
-                    saved_fact = await uow.facts.create(fact)
-                    await uow.outbox.enqueue(
-                        OutboxEvent(
-                            event_type="graph.upsert_fact",
-                            aggregate_type="fact",
-                            aggregate_id=str(saved_fact.id),
-                            aggregate_version=saved_fact.version,
-                            payload={"fact_id": str(saved_fact.id), "version": saved_fact.version},
-                        )
-                    )
-                    auto_applied_ids.append(str(saved_fact.id))
+                    pending_auto_applied_facts.append(fact)
                     continue
                 resolver_rejected_codes.append(
                     "temporal_window_requires_review" if auto_apply.allowed else auto_apply.reason
@@ -502,6 +487,30 @@ class ConsolidateCaptureUseCase:
                 )
                 saved_suggestion = await uow.suggestions.create(suggestion)
                 created_ids.append(str(saved_suggestion.id))
+
+            if pending_auto_applied_facts:
+                await coordinate_fact_source_refs(
+                    uow,
+                    space_id=str(current.space_id),
+                    memory_scope_id=str(current.memory_scope_id),
+                    source_refs=tuple(
+                        source_ref
+                        for fact in pending_auto_applied_facts
+                        for source_ref in fact.source_refs
+                    ),
+                )
+                for fact in pending_auto_applied_facts:
+                    saved_fact = await uow.facts.create(fact)
+                    await uow.outbox.enqueue(
+                        OutboxEvent(
+                            event_type="graph.upsert_fact",
+                            aggregate_type="fact",
+                            aggregate_id=str(saved_fact.id),
+                            aggregate_version=saved_fact.version,
+                            payload={"fact_id": str(saved_fact.id), "version": saved_fact.version},
+                        )
+                    )
+                    auto_applied_ids.append(str(saved_fact.id))
 
             saved_capture = await uow.captures.save(
                 current.mark_consolidated(
