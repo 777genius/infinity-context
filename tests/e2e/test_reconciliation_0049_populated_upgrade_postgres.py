@@ -92,6 +92,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                 "0055_generic_vector_rebuild_operations",
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
             )
             async with engine.connect() as connection:
                 legacy_operation = (

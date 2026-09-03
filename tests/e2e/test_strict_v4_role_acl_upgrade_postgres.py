@@ -166,6 +166,7 @@ async def _scenario(database_url: str) -> None:
                 "0055_generic_vector_rebuild_operations",
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
             )
         finally:
             await engine.dispose()
@@ -279,9 +280,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0057_unmanaged_document_trigger_scope"
+            assert result.current == "0058_suggestion_server_thread_scope"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0057_unmanaged_document_trigger_scope"
+            assert result.applied[-1] == "0058_suggestion_server_thread_scope"
         finally:
             await engine.dispose()
 

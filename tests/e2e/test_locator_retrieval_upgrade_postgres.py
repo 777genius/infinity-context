@@ -75,11 +75,12 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
                 "0055_generic_vector_rebuild_operations",
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
             )
             installed_count = 1 if starting_migration == "0039_" else 2
             assert upgraded.applied == expected[installed_count:]
-            assert upgraded.current == "0057_unmanaged_document_trigger_scope"
-            assert upgraded.applied[-1] == "0057_unmanaged_document_trigger_scope"
+            assert upgraded.current == "0058_suggestion_server_thread_scope"
+            assert upgraded.applied[-1] == "0058_suggestion_server_thread_scope"
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             async with engine.begin() as connection:

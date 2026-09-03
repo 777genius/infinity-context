@@ -473,7 +473,7 @@ async def create_full_postgres_harness(database_url: str, work_dir: Path) -> Ful
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0057_unmanaged_document_trigger_scope"
+            assert result.current == "0058_suggestion_server_thread_scope"
         finally:
             await engine.dispose()
         context, authority, pages, operations = build_strict_v4_material()

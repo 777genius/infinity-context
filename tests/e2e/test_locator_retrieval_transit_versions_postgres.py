@@ -67,7 +67,7 @@ async def _scenario(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgraded = await upgrade_schema(engine)
-            assert upgraded.applied[-20:] == (
+            assert upgraded.applied[-21:] == (
                 "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
@@ -88,6 +88,7 @@ async def _scenario(database_url: str) -> None:
                 "0055_generic_vector_rebuild_operations",
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
             )
             await _assert_transit_column_types(engine)
 
@@ -348,6 +349,7 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                 "0055_generic_vector_rebuild_operations",
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
             )
             async with engine.connect() as connection:
                 tombstone = (
