@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable
 from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256

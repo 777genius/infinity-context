@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -44,9 +45,7 @@ async def complete_despite_cancellation(
     return task.result(), cancellation
 
 
-async def _cancel_and_drain(
-    task: asyncio.Future[Any], *, deadline_monotonic: float
-) -> None:
+async def _cancel_and_drain(task: asyncio.Future[Any], *, deadline_monotonic: float) -> None:
     """Cancel and drain only while the absolute request deadline permits."""
 
     if not task.done():
@@ -61,10 +60,8 @@ async def _cancel_and_drain(
 
 
 def _consume_terminal_exception(task: asyncio.Future[Any]) -> None:
-    try:
+    with contextlib.suppress(asyncio.CancelledError, Exception):
         task.exception()
-    except (asyncio.CancelledError, Exception):
-        pass
 
 
 @dataclass(slots=True)

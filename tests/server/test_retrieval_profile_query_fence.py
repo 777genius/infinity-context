@@ -14,12 +14,14 @@ from infinity_context_server.retrieval_profile_composition import (
     ProfileAwareLocatorRetrievalService,
 )
 
+_DEFAULT_REQUEST = object()
+
 
 def _deadline(seconds: float = 1.0) -> float:
     return asyncio.get_running_loop().time() + seconds
 
 
-def _execute(service, request=object(), *, seconds: float = 1.0):
+def _execute(service, request=_DEFAULT_REQUEST, *, seconds: float = 1.0):
     async def scenario():
         return await service.execute(request, deadline_monotonic=_deadline(seconds))
 
@@ -314,9 +316,7 @@ class _NeverFinishRegistry(_QueryFenceRegistry):
 
     async def begin_profile_query(self, *args, now, expires_at, **kwargs):
         self.admitted_ttl = expires_at - now
-        return await super().begin_profile_query(
-            *args, now=now, expires_at=expires_at, **kwargs
-        )
+        return await super().begin_profile_query(*args, now=now, expires_at=expires_at, **kwargs)
 
     async def finish_profile_query(self, *args, **kwargs):
         try:
