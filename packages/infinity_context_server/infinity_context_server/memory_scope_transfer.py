@@ -648,7 +648,7 @@ async def import_memory_scope_payload(
         (
             target_thread_ids,
             creatable_thread_ids,
-            referenced_thread_id_map,
+            candidate_thread_id_map,
         ) = _lifecycle.plan_snapshot_thread_fences(
             threads=threads,
             facts=facts,
@@ -662,13 +662,18 @@ async def import_memory_scope_payload(
             thread_id_map=thread_id_map,
             create_new_memory_scope=merge_strategy == "create_new_memory_scope",
         )
-        await _lifecycle.fence_snapshot_import_threads(
+        admitted_thread_ids = await _lifecycle.fence_snapshot_import_threads(
             session,
             space_id=space_id,
             memory_scope_id=target_memory_scope_id,
             thread_ids=target_thread_ids,
             creatable_thread_ids=creatable_thread_ids,
         )
+        thread_id_map = {
+            source_id: target_id
+            for source_id, target_id in candidate_thread_id_map.items()
+            if target_id in admitted_thread_ids
+        }
 
         imported_fact_versions: dict[str, int] = {}
         mapped_facts: list[dict[str, Any]] = []
@@ -705,7 +710,7 @@ async def import_memory_scope_payload(
             space_id=space_id,
             memory_scope_id=target_memory_scope_id,
             now=now,
-            referenced_thread_id_map=referenced_thread_id_map,
+            referenced_thread_id_map=thread_id_map,
         )
         # Document-backed chunks are guarded by a database trigger that resolves
         # their canonical parent at INSERT time. Flush threads and documents
@@ -888,11 +893,6 @@ async def import_memory_scope_payload(
             now=now,
         )
         imported_refs_by_fact = {row.fact_id for row in mapped_source_ref_rows}
-        declared_refs_by_fact = {
-            fact_id_map.get(str(ref["fact_id"]), str(ref["fact_id"]))
-            for ref in source_refs
-            if str(ref.get("fact_id")) not in skipped["facts"]
-        }
         session.add_all(mapped_source_ref_rows)
         for relation in relations:
             if str(relation["id"]) in skipped["relations"]:
@@ -915,7 +915,7 @@ async def import_memory_scope_payload(
                 )
             )
         for fact_id, fact_version in imported_fact_versions.items():
-            if fact_id in imported_refs_by_fact or fact_id in declared_refs_by_fact:
+            if fact_id in imported_refs_by_fact:
                 continue
             session.add(
                 MemorySourceRefRow(

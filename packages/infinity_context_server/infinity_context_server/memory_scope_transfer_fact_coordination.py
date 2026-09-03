@@ -12,7 +12,6 @@ from infinity_context_adapters.postgres.models import (
     MemoryFactRow,
     MemorySourceRefRow,
 )
-from infinity_context_core.domain.errors import MemoryConflictError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,9 +47,7 @@ async def coordinate_and_stage_imported_facts(
             continue
         chunk_id = ref.get("chunk_id")
         if chunk_id is not None and str(chunk_id) in skipped_chunk_ids:
-            raise MemoryConflictError(
-                "Imported fact retains a skipped canonical source dependency"
-            )
+            continue
         mapped_ref = _remap.remap_source_ref(
             ref,
             fact_id_map=fact_id_map,

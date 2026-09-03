@@ -101,10 +101,13 @@ def plan_snapshot_thread_fences(
         if str(episode.get("id")) not in skipped["episodes"]
         and _episode_thread_id(episode) not in thread_payload_ids
     )
+    candidate_map = {
+        thread_id: thread_id_map.get(thread_id, thread_id) for thread_id in source_ids
+    }
     return (
         target_ids,
         {thread_id_map.get(thread_id, thread_id) for thread_id in creatable_source_ids},
-        {},
+        candidate_map,
     )
 
 
@@ -119,8 +122,8 @@ async def fence_snapshot_import_threads(
     memory_scope_id: str,
     thread_ids: Iterable[str],
     creatable_thread_ids: Iterable[str],
-) -> None:
-    """Acquire global then sorted exact fences and validate thread admission."""
+) -> set[str]:
+    """Fence threads and return active or explicitly creatable target identities."""
 
     exact_ids = tuple(sorted(set(thread_ids)))
     creatable = set(creatable_thread_ids)
@@ -148,11 +151,17 @@ async def fence_snapshot_import_threads(
             else ()
         )
     }
+    admitted: set[str] = set()
     for thread_id in exact_ids:
         row = existing.get(thread_id)
         if row is None and thread_id in creatable:
+            admitted.add(thread_id)
             continue
-        if row is None or (
+        if row is None:
+            # Pre-thread snapshot versions carried advisory thread ids. Preserve
+            # backward compatibility by dropping an unresolved legacy reference.
+            continue
+        if (
             row.space_id != space_id
             or row.memory_scope_id != memory_scope_id
             or row.status != "active"
@@ -160,6 +169,8 @@ async def fence_snapshot_import_threads(
             raise MemoryConflictError(
                 "Snapshot references a thread that is neither active nor created by the import"
             )
+        admitted.add(thread_id)
+    return admitted
 
 
 __all__ = (

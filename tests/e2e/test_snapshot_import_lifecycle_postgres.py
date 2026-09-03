@@ -26,6 +26,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 NOW = datetime(2026, 9, 2, tzinfo=UTC)
 
 
+def test_postgres_test_database_name_respects_identifier_byte_limit() -> None:
+    database = PostgresTestDatabase.from_url(
+        "postgresql://user:password@localhost/postgres",
+        prefix="snapshot_fence_" + "м" * 80,
+        asyncpg=object(),
+    )
+
+    assert len(database.database_name.encode("utf-8")) <= 63
+    assert database.database_name in database.raw_dsn
+
+
 @pytest.mark.parametrize("case", ("remap", "external_id", "missing_chunk"))
 def test_snapshot_import_remaps_and_validates_document_refs(case: str) -> None:
     database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
