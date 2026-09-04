@@ -122,7 +122,14 @@ validate_release_shape() {
       (.id | type) == "number" and (.id > 0) and
       .tag_name == $tag and .name == $title and
       .draft == $draft and .prerelease == false and
-      .html_url == ("https://github.com/" + $repository + "/releases/tag/" + $tag) and
+      # GitHub may assign a temporary URL to the draft created by this run.
+      # Match the repository literally and the entire 20-character hex suffix.
+      (.html_url | if type == "string" then
+        ("https://github.com/" + $repository + "/releases/tag/") as $base |
+        . == ($base + $tag) or
+        ($draft and startswith($base + "untagged-") and
+          (ltrimstr($base + "untagged-") | test("\\A[0-9a-f]{20}\\z")))
+      else false end) and
       (.assets | type) == "array" and (.assets | length) == 2 and
       ([.assets[].name] | sort) == ([$artifact, $manifest] | sort) and
       (all(.assets[]; (.id | type) == "number" and (.id > 0)))
