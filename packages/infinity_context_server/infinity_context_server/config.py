@@ -209,8 +209,10 @@ class Settings(BaseSettings):
                 raise RuntimeError(
                     "MEMORY_DATABASE_URL must use PostgreSQL for canary/server deploy profiles"
                 )
-        if self.deploy_profile == DeployProfile.SERVER and not self.service_token:
-            raise RuntimeError("MEMORY_SERVICE_TOKEN is required for server deploy profile")
+        if self.deploy_profile in {DeployProfile.CANARY, DeployProfile.SERVER} and (
+            not self.service_token or not self.service_token.strip()
+        ):
+            raise RuntimeError("MEMORY_SERVICE_TOKEN is required for canary/server deploy profiles")
         if self.deploy_profile == DeployProfile.SERVER and self.auto_create_schema:
             raise RuntimeError("MEMORY_AUTO_CREATE_SCHEMA is not allowed for server deploy profile")
         if self.deploy_profile == DeployProfile.TEST and (

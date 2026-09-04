@@ -61,7 +61,7 @@ async def require_service_token(
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
     token = authorization.removeprefix(prefix).strip()
-    if token == expected:
+    if hmac.compare_digest(token, expected):
         request.state.authenticated_actor_id = "root-service-token"
         return
     db_token = await get_active_db_token(container, token)
