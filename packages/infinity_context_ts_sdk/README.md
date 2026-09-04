@@ -42,13 +42,14 @@ preserves legacy request bytes; an object maps to the exact Contract C DTO.
 Use the versioned immutable GitHub Release asset and verification procedure in the
 [TypeScript SDK release guide](../../docs/typescript-sdk-release.md).
 
-For 0.2.1, pin the exact release URL, commit its SHA-512 integrity in
-`package-lock.json`, and use a cold `npm ci`:
+Version 0.2.2 is prepared but not yet published or pinned by consumers. After its
+immutable release is published and verified, pin the exact release URL, commit its
+SHA-512 integrity in `package-lock.json`, and use a cold `npm ci`:
 
 ```json
 {
   "dependencies": {
-    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.1/infinity-context-sdk-0.2.1.tgz"
+    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.2/infinity-context-sdk-0.2.2.tgz"
   }
 }
 ```

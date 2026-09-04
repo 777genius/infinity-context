@@ -541,7 +541,7 @@ def test_receipt_rejects_hostile_attestation_output(tmp_path: Path, tamper: str)
 def test_runbook_and_retention_contract() -> None:
     runbook = (ROOT / "docs/typescript-sdk-release.md").read_text(encoding="utf-8")
     normalized = " ".join(runbook.split())
-    assert "--ref sdk-v0.2.1" in runbook
+    assert "--ref sdk-v0.2.2" in runbook
     assert "--ref <DEFAULT_BRANCH>" not in runbook
     assert "sdk-release-policy" in runbook
     assert "Administration: read-only" in runbook

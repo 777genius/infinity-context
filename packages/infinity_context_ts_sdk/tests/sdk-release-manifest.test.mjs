@@ -130,10 +130,10 @@ describe("SDK release manifest workflow CLI", () => {
     await expect(runCli([...fixture.createArgs, "--service-revision", "a".repeat(40)])).rejects.toMatchObject({ code: 1 });
   });
 
-  test("package metadata retains the independent 0.2.1 consumer release", async () => {
+  test("package metadata retains the prepared independent 0.2.2 version", async () => {
     const metadata = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
     const packageLock = JSON.parse(await readFile(join(packageRoot, "package-lock.json"), "utf8"));
-    expect(metadata.version).toBe("0.2.1");
+    expect(metadata.version).toBe("0.2.2");
     expect(packageLock.version).toBe(metadata.version);
     expect(packageLock.packages[""].version).toBe(metadata.version);
     expect(metadata.files).not.toContain("scripts/sdk-release-manifest.mjs");
