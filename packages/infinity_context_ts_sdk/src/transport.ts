@@ -1,5 +1,6 @@
 import {
   copyInfinityContextError,
+  createInfinityContextError,
   networkError,
   operationAbortError,
   responseByteLimitError,
@@ -21,6 +22,8 @@ export interface HttpRequest {
   readonly body?: HttpBody | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly responseType?: "json" | "bytes" | undefined;
+  readonly requireJsonResponse?: boolean | undefined;
+  readonly expectedStatuses?: readonly number[] | undefined;
   readonly maxResponseBytes?: number | undefined;
   readonly maxErrorResponseBytes?: number | undefined;
 }
@@ -68,6 +71,10 @@ export class FetchTransport implements HttpTransport {
       const init: RequestInit = {
         method: request.method,
         headers,
+        // Fetch follows redirects by default, including replaying 307/308
+        // request bodies. Redirects are protocol failures for this endpoint-
+        // and credential-bound transport and must never create hidden sends.
+        redirect: "error",
       };
       if (body !== undefined) {
         init.body = body;
@@ -76,19 +83,25 @@ export class FetchTransport implements HttpTransport {
         init.signal = request.signal;
       }
       const response = await abortable(this.#fetch(request.url, init), request.signal);
-      const readAsBytes = request.responseType === "bytes" ||
-        (response.status >= 400 && request.maxErrorResponseBytes !== undefined);
-      const responseMaximum = response.status >= 400
+      const responseMaximum = response.status >= 300
         ? errorResponseMaximum(request)
         : request.maxResponseBytes;
       const responseBytes = await readResponseBytes(response, responseMaximum, request.signal);
+      const requestId = response.headers.get("x-request-id") ?? undefined;
+      const expectedSuccess = response.status >= 200 && response.status < 300 &&
+        (request.expectedStatuses === undefined || request.expectedStatuses.includes(response.status));
+      const requiresJsonMedia = expectedSuccess && !(response.status === 204 && responseBytes.byteLength === 0) &&
+        (request.responseType !== "bytes" || request.requireJsonResponse === true);
+      if (requiresJsonMedia && !hasExactJsonContentType(response.headers)) {
+        throw invalidContentTypeError(response.status, requestId);
+      }
       return {
         status: response.status,
         headers: response.headers,
-        body:
-          readAsBytes
-            ? responseBytes
-            : new TextDecoder().decode(responseBytes),
+        body: request.responseType === "bytes" || response.status >= 300 ||
+          (response.status < 300 && !expectedSuccess)
+          ? responseBytes
+          : decodeJsonResponseBytes(responseBytes, response.status, requestId),
       };
     } catch (error) {
       if (request.signal?.aborted) throw operationAbortError(request.signal.reason);
@@ -96,6 +109,42 @@ export class FetchTransport implements HttpTransport {
       if (sdkError !== undefined) throw sdkError;
       throw networkError(error);
     }
+  }
+}
+
+export function hasExactJsonContentType(headers: Headers): boolean {
+  const raw = headers.get("content-type");
+  if (raw === null || raw.includes(",")) return false;
+  const parts = raw.split(";").map((part) => part.trim());
+  if (parts[0]?.toLowerCase() !== "application/json") return false;
+  if (parts.length === 1) return true;
+  if (parts.length !== 2) return false;
+  const parameter = parts[1]?.split("=");
+  return parameter?.length === 2 && parameter[0]?.trim().toLowerCase() === "charset"
+    && parameter[1]?.trim().toLowerCase() === "utf-8";
+}
+
+function invalidContentTypeError(statusCode: number, requestId?: string) {
+  return createInfinityContextError({
+    statusCode,
+    code: "memory.invalid_response_content_type",
+    message: "Infinity Context response must use application/json with optional UTF-8 charset",
+    retryable: false,
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
+}
+
+function decodeJsonResponseBytes(body: Uint8Array, statusCode: number, requestId?: string): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    throw createInfinityContextError({
+      statusCode,
+      code: "memory.invalid_json_response",
+      message: "Infinity Context returned invalid UTF-8 JSON",
+      retryable: false,
+      ...(requestId !== undefined ? { requestId } : {}),
+    });
   }
 }
 

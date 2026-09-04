@@ -12,7 +12,9 @@ const DETAIL_BYTE_LIMIT = 16_384;
 
 async function parsedHttpError(body: string): Promise<InfinityContextError> {
   const client = new HttpClient({
-    transport: { send: async () => ({ status: 400, headers: new Headers(), body }) },
+    transport: { send: async () => ({
+      status: 400, headers: new Headers({ "content-type": "application/json" }), body,
+    }) },
     retryPolicy: { maxAttempts: 1 },
   });
   try {
@@ -193,7 +195,9 @@ describe("bounded immutable public Error snapshots", () => {
       transport: {
         send: async () => {
           sends += 1;
-          return { status: 400, headers: new Headers(), body: deepBody };
+          return {
+            status: 400, headers: new Headers({ "content-type": "application/json" }), body: deepBody,
+          };
         },
       },
       retryPolicy: { maxAttempts: 1 },
@@ -255,6 +259,7 @@ describe("bounded immutable public Error snapshots", () => {
       });
       const body = bodyType === "bytes" ? new TextEncoder().encode(raw) : raw;
       let sends = 0;
+      const parse = vi.spyOn(JSON, "parse");
       const client = new HttpClient({
         transport: {
           send: async () => {
@@ -269,14 +274,30 @@ describe("bounded immutable public Error snapshots", () => {
         retryPolicy: { maxAttempts: 2 },
       });
 
-      await expect(client.request({ method: "GET", path: "/oversized-error" })).rejects.toMatchObject({
-        code: "memory.http_error",
-        message: "memory.http_error",
+      let caught: unknown;
+      try {
+        await client.request({ method: "GET", path: "/oversized-error" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(parse).not.toHaveBeenCalled();
+      parse.mockRestore();
+
+      expect(caught).toBeInstanceOf(InfinityContextError);
+      expect(caught).toMatchObject({
+        code: "memory.response_byte_limit_exceeded",
+        message: "Infinity Context response exceeds the caller byte limit",
         statusCode: 418,
         requestId: "request-hard-cap",
         retryable: false,
-        details: {},
       });
+      const error = caught as InfinityContextError;
+      expect(error.details).toBeUndefined();
+      expect(error.retryAfterMs).toBeUndefined();
+      expect(error.cause).toBeUndefined();
+      expect(`${error.code}\n${error.message}\n${JSON.stringify(error.details)}`).not.toMatch(
+        /memory\.hidden_after_hard_cap|must not escape/,
+      );
       expect(sends).toBe(1);
       expect(raw).toContain(hiddenCode);
     },

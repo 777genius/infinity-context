@@ -24,7 +24,11 @@ export interface SafeErrorBody {
 export function safeErrorBody(body: string | Uint8Array): SafeErrorBody {
   if (body instanceof Uint8Array) {
     if (body.byteLength > MAX_ERROR_RESPONSE_BYTES) return { oversized: true };
-    return parseSafeErrorText(new TextDecoder().decode(body));
+    try {
+      return parseSafeErrorText(new TextDecoder("utf-8", { fatal: true }).decode(body));
+    } catch {
+      return { oversized: false };
+    }
   }
   if (new TextEncoder().encode(body).byteLength > MAX_ERROR_RESPONSE_BYTES) return { oversized: true };
   return parseSafeErrorText(body);
