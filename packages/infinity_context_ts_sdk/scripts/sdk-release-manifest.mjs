@@ -11,6 +11,7 @@ const MAX_ARTIFACT_BYTES = 100 * 1024 * 1024;
 const MAX_METADATA_BYTES = 10 * 1024 * 1024;
 const BUILD_PROFILE = "node24-npm-ci-pack-once.v1";
 const MANIFEST_NAME = "infinity-context-sdk-release-manifest.json";
+const ARTIFACT_IDENTITY_PATH = "package/dist/sdk-artifact-identity.json";
 
 export async function runReleaseManifestCli(argv) {
   const { values } = parseArgs({
@@ -120,10 +121,19 @@ async function buildManifest(options) {
   if (sha256(workflowBytes) !== options.workflowSha256) throw new Error("workflow blob digest drift");
 
   const git = await gitIdentity(options.repositoryRoot, options.tag);
+  const artifactIdentityBytes = await artifactIdentity(options.artifact);
+  const artifactIdentityValue = parseCanonicalObject(artifactIdentityBytes, "packed SDK artifact identity");
+  if (artifactIdentityValue.schema_version !== "infinity-context-typescript-sdk-artifact-identity.v1" ||
+      artifactIdentityValue.package_name !== packageName || artifactIdentityValue.package_version !== packageVersion ||
+      artifactIdentityValue.source_commit !== git.commit || artifactIdentityValue.source_git_tree_oid !== git.tree ||
+      !Array.isArray(artifactIdentityValue.files) || artifactIdentityValue.files.length === 0) {
+    throw new Error("packed SDK artifact identity differs from source provenance");
+  }
   const inventory = await contractFixtureInventory(options.packageRoot);
   const manifest = {
     artifact_byte_length: artifactBytes.byteLength,
     artifact_name: artifactName,
+    artifact_identity_sha256_hex: sha256(artifactIdentityBytes),
     artifact_sha256_hex: sha256(artifactBytes),
     artifact_sri_sha512: `sha512-${createHash("sha512").update(artifactBytes).digest("base64")}`,
     build_profile: options.buildProfile,
@@ -148,6 +158,18 @@ async function buildManifest(options) {
   };
   canonicalJson(manifest);
   return manifest;
+}
+
+async function artifactIdentity(artifact) {
+  let result;
+  try {
+    result = await execFileAsync("tar", ["-xOf", artifact, ARTIFACT_IDENTITY_PATH], {
+      encoding: null, maxBuffer: MAX_METADATA_BYTES,
+    });
+  } catch (error) {
+    throw new Error("SDK artifact does not contain its packed identity", { cause: error });
+  }
+  return Buffer.from(result.stdout);
 }
 
 async function gitIdentity(root, tag) {
@@ -216,7 +238,9 @@ async function assertProspectivePath(path, allowedRoot, label) {
 }
 
 function parseCanonicalObject(bytes, label) {
-  const text = bytes.toString("utf8");
+  let text;
+  try { text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }
+  catch (error) { throw new Error(`${label} is not valid UTF-8`, { cause: error }); }
   const value = parseObject(bytes, label);
   const canonical = canonicalJson(value);
   if (text !== canonical && text !== `${canonical}\n`) {
@@ -227,7 +251,9 @@ function parseCanonicalObject(bytes, label) {
 
 function parseObject(bytes, label) {
   let value;
-  try { value = JSON.parse(bytes.toString("utf8")); }
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
+  }
   catch (error) { throw new Error(`${label} is not valid JSON`, { cause: error }); }
   if (value === null || Array.isArray(value) || typeof value !== "object") {
     throw new Error(`${label} must be a JSON object`);

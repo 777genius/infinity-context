@@ -36,6 +36,8 @@ const expected = {
   expectedProfile: capability.profile_id,
   expectedSdkRevision: capability.sdk_revision,
   expectedServiceRevision: capability.service_revision,
+  expectedRequiredProviderLanes: capability.required_provider_lanes,
+  expectedProviderLanes: capability.provider_lanes.map((lane) => lane.provider_id),
   expectedLocator: "seeded-locator",
 };
 const servers = [];
@@ -85,6 +87,64 @@ describe("Retrieval runtime canary policy", () => {
         assertRetrievalRuntimeCanary({ capability, response, ...expected, [key]: "wrong" }),
       ).toThrow(/immutable canary pins/);
     }
+    for (const key of ["expectedRequiredProviderLanes", "expectedProviderLanes"]) {
+      expect(() =>
+        assertRetrievalRuntimeCanary({ capability, response, ...expected, [key]: ["wrong"] }),
+      ).toThrow(/immutable canary pins/);
+    }
+  });
+
+  it("rejects duplicate capability keys through the official raw-byte decoder before POST", async () => {
+    const fixture = await runtimeFixtures();
+    const requests = [];
+    const service = await startService(async (request, reply) => {
+      requests.push(`${request.method} ${request.url}`);
+      await requestBody(request);
+      reply.writeHead(200, { "content-type": "application/json" });
+      reply.end(`{"context":{"retrieval":${JSON.stringify(fixture.capability)},"retrieval":${JSON.stringify(fixture.capability)}}}`);
+    });
+    const output = captureOutput();
+    const result = await runRetrievalRuntimeCanaryCli({
+      env: runtimeEnv(service.url, fixture.capability), sdk, stdout: output,
+      requestFixture: fixture.request, localAttestationVerifier: async () => {},
+    });
+    expect(result.exitCode).toBe(1);
+    expect(output.text).toContain("duplicate key after decoding");
+    expect(requests).toEqual(["GET /v1/capabilities"]);
+  });
+
+  it("submits zero retrieval requests when any live capability pin differs", async () => {
+    const fixture = await runtimeFixtures();
+    const requests = [];
+    const service = await startService(async (request, reply) => {
+      requests.push(`${request.method} ${request.url}`);
+      await requestBody(request);
+      json(reply, { context: { retrieval: fixture.capability } });
+    });
+    const env = runtimeEnv(service.url, fixture.capability);
+    env.RETRIEVAL_SERVICE_REVISION = "0".repeat(40);
+    const result = await runRetrievalRuntimeCanaryCli({
+      env, sdk, stdout: captureOutput(), requestFixture: fixture.request,
+      localAttestationVerifier: async () => {},
+    });
+    expect(result.exitCode).toBe(1);
+    expect(requests).toEqual(["GET /v1/capabilities"]);
+  });
+
+  it("does not expose bearer secrets in local preflight failures", async () => {
+    const secret = "canary-secret-sentinel";
+    const output = captureOutput();
+    const result = await runRetrievalRuntimeCanaryCli({
+      env: {
+        ...runtimeEnv("http://127.0.0.1:1", capability),
+        INFINITY_CONTEXT_TOKEN: secret,
+      },
+      sdk,
+      stdout: output,
+      localAttestationVerifier: async () => { throw new Error("Local SDK pin mismatch"); },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(output.text).not.toContain(secret);
   });
 
   it("executes through a package-bin symlink and reports a controlled failure", async () => {
@@ -166,6 +226,7 @@ describe("Retrieval runtime canary policy", () => {
       const result = await runRetrievalRuntimeCanaryCli({
         env: runtimeEnv(service.url, fixture.capability),
         sdk,
+        localAttestationVerifier: async () => {},
         stdout: output,
         requestFixture: fixture.request,
         exitCodeTarget: processState,
@@ -223,6 +284,7 @@ describe("Retrieval runtime canary policy", () => {
     const result = await runRetrievalRuntimeCanaryCli({
       env: runtimeEnv(service.url, fixture.capability),
       sdk,
+      localAttestationVerifier: async () => {},
       stdout: output,
       requestFixture: boundedRequest,
       exitCodeTarget: processState,
@@ -263,6 +325,8 @@ function runtimeEnv(url, capabilityFixture) {
     RETRIEVAL_PROFILE_ID: capabilityFixture.profile_id,
     RETRIEVAL_SDK_REVISION: capabilityFixture.sdk_revision,
     RETRIEVAL_SERVICE_REVISION: capabilityFixture.service_revision,
+    RETRIEVAL_REQUIRED_PROVIDER_LANES: capabilityFixture.required_provider_lanes.join(","),
+    RETRIEVAL_PROVIDER_LANES: capabilityFixture.provider_lanes.map((lane) => lane.provider_id).join(","),
     RETRIEVAL_CANARY_EXPECTED_LOCATOR: "seeded-locator",
   };
 }

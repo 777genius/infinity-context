@@ -70,6 +70,7 @@
     "scripts/full-memory-proof.mjs",
     "scripts/runtime-canary.mjs",
     "scripts/retrieval-runtime-canary.mjs",
+    "scripts/retrieval-runtime-canary-attestation.mjs",
     "scripts/retrieval-runtime-canary-policy.mjs",
     "README.md"
   ],
@@ -86,9 +87,10 @@
     "check:consumer": "node scripts/check-consumer-install.mjs",
     "canary:runtime": "npm run build && node scripts/runtime-canary.mjs",
     "canary:retrieval": "npm run build && node scripts/retrieval-runtime-canary.mjs",
+    "prepack": "node scripts/sdk-artifact-identity.mjs",
     "release:manifest": "node scripts/sdk-release-manifest.mjs",
     "proof:full-memory": "npm run build && node scripts/full-memory-proof.mjs",
-    "lint": "node --check scripts/check-consumer-install.mjs && node --check scripts/sdk-release-manifest.mjs && node --check scripts/sdk-release-receipt.mjs",
+    "lint": "node --check scripts/check-consumer-install.mjs && node --check scripts/retrieval-runtime-canary.mjs && node --check scripts/retrieval-runtime-canary-attestation.mjs && node --check scripts/retrieval-runtime-canary-policy.mjs && node --check scripts/sdk-artifact-identity.mjs && node --check scripts/sdk-release-manifest.mjs && node --check scripts/sdk-release-receipt.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "verify": "npm run check:architecture && npm run check:retrieval-parity && npm run check:parity && npm run typecheck && npm run test && npm run build && npm run check:exports && npm run check:consumer"

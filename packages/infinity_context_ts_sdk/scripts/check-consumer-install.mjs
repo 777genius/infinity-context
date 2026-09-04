@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { createServer } from "node:http";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -24,7 +26,7 @@ const fixtureExports = [
 const tempRoot = await mkdtemp(join(tmpdir(), "infinity-context-sdk-consumer-"));
 
 try {
-  const artifactPath = await resolveArtifact();
+  const { artifactPath, manifestPath } = await resolveInputs();
 
   await writeFile(join(tempRoot, "package.json"), JSON.stringify({ private: true }, null, 2));
   await execFileAsync("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", artifactPath], {
@@ -33,6 +35,12 @@ try {
   });
   const installedRoot = join(tempRoot, "node_modules", "@infinity-context", "sdk");
   const installedPackage = JSON.parse(await readFile(join(installedRoot, "package.json"), "utf8"));
+  const installedIdentityBytes = await readFile(join(installedRoot, "dist", "sdk-artifact-identity.json"));
+  const sourceIdentityBytes = await readFile(join(packageRoot, "dist", "sdk-artifact-identity.json"));
+  if (!installedIdentityBytes.equals(sourceIdentityBytes)) {
+    throw new Error("Installed SDK artifact identity differs from the pack-once source identity");
+  }
+  const installedIdentity = JSON.parse(installedIdentityBytes.toString("utf8"));
   if (JSON.stringify(Object.keys(installedPackage.bin ?? {}).sort()) !== JSON.stringify([...expectedBins].sort())) {
     throw new Error("Installed package bin inventory drifted");
   }
@@ -66,6 +74,11 @@ try {
   const capability = JSON.parse(await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", "capability.json"), "utf8"));
   const request = JSON.parse(await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", "request.json"), "utf8"));
   const success = JSON.parse(await readFile(join(packageRoot, "fixtures", "context_retrieval_v2", "success.json"), "utf8"));
+  if (manifestPath !== undefined) {
+    await checkInstalledRetrievalCanary({
+      artifactPath, capability, installedIdentity, manifestPath, success,
+    });
+  }
   await writeFile(join(tempRoot, "consumer-esm.mjs"), consumerEsmSource(capability, request, success));
   await writeFile(join(tempRoot, "consumer-cjs.cjs"), consumerCjsSource(capability, request, success));
   await writeFile(join(tempRoot, "consumer-browser.mjs"), consumerBrowserSource());
@@ -127,16 +140,21 @@ try {
   await rm(tempRoot, { force: true, recursive: true });
 }
 
-async function resolveArtifact() {
+async function resolveInputs() {
   const { values } = parseArgs({
-    options: { artifact: { type: "string" } },
+    options: { artifact: { type: "string" }, manifest: { type: "string" } },
     strict: true,
     allowPositionals: false,
   });
   if (values.artifact !== undefined) {
     if (values.artifact.trim() === "") throw new Error("--artifact must not be empty");
-    return isAbsolute(values.artifact) ? values.artifact : resolve(process.cwd(), values.artifact);
+    const artifactPath = isAbsolute(values.artifact) ? values.artifact : resolve(process.cwd(), values.artifact);
+    const manifestPath = values.manifest === undefined ? undefined
+      : isAbsolute(values.manifest) ? values.manifest : resolve(process.cwd(), values.manifest);
+    if (values.manifest !== undefined && values.manifest.trim() === "") throw new Error("--manifest must not be empty");
+    return { artifactPath, manifestPath };
   }
+  if (values.manifest !== undefined) throw new Error("--manifest requires --artifact");
   const pack = await execFileAsync("npm", ["pack", "--json", "--pack-destination", tempRoot], {
     cwd: packageRoot,
     maxBuffer: 10 * 1024 * 1024,
@@ -145,8 +163,69 @@ async function resolveArtifact() {
   if (packResult === undefined || typeof packResult.filename !== "string") {
     throw new Error("npm pack did not return a package filename");
   }
-  return join(tempRoot, packResult.filename);
+  return { artifactPath: join(tempRoot, packResult.filename), manifestPath: undefined };
 }
+
+async function checkInstalledRetrievalCanary({ artifactPath, capability, installedIdentity, manifestPath, success }) {
+  const requests = [];
+  const canaryCapability = structuredClone(capability);
+  canaryCapability.sdk_revision = installedIdentity.source_commit;
+  const { retrievalCapabilityFingerprint } = await import("../dist/index.js");
+  canaryCapability.capability_fingerprint = await retrievalCapabilityFingerprint(canaryCapability);
+  const canarySuccess = structuredClone(success);
+  canarySuccess.capability_fingerprint = canaryCapability.capability_fingerprint;
+  for (const candidate of canarySuccess.candidates) {
+    for (const contribution of candidate.contributions) contribution.query_id = "runtime-canary";
+  }
+  const server = createServer((request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    const body = request.url === "/v1/capabilities"
+      ? { context: { retrieval: canaryCapability } }
+      : canarySuccess;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify(body));
+  });
+  await new Promise((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolvePromise);
+  });
+  try {
+    const address = server.address();
+    const artifactBytes = await readFile(artifactPath);
+    const manifestBytes = await readFile(manifestPath);
+    const binPath = join(tempRoot, "node_modules", ".bin", "infinity-context-retrieval-runtime-canary");
+    const result = await execFileAsync(binPath, [], {
+      cwd: tempRoot,
+      env: {
+        ...process.env,
+        INFINITY_CONTEXT_URL: `http://127.0.0.1:${address.port}`,
+        RETRIEVAL_CANARY_EXPECTED_LOCATOR: success.candidates[0].locator,
+        RETRIEVAL_CANARY_MEMORY_SCOPE_ID: "scope-canary",
+        RETRIEVAL_CANARY_SPACE_ID: "space-canary",
+        RETRIEVAL_CAPABILITY_FINGERPRINT: canaryCapability.capability_fingerprint,
+        RETRIEVAL_PROFILE_ID: canaryCapability.profile_id,
+        RETRIEVAL_PROVIDER_LANES: canaryCapability.provider_lanes.map((lane) => lane.provider_id).join(","),
+        RETRIEVAL_REQUIRED_PROVIDER_LANES: canaryCapability.required_provider_lanes.join(","),
+        RETRIEVAL_SDK_ARTIFACT: artifactPath,
+        RETRIEVAL_SDK_ARTIFACT_SHA256: sha256(artifactBytes),
+        RETRIEVAL_SDK_MANIFEST_SHA256: sha256(manifestBytes),
+        RETRIEVAL_SDK_RELEASE_MANIFEST: manifestPath,
+        RETRIEVAL_SDK_REVISION: installedIdentity.source_commit,
+        RETRIEVAL_SDK_SOURCE_TREE: installedIdentity.source_git_tree_oid,
+        RETRIEVAL_SERVICE_REVISION: canaryCapability.service_revision,
+      },
+      maxBuffer: 10 * 1024 * 1024,
+    });
+    const report = JSON.parse(result.stdout);
+    if (!report.ok || result.stderr !== "" || requests.join(",") !== "GET /v1/capabilities,POST /v1/context/retrieve") {
+      throw new Error("Installed retrieval canary did not complete exactly one pinned submission");
+    }
+  } finally {
+    await new Promise((resolvePromise) => server.close(resolvePromise));
+  }
+}
+
+function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }
 
 function consumerTypecheckSource() {
   return `import {

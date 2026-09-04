@@ -5,16 +5,14 @@ export function assertRetrievalRuntimeCanary({
   expectedProfile,
   expectedSdkRevision,
   expectedServiceRevision,
+  expectedRequiredProviderLanes,
+  expectedProviderLanes,
   expectedLocator,
 }) {
-  if (
-    capability.capability_fingerprint !== expectedFingerprint ||
-    capability.profile_id !== expectedProfile ||
-    capability.sdk_revision !== expectedSdkRevision ||
-    capability.service_revision !== expectedServiceRevision
-  ) {
-    throw new Error("Live Retrieval capability differs from immutable canary pins");
-  }
+  assertRetrievalCapabilityPins({
+    capability, expectedFingerprint, expectedProfile, expectedSdkRevision,
+    expectedServiceRevision, expectedRequiredProviderLanes, expectedProviderLanes,
+  });
   if (response.status === "unavailable") {
     throw new Error("Retrieval canary is unavailable");
   }
@@ -42,4 +40,30 @@ export function assertRetrievalRuntimeCanary({
       throw new Error(`Retrieval required lane ${providerId} is not healthy and complete`);
     }
   }
+}
+
+export function assertRetrievalCapabilityPins({
+  capability,
+  expectedFingerprint,
+  expectedProfile,
+  expectedSdkRevision,
+  expectedServiceRevision,
+  expectedRequiredProviderLanes,
+  expectedProviderLanes,
+}) {
+  if (
+    capability.capability_fingerprint !== expectedFingerprint ||
+    capability.profile_id !== expectedProfile ||
+    capability.sdk_revision !== expectedSdkRevision ||
+    capability.service_revision !== expectedServiceRevision ||
+    !sameStrings(capability.required_provider_lanes, expectedRequiredProviderLanes) ||
+    !sameStrings(capability.provider_lanes.map((lane) => lane.provider_id), expectedProviderLanes)
+  ) {
+    throw new Error("Live Retrieval capability differs from immutable canary pins");
+  }
+}
+
+function sameStrings(actual, expected) {
+  return Array.isArray(expected) && actual.length === expected.length &&
+    actual.every((value, index) => value === expected[index]);
 }

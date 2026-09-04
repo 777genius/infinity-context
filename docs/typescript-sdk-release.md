@@ -63,6 +63,8 @@ It binds:
 - source commit, source tree, and Git object format;
 - package name/version (minimum 0.2.1);
 - tarball filename, byte length, SHA-256, and SHA-512 SRI;
+- the SHA-256 of the packed SDK identity embedded in that tarball; the identity binds
+  the source commit/tree and hashes every installed runtime file used by the canary;
 - `package-lock.json` SHA-256;
 - Node 24.18.0 and `node24-npm-ci-pack-once.v1` build profile;
 - a path/digest inventory of SDK TypeScript contracts and JSON fixtures, plus its
@@ -74,6 +76,13 @@ model/runtime/corpus identity, meeting outcome, Discord data, private evidence, 
 timestamp. Inputs and evidence must be bounded regular files under their declared
 roots. Symlinks, path escapes, duplicate-key/noncanonical JSON, unsafe numbers,
 newline output injection, and output overwrite are rejected.
+
+Immediately before the pipeline's one `npm pack`, its prepack hook creates the
+canonical `dist/sdk-artifact-identity.json` from the already-built package and the
+resolved tag commit/tree. The manifest extracts that exact file from the tarball and
+requires its source identity to equal Git. This avoids a self-referential tarball hash
+while letting the installed Retrieval canary hash its loaded files and join them to
+the separately pinned immutable tarball and release manifest before network access.
 
 ## Executable release runbook for 0.2.1
 

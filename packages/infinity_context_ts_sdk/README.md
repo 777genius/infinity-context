@@ -82,7 +82,15 @@ Installed binaries:
 - `infinity-context-full-memory-proof`: run the full-memory release proof script.
 - `infinity-context-runtime-canary`: run the non-mutating runtime canary script.
 - `infinity-context-retrieval-runtime-canary`: call the live Retrieval route only after
-  capability fingerprint, profile and SDK-revision pins match.
+  the installed SDK file identity, local release-manifest/tarball checksums, source
+  commit/tree, service/SDK revisions, capability fingerprint/profile, and exact
+  provider-lane lists match. Set `RETRIEVAL_SDK_ARTIFACT`,
+  `RETRIEVAL_SDK_RELEASE_MANIFEST`, their lowercase SHA-256 pins in
+  `RETRIEVAL_SDK_ARTIFACT_SHA256` and `RETRIEVAL_SDK_MANIFEST_SHA256`, the Git tree in
+  `RETRIEVAL_SDK_SOURCE_TREE`, and sorted comma-separated lane pins in
+  `RETRIEVAL_PROVIDER_LANES` and `RETRIEVAL_REQUIRED_PROVIDER_LANES`. Local artifact
+  verification finishes before any network request; live capability verification
+  finishes before the canary's single Retrieval POST.
 
 All three binaries support `--help` and `--version` without validating runtime
 configuration or contacting the service.

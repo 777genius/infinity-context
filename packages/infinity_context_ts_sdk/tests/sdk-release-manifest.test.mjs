@@ -23,6 +23,7 @@ describe("SDK release manifest workflow CLI", () => {
       artifact_byte_length: fixture.artifact.length,
       artifact_name: "infinity-context-sdk-0.2.1.tgz",
       artifact_sha256_hex: sha256(fixture.artifact),
+      artifact_identity_sha256_hex: sha256(fixture.identityBytes),
       build_profile: "node24-npm-ci-pack-once.v1",
       build_workflow_run_attempt: 2,
       build_workflow_run_id: 12345,
@@ -163,10 +164,21 @@ async function releaseFixture() {
   await git(root, "add", ".");
   await git(root, "commit", "-m", "fixture");
   await git(root, "tag", "-a", "sdk-v0.2.1", "-m", "SDK 0.2.1");
-  const artifact = Buffer.from("exact packed SDK bytes\n");
   const artifactPath = join(artifactDir, "infinity-context-sdk-0.2.1.tgz");
   const manifestPath = join(outputDir, "infinity-context-sdk-release-manifest.json");
-  await writeFile(artifactPath, artifact);
+  const commit = (await git(root, "rev-parse", "HEAD^{commit}")).stdout.trim();
+  const tree = (await git(root, "rev-parse", "HEAD^{tree}")).stdout.trim();
+  const identityBytes = Buffer.from(`${canonicalJson({
+    files: [{ path: "dist/index.js", sha256_hex: "d".repeat(64) }],
+    package_name: "@infinity-context/sdk", package_version: "0.2.1",
+    schema_version: "infinity-context-typescript-sdk-artifact-identity.v1",
+    source_commit: commit, source_git_tree_oid: tree,
+  })}\n`);
+  const tarRoot = join(root, "tar-root");
+  await mkdir(join(tarRoot, "package", "dist"), { recursive: true });
+  await writeFile(join(tarRoot, "package", "dist", "sdk-artifact-identity.json"), identityBytes);
+  await execFileAsync("tar", ["-czf", artifactPath, "package"], { cwd: tarRoot });
+  const artifact = await readFile(artifactPath);
   const common = [
     "--artifact", artifactPath, "--artifact-root", artifactDir,
     "--build-profile", "node24-npm-ci-pack-once.v1",
@@ -178,7 +190,7 @@ async function releaseFixture() {
     "--workflow-sha256", sha256(await readFile(workflowPath)),
   ];
   return {
-    artifact, artifactDir, artifactPath, createArgs: [...common, "--output", manifestPath],
+    artifact, artifactDir, artifactPath, createArgs: [...common, "--output", manifestPath], identityBytes,
     manifestPath, outputDir, packageDir, root, verifyArgs: [...common, "--manifest", manifestPath], workflowPath,
   };
 }

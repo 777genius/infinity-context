@@ -11,6 +11,8 @@ export async function runRetrievalRuntimeCanaryCli({
   stdout = process.stdout,
   sdk: suppliedSdk,
   requestFixture,
+  localAttestationVerifier,
+  packageRoot,
   exitCodeTarget,
 } = {}) {
   if (hasCliFlag(args, "--help", "-h")) {
@@ -24,7 +26,9 @@ export async function runRetrievalRuntimeCanaryCli({
   }
 
   try {
-    const result = await runRetrievalRuntimeCanary({ env, sdk: suppliedSdk, requestFixture });
+    const result = await runRetrievalRuntimeCanary({
+      env, sdk: suppliedSdk, requestFixture, localAttestationVerifier, packageRoot,
+    });
     stdout.write(`${JSON.stringify(result.report)}\n`);
     return recordExitCode({ ...result, exitCode: 0 }, exitCodeTarget);
   } catch (error) {
@@ -38,6 +42,8 @@ export async function runRetrievalRuntimeCanary({
   env = process.env,
   sdk: suppliedSdk,
   requestFixture,
+  localAttestationVerifier,
+  packageRoot,
 } = {}) {
   const baseUrl = (env.INFINITY_CONTEXT_URL ?? "http://127.0.0.1:7788").replace(/\/$/, "");
   const token = env.INFINITY_CONTEXT_TOKEN;
@@ -47,13 +53,18 @@ export async function runRetrievalRuntimeCanary({
   const expectedProfile = required(env, "RETRIEVAL_PROFILE_ID");
   const expectedSdkRevision = required(env, "RETRIEVAL_SDK_REVISION");
   const expectedServiceRevision = required(env, "RETRIEVAL_SERVICE_REVISION");
+  const expectedRequiredProviderLanes = requiredList(env, "RETRIEVAL_REQUIRED_PROVIDER_LANES");
+  const expectedProviderLanes = requiredList(env, "RETRIEVAL_PROVIDER_LANES");
   const expectedLocator = required(env, "RETRIEVAL_CANARY_EXPECTED_LOCATOR");
   const headers = {
     accept: "application/json",
     "content-type": "application/json",
     ...(token ? { authorization: `Bearer ${token}` } : {}),
   };
-  const { assertRetrievalRuntimeCanary } = await import("./retrieval-runtime-canary-policy.mjs");
+  const { verifyLocalSdkAttestation } = await import("./retrieval-runtime-canary-attestation.mjs");
+  await (localAttestationVerifier ?? verifyLocalSdkAttestation)({ env, packageRoot });
+  const { assertRetrievalCapabilityPins, assertRetrievalRuntimeCanary } =
+    await import("./retrieval-runtime-canary-policy.mjs");
   const sdk = suppliedSdk ?? await import("../dist/index.js");
   const http = new sdk.HttpClient({
     baseUrl,
@@ -70,11 +81,18 @@ export async function runRetrievalRuntimeCanary({
     maxResponseBytes: capabilityResponseByteLimit,
     maxErrorResponseBytes: capabilityResponseByteLimit,
   });
-  const capabilityEnvelope = JSON.parse(
-    new TextDecoder("utf-8", { fatal: true }).decode(capabilityResponse),
-  );
+  const capabilityEnvelope = sdk.decodeContextRetrievalCapabilitiesResponseBytes(capabilityResponse);
   const capability = sdk.decodeRetrievalCapability(capabilityEnvelope?.context?.retrieval);
   await sdk.verifyRetrievalCapabilityFingerprint(capability);
+  assertRetrievalCapabilityPins({
+    capability,
+    expectedFingerprint,
+    expectedProfile,
+    expectedSdkRevision,
+    expectedServiceRevision,
+    expectedRequiredProviderLanes,
+    expectedProviderLanes,
+  });
 
   const fixture = requestFixture ?? JSON.parse(await readFile(
     new URL("../fixtures/context_retrieval_v2/request.json", import.meta.url),
@@ -109,6 +127,8 @@ export async function runRetrievalRuntimeCanary({
     expectedProfile,
     expectedSdkRevision,
     expectedServiceRevision,
+    expectedRequiredProviderLanes,
+    expectedProviderLanes,
     expectedLocator,
   });
   return {
@@ -151,6 +171,16 @@ function required(env, name) {
   const value = env[name];
   if (value === undefined || value.trim() === "") throw new Error(`${name} is required`);
   return value;
+}
+
+function requiredList(env, name) {
+  const value = required(env, name);
+  const items = value.split(",");
+  if (items.some((item) => !/^[a-z0-9][a-z0-9._-]*$/u.test(item)) ||
+      items.some((item, index) => index > 0 && items[index - 1] >= item)) {
+    throw new Error(`${name} must be a sorted, unique comma-separated provider lane list`);
+  }
+  return items;
 }
 
 function hasCliFlag(args, ...flags) {

@@ -31,6 +31,7 @@ jobs:
       commit: ${{ steps.resolve.outputs.commit }}
       tag: ${{ steps.resolve.outputs.tag }}
       tag_object: ${{ steps.resolve.outputs.tag_object }}
+      tree: ${{ steps.source.outputs.tree }}
       version: ${{ steps.source.outputs.version }}
       workflow_sha256: ${{ steps.source.outputs.workflow_sha256 }}
     steps:
@@ -158,10 +159,12 @@ jobs:
           test "${SDK_TAG}" = "sdk-v${version}"
           artifact_name="infinity-context-sdk-${version}.tgz"
           workflow_sha256="$(sha256sum .github/workflows/typescript-sdk-release.yml | cut -d' ' -f1)"
+          tree="$(git rev-parse HEAD^{tree})"
           {
             echo "artifact_name=${artifact_name}"
             echo "version=${version}"
             echo "workflow_sha256=${workflow_sha256}"
+            echo "tree=${tree}"
           } >>"${GITHUB_OUTPUT}"
 
       - name: Set up exact Node.js
@@ -192,6 +195,8 @@ jobs:
         shell: bash
         env:
           EXPECTED_ARTIFACT: ${{ steps.source.outputs.artifact_name }}
+          INFINITY_CONTEXT_SDK_SOURCE_COMMIT: ${{ steps.resolve.outputs.commit }}
+          INFINITY_CONTEXT_SDK_SOURCE_TREE: ${{ steps.source.outputs.tree }}
         run: |
           set -euo pipefail
           pack_json="$(npm pack --json)"
@@ -201,10 +206,6 @@ jobs:
           test "${artifact_name}" = "${EXPECTED_ARTIFACT}"
           test -f "${artifact_name}"
           echo "artifact_name=${artifact_name}" >>"${GITHUB_OUTPUT}"
-
-      - name: Test the same packed tarball
-        working-directory: packages/infinity_context_ts_sdk
-        run: node scripts/check-consumer-install.mjs --artifact "${{ steps.pack.outputs.artifact_name }}"
 
       - name: Create deterministic SDK release manifest
         shell: bash
@@ -234,6 +235,13 @@ jobs:
           expected="$(printf '%s\n' "${SDK_ARTIFACT}" infinity-context-sdk-release-manifest.json | sort)"
           actual="$(find release-bundle -maxdepth 1 -type f -printf '%f\n' | sort)"
           test "${actual}" = "${expected}"
+
+      - name: Test the same packed tarball and its local attestation
+        working-directory: packages/infinity_context_ts_sdk
+        run: >-
+          node scripts/check-consumer-install.mjs
+          --artifact "${{ steps.pack.outputs.artifact_name }}"
+          --manifest "${GITHUB_WORKSPACE}/release-bundle/infinity-context-sdk-release-manifest.json"
 
       - name: Transfer exactly two release files
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
