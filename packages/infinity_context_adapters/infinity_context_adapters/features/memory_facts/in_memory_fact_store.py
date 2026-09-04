@@ -532,6 +532,10 @@ class InMemoryMemoryFactUnitOfWork:
         del scope
         # The shared-state optimistic revision check serializes in-memory commits.
 
+    async def coordinate_source_refs(self, *, scope, source_refs) -> None:
+        del scope, source_refs
+        # No document lifecycle exists in the provider-free in-memory adapter.
+
     async def __aexit__(
         self,
         exc_type: type[BaseException] | None,

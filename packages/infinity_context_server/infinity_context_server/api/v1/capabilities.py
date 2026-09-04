@@ -21,13 +21,33 @@ async def capabilities(
     container: Annotated[Container, Depends(get_container)],
 ) -> dict[str, Any]:
     result = await container.get_capabilities.execute()
-    serving_identity = container.serving_profile
+    serving_profile = container.serving_profile
     profile_id, profile_digest = _public_embedding_profile(container, result)
+    context_capability = {
+        "api_version": 1,
+        "bundle_diagnostics_schema": "context-v2-hybrid-explainable",
+        "top_evidence_supported": True,
+        "citations_supported": True,
+        "answer_support_supported": True,
+        "answer_support_evidence_breakdown_supported": True,
+        "retrieval_quality_summary_supported": True,
+        "retrieval_answerability_supported": True,
+        "retrieval_trace_supported": True,
+        "retrieval_trace_location_counts_supported": True,
+        "stale_filtering_supported": True,
+        "review_only_excluded_by_default": True,
+        "source_text_policy": "untrusted_evidence",
+        "max_top_evidence_items": 5,
+        "max_answer_support_warnings": 8,
+    }
+    if container.locator_retrieval is not None:
+        descriptor = await container.locator_retrieval.descriptor()
+        context_capability["retrieval"] = descriptor.to_dict()
     return {
         "api_version": "v1",
         "server_version": "0.1.0",
         "service_name": result.service_name,
-        "service_revision": serving_identity.service_revision,
+        "service_revision": serving_profile.service_revision,
         "embedding_profile_id": profile_id,
         "embedding_profile_digest_sha256": profile_digest,
         "deploy_profile": result.deploy_profile,
@@ -68,23 +88,17 @@ async def capabilities(
                 container.settings.max_pending_suggestions_per_memory_scope
             ),
         },
-        "context": {
-            "api_version": 1,
-            "bundle_diagnostics_schema": "context-v2-hybrid-explainable",
-            "top_evidence_supported": True,
-            "citations_supported": True,
-            "answer_support_supported": True,
-            "answer_support_evidence_breakdown_supported": True,
-            "retrieval_quality_summary_supported": True,
-            "retrieval_answerability_supported": True,
-            "retrieval_trace_supported": True,
-            "retrieval_trace_location_counts_supported": True,
-            "stale_filtering_supported": True,
-            "review_only_excluded_by_default": True,
-            "source_text_policy": "untrusted_evidence",
-            "max_top_evidence_items": 5,
-            "max_answer_support_warnings": 8,
+        "documents": {
+            "exact_reconciliation": {
+                "contract_version": "document-reconciliation.v1",
+                "endpoint": "/v1/documents/reconcile-exact",
+                "max_deadline_ms": 10000,
+                "max_response_bytes": 65536,
+                "visibility_evidence": ["accepted", "processing", "indexed"],
+                "read_only": True,
+            }
         },
+        "context": context_capability,
         "storage": _storage_payload(container),
         "extraction": build_extraction_capability_payload(container.settings),
         "plans": {

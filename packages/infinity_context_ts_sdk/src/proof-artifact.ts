@@ -1,5 +1,5 @@
 import type { FullMemoryProofReport } from "./full-memory-proof.js";
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import type { JsonObject } from "./types.js";
 
 export const FULL_MEMORY_PROOF_ARTIFACT_SCHEMA = "infinity_context.full_memory_proof_artifact.v1";
@@ -256,7 +256,7 @@ export function assertFullMemoryProofArtifact(
     return evaluation;
   }
 
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.full_memory_proof_artifact_failed",
     message: `Full memory proof artifact failed: ${evaluation.errors.join("; ")}`,

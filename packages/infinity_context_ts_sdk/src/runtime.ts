@@ -5,7 +5,7 @@ import {
   usedDerivedRetrieval,
   type ContextRetrievalComponent,
 } from "./diagnostics.js";
-import { InfinityContextError } from "./errors.js";
+import { createInfinityContextError, InfinityContextError } from "./errors.js";
 import type { InfinityContextCapabilities, JsonObject } from "./types.js";
 
 export type MemoryRuntimeMode = "full" | "lite";
@@ -119,7 +119,7 @@ function supportWarnings(
 }
 
 function runtimeReadinessError(report: RuntimeReadinessReport): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.runtime_not_ready",
     message: `Infinity Context runtime is not ready: ${report.errors.join("; ")}`,

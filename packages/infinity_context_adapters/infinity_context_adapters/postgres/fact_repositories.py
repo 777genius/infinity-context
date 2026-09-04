@@ -38,6 +38,18 @@ from sqlalchemy import and_, delete, func, or_, select, tuple_, union, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
+from infinity_context_adapters.postgres.document_evidence_liveness import (
+    load_candidate_evidence_state,
+    source_ref_has_live_evidence,
+)
+from infinity_context_adapters.postgres.document_fact_candidate_locking import (
+    document_fact_candidates_in_lock_order,
+)
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    fence_scoped_fact_write,
+    observe_and_fence_fact_update,
+    scoped_fact_update_conditions,
+)
 from infinity_context_adapters.postgres.fact_selection_conditions import (
     memory_fact_code_scope_conditions,
     memory_fact_selection_conditions,
@@ -58,7 +70,6 @@ from infinity_context_adapters.postgres.repository_helpers import (
     _not_expired,
     _retrieval_candidate_limit,
     _score,
-    _source_ref_points_to_deleted_document,
     _tags_match,
     _terms,
 )
@@ -72,6 +83,7 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         self._now = now
 
     async def create(self, fact: MemoryFact) -> MemoryFact:
+        await fence_scoped_fact_write(self._session, fact)
         row = MemoryFactRow(
             id=str(fact.id),
             space_id=str(fact.space_id),
@@ -151,23 +163,30 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         ]
 
     async def get_for_update(self, fact_id: str) -> MemoryFact | None:
+        observed = await observe_and_fence_fact_update(self._session, fact_id=fact_id)
         statement = select(MemoryFactRow).where(MemoryFactRow.id == fact_id).with_for_update()
-        row = (await self._session.execute(statement)).scalar_one_or_none()
+        row = (
+            await self._session.execute(statement.execution_options(populate_existing=True))
+        ).scalar_one_or_none()
         if row is None:
             return None
+        if observed is not None and (
+            row.space_id != observed.space_id
+            or row.memory_scope_id != observed.memory_scope_id
+            or row.thread_id != observed.thread_id
+        ):
+            raise MemoryConflictError("Fact scope changed during lifecycle coordination")
         refs = await self._load_source_refs(fact_id=fact_id, version=row.version)
         return fact_row_to_domain(row, refs)
 
     async def save(self, fact: MemoryFact) -> MemoryFact:
+        await fence_scoped_fact_write(self._session, fact)
         expected_version = fact.version - 1
         if expected_version < 1:
             raise MemoryConflictError("Stale fact version")
         result = await self._session.execute(
             update(MemoryFactRow)
-            .where(
-                MemoryFactRow.id == str(fact.id),
-                MemoryFactRow.version == expected_version,
-            )
+            .where(*scoped_fact_update_conditions(fact, expected_version=expected_version))
             .values(
                 space_id=str(fact.space_id),
                 memory_scope_id=str(fact.memory_scope_id),
@@ -444,43 +463,37 @@ class PostgresFactRepository(FactRepositoryPort, ActiveFactBatchRepositoryPort):
         if not chunk_ids and not document_id:
             return ()
         chunk_id_set = set(chunk_ids)
-        candidate_rows = list(
-            (
-                await self._session.execute(
-                    select(MemoryFactRow)
-                    .join(
-                        MemorySourceRefRow,
-                        (MemorySourceRefRow.fact_id == MemoryFactRow.id)
-                        & (MemorySourceRefRow.fact_version == MemoryFactRow.version),
-                    )
-                    .where(
-                        MemoryFactRow.status == "active",
-                        MemoryFactRow.space_id == space_id,
-                        MemoryFactRow.memory_scope_id == memory_scope_id,
-                        or_(
-                            MemorySourceRefRow.chunk_id.in_(chunk_id_set),
-                            (
-                                (MemorySourceRefRow.source_type == "document")
-                                & (MemorySourceRefRow.source_id == document_id)
-                            ),
-                        ),
-                    )
-                    .distinct()
-                )
-            ).scalars()
+        candidate_identities = await document_fact_candidates_in_lock_order(
+            self._session,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            document_id=document_id,
+            chunk_ids=chunk_id_set,
+        )
+        evidence = await load_candidate_evidence_state(
+            self._session,
+            candidate_identities,
         )
         deleted: list[tuple[str, int]] = []
-        for row in candidate_rows:
-            refs = await self._load_source_refs(fact_id=row.id, version=row.version)
-            if refs and all(
-                _source_ref_points_to_deleted_document(
+        for identity in candidate_identities:
+            current = await self.get_for_update(identity.fact_id)
+            if (
+                current is None
+                or current.status.value != "active"
+                or str(current.space_id) != space_id
+                or str(current.memory_scope_id) != memory_scope_id
+            ):
+                continue
+            refs = current.source_refs
+            if refs and not any(
+                source_ref_has_live_evidence(
                     ref,
-                    document_id=document_id,
-                    chunk_ids=chunk_id_set,
+                    fact=current,
+                    evidence=evidence,
                 )
                 for ref in refs
             ):
-                forgotten = fact_row_to_domain(row, refs).forget(now=now)
+                forgotten = current.forget(now=now)
                 await self.save(forgotten)
                 deleted.append((str(forgotten.id), forgotten.version))
         return tuple(deleted)

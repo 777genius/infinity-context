@@ -36,7 +36,13 @@ class PostgresTestDatabase:
         parsed = make_url(database_url)
         if not parsed.drivername.startswith("postgresql"):
             raise ValueError("PostgreSQL E2E requires a PostgreSQL database URL")
-        database_name = f"{prefix}_{uuid.uuid4().hex}"
+        unique_suffix = uuid.uuid4().hex
+        maximum_prefix_bytes = 63 - len(unique_suffix.encode("ascii")) - 1
+        bounded_prefix = prefix.encode("utf-8")[:maximum_prefix_bytes].decode(
+            "utf-8",
+            errors="ignore",
+        )
+        database_name = f"{bounded_prefix}_{unique_suffix}"
         return cls(
             asyncpg=asyncpg,
             admin_dsn=parsed.set(drivername="postgresql").render_as_string(hide_password=False),

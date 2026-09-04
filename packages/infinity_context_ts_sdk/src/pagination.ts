@@ -14,6 +14,7 @@ export interface CursorPaginationOptions extends RequestControls {
   readonly startCursor?: string;
   readonly pageLimit?: number;
   readonly maxItems?: number;
+  readonly maxPages?: number;
 }
 
 export type CursorPageLoader<TItem> = (
@@ -24,11 +25,33 @@ export async function* iterateCursorItems<TItem>(
   loadPage: CursorPageLoader<TItem>,
   options: CursorPaginationOptions = {},
 ): AsyncGenerator<TItem, void, void> {
+  const maxPages = options.maxPages ?? 100;
+  requirePositiveInteger(maxPages, "maxPages");
+
   let cursor = options.startCursor;
   let yielded = 0;
+  let loadedPages = 0;
+  const seenCursors = new Set<string>();
+  if (cursor) {
+    seenCursors.add(cursor);
+  }
 
   for (;;) {
+    if (loadedPages >= maxPages) {
+      throw new TypeError(`Pagination exceeded maxPages (${maxPages})`);
+    }
     const page = await loadPage(cursorPageRequest(cursor, options.pageLimit, options));
+    loadedPages += 1;
+    if (!Array.isArray(page.data)) {
+      throw new TypeError("Paginated response data must be an array");
+    }
+    if (
+      page.next_cursor !== undefined &&
+      page.next_cursor !== null &&
+      typeof page.next_cursor !== "string"
+    ) {
+      throw new TypeError("Paginated response next_cursor must be a string or null");
+    }
     for (const item of page.data) {
       if (options.maxItems !== undefined && yielded >= options.maxItems) {
         return;
@@ -37,10 +60,15 @@ export async function* iterateCursorItems<TItem>(
       yielded += 1;
     }
 
-    cursor = page.next_cursor ?? undefined;
-    if (!cursor || page.data.length === 0) {
+    const nextCursor = page.next_cursor ?? undefined;
+    if (!nextCursor || page.data.length === 0) {
       return;
     }
+    if (seenCursors.has(nextCursor)) {
+      throw new TypeError("Paginated response cursor did not advance");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
   }
 }
 
@@ -67,4 +95,10 @@ export function cursorPageRequest(
     ...(controls.signal !== undefined ? { signal: controls.signal } : {}),
     ...(controls.timeoutMs !== undefined ? { timeoutMs: controls.timeoutMs } : {}),
   };
+}
+
+function requirePositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${name} must be a positive integer`);
+  }
 }

@@ -15,10 +15,29 @@ from infinity_context_core.features.document_ingestion.domain.errors import (
     DocumentIngestionError,
     DocumentIngestionInvariantError,
     DocumentIngestionValidationError,
+    DocumentProjectionConflictError,
+    DocumentProjectionIdempotencyConflictError,
+    DocumentProjectionInvalidError,
+    DocumentProjectionLocatorConflictError,
+    DocumentProjectionOrdinalConflictError,
 )
 from infinity_context_core.features.document_ingestion.domain.feature import (
     FEATURE_ID,
     DocumentIngestionFeature,
+)
+from infinity_context_core.features.document_ingestion.domain.reconciliation import (
+    DocumentReconciliationState,
+    DocumentVisibilityEvidence,
+    ExactDocumentIdentity,
+    ExactDocumentObservation,
+    ExactDocumentReconciliation,
+    reconcile_exact_document,
+)
+from infinity_context_core.features.document_ingestion.domain.retrieval_projection import (
+    DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1,
+    DocumentRetrievalProjectionRelativeTimeIntervalV1,
+    DocumentRetrievalProjectionTimeIntervalV1,
+    DocumentRetrievalProjectionV1,
 )
 from infinity_context_core.features.document_ingestion.domain.source_document import (
     DocumentIngestionScope,
@@ -46,8 +65,22 @@ __all__ = (
     "DocumentIngestionInvariantError",
     "DocumentIngestionScope",
     "DocumentIngestionValidationError",
+    "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1",
+    "DocumentProjectionConflictError",
+    "DocumentProjectionIdempotencyConflictError",
+    "DocumentProjectionInvalidError",
+    "DocumentProjectionLocatorConflictError",
+    "DocumentProjectionOrdinalConflictError",
+    "DocumentReconciliationState",
+    "DocumentRetrievalProjectionTimeIntervalV1",
+    "DocumentRetrievalProjectionRelativeTimeIntervalV1",
+    "DocumentRetrievalProjectionV1",
+    "DocumentVisibilityEvidence",
     "DocumentTextRange",
     "FEATURE_ID",
+    "ExactDocumentIdentity",
+    "ExactDocumentObservation",
+    "ExactDocumentReconciliation",
     "SourceDocument",
     "SourceDocumentClassification",
     "SourceDocumentContent",
@@ -58,4 +91,5 @@ __all__ = (
     "content_hash_for_text",
     "estimate_token_count",
     "normalize_document_text",
+    "reconcile_exact_document",
 )

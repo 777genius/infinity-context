@@ -137,7 +137,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                             classification,
                             status,
                             created_at,
-                            updated_at
+                            updated_at,
+                            retrieval_projected
                         )
                         VALUES (
                             'doc_a',
@@ -151,7 +152,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                             'internal',
                             'active',
                             '2026-05-25T10:00:00+00:00',
-                            '2026-05-25T10:00:00+00:00'
+                            '2026-05-25T10:00:00+00:00',
+                            0
                         )
                         """
                     )
@@ -171,7 +173,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                             classification,
                             status,
                             created_at,
-                            updated_at
+                            updated_at,
+                            retrieval_projected
                         )
                         VALUES (
                             'doc_b',
@@ -185,7 +188,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                             'internal',
                             'active',
                             '2026-05-25T10:01:00+00:00',
-                            '2026-05-25T10:01:00+00:00'
+                            '2026-05-25T10:01:00+00:00',
+                            0
                         )
                         """
                     )
@@ -207,7 +211,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                                 classification,
                                 status,
                                 created_at,
-                                updated_at
+                                updated_at,
+                                retrieval_projected
                             )
                             VALUES (
                                 'doc_duplicate_thread_a',
@@ -221,7 +226,8 @@ def test_document_unique_indexes_prevent_same_hash_duplicate_rows_per_scope(
                                 'internal',
                                 'active',
                                 '2026-05-25T10:02:00+00:00',
-                                '2026-05-25T10:02:00+00:00'
+                                '2026-05-25T10:02:00+00:00',
+                                0
                             )
                             """
                         )
@@ -260,7 +266,8 @@ def test_document_unique_indexes_allow_reimport_after_deleted_tombstone(
                             classification,
                             status,
                             created_at,
-                            updated_at
+                            updated_at,
+                            retrieval_projected
                         )
                         VALUES (
                             'doc_deleted',
@@ -274,7 +281,8 @@ def test_document_unique_indexes_allow_reimport_after_deleted_tombstone(
                             'internal',
                             'deleted',
                             '2026-05-25T10:00:00+00:00',
-                            '2026-05-25T10:00:00+00:00'
+                            '2026-05-25T10:00:00+00:00',
+                            0
                         )
                         """
                     )
@@ -294,7 +302,8 @@ def test_document_unique_indexes_allow_reimport_after_deleted_tombstone(
                             classification,
                             status,
                             created_at,
-                            updated_at
+                            updated_at,
+                            retrieval_projected
                         )
                         VALUES (
                             'doc_reimported',
@@ -308,7 +317,8 @@ def test_document_unique_indexes_allow_reimport_after_deleted_tombstone(
                             'internal',
                             'active',
                             '2026-05-25T10:01:00+00:00',
-                            '2026-05-25T10:01:00+00:00'
+                            '2026-05-25T10:01:00+00:00',
+                            0
                         )
                         """
                     )

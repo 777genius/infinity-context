@@ -770,8 +770,7 @@ def test_context_expands_keyword_turn_with_source_sibling_evidence(
                 **scope,
                 "title": "LoCoMo test session_40 turn D40:8",
                 "text": (
-                    "session_40 turn D40:8\n"
-                    "D40:8 Nora: WRONG_SOURCE_SIBLING_MARKER unrelated note."
+                    "session_40 turn D40:8\nD40:8 Nora: WRONG_SOURCE_SIBLING_MARKER unrelated note."
                 ),
                 "source_type": "locomo_turn",
                 "source_external_id": "locomo:test:session_40:D40:8:turn",
@@ -1486,14 +1485,14 @@ def test_delete_document_hides_chunks_and_enqueues_vector_delete(tmp_path: Path)
     assert deleted.json()["data"]["status"] == "deleted"
     assert deleted.json()["data"]["deleted_chunks"] == 1
     assert deleted.json()["data"]["deleted_facts"] == 2
-    assert chunks.status_code == 200
-    assert chunks.json()["data"] == []
+    assert chunks.status_code == 404
+    assert chunks.json()["error"]["code"] == "memory.not_found"
     assert "DELETE_DOC_MARKER" not in after.json()["data"]["rendered_text"]
     assert "DELETE_DOC_FACT_MARKER" not in after.json()["data"]["rendered_text"]
     assert "DELETE_DOC_WIDE_FACT_MARKER" not in after.json()["data"]["rendered_text"]
 
 
-def test_delete_document_does_not_delete_cross_memory_scope_fact_refs(tmp_path: Path) -> None:
+def test_fact_write_rejects_cross_memory_scope_document_refs(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         document = client.post(
             "/v1/documents",
@@ -1532,22 +1531,12 @@ def test_delete_document_does_not_delete_cross_memory_scope_fact_refs(tmp_path: 
             headers=auth_headers(),
         )
         deleted = client.delete(f"/v1/documents/{document_id}", headers=auth_headers())
-        secondary_context = client.post(
-            "/v1/context",
-            json={
-                "space_id": "space_client_app",
-                "memory_scope_ids": ["memory_scope_secondary"],
-                "query": "CROSS_MEMORY_SCOPE_FACT_REF_MARKER",
-                "token_budget": 512,
-            },
-            headers=auth_headers(),
-        )
 
     assert document.status_code == 201
-    assert cross_memory_scope_fact.status_code == 201
+    assert cross_memory_scope_fact.status_code == 409
+    assert cross_memory_scope_fact.json()["error"]["code"] == "memory.conflict"
     assert deleted.status_code == 200
     assert deleted.json()["data"]["deleted_facts"] == 0
-    assert "CROSS_MEMORY_SCOPE_FACT_REF_MARKER" in secondary_context.json()["data"]["rendered_text"]
 
 
 def test_document_reimport_same_hash_after_delete_creates_new_active_document(
@@ -2119,7 +2108,8 @@ def test_thread_context_includes_current_thread_and_memory_scope_wide_facts_only
                 "memory_scope_ids": [str(current_scope.memory_scope_id)],
                 "thread_id": str(current_scope.thread_id),
                 "query": "What did we decide about Project Atlas THREAD_SCOPE_MARKER?",
-                "token_budget": 512, "project_anchor_policy": "advisory",
+                "token_budget": 512,
+                "project_anchor_policy": "advisory",
                 "max_facts": 8,
             },
             headers=auth_headers(),

@@ -1,0 +1,24 @@
+{
+  "schema_version": "context-retrieval-v2-errors.v1",
+  "cases": [
+    {"http_status": 400, "code": "memory.context_retrieval_contract_invalid", "retryable": false},
+    {"http_status": 401, "code": "memory.unauthorized", "retryable": false},
+    {"http_status": 403, "code": "memory.forbidden", "retryable": false},
+    {"http_status": 404, "code": "memory.context_retrieval_scope_not_found", "retryable": false},
+    {"http_status": 409, "code": "memory.context_retrieval_capability_mismatch", "retryable": false},
+    {"http_status": 422, "code": "memory.context_retrieval_unsupported", "retryable": false},
+    {"http_status": 503, "code": "memory.context_retrieval_unavailable", "retryable": true},
+    {"http_status": 504, "code": "memory.context_retrieval_deadline_exceeded", "retryable": true},
+    {"http_status": 400, "code": "memory.document_projection_invalid", "retryable": false},
+    {"http_status": 409, "code": "memory.document_projection_locator_conflict", "retryable": false},
+    {"http_status": 409, "code": "memory.document_projection_ordinal_conflict", "retryable": false},
+    {"http_status": 409, "code": "memory.document_projection_idempotency_conflict", "retryable": false}
+  ],
+  "envelope": {
+    "error": {
+      "code": "memory.context_retrieval_contract_invalid",
+      "message": "Request validation failed",
+      "retryable": false
+    }
+  }
+}

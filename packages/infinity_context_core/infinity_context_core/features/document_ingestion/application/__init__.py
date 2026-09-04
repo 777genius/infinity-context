@@ -6,6 +6,10 @@ from infinity_context_core.features.document_ingestion.application.commands impo
     IngestDocumentResult,
     PreparedDocumentIngestion,
 )
+from infinity_context_core.features.document_ingestion.application.reconciliation import (
+    ReconcileExactDocumentHandler,
+    ReconcileExactDocumentQuery,
+)
 from infinity_context_core.features.document_ingestion.application.use_cases import (
     DocumentIngestionIdentityFactory,
     DocumentIngestionUseCases,
@@ -27,5 +31,7 @@ __all__ = (
     "PrepareDocumentIngestionHandler",
     "PrepareDocumentIngestionUseCase",
     "PreparedDocumentIngestion",
+    "ReconcileExactDocumentHandler",
+    "ReconcileExactDocumentQuery",
     "StableDocumentIngestionIdentityFactory",
 )

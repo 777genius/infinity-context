@@ -18,6 +18,9 @@ from infinity_context_core.processes.workspace_scope_claim_verification import (
 )
 
 from infinity_context_server.api.dependencies import get_container
+from infinity_context_server.api.exact_reconciliation_cache import (
+    cached_exact_reconciliation_json,
+)
 from infinity_context_server.auth_scope import (
     PathResourceRefs,
     memory_scope_matches,
@@ -57,8 +60,10 @@ async def require_service_token(
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
-    token = authorization.removeprefix(prefix).strip()
-    if token == expected:
+    token = _canonical_presented_token(authorization.removeprefix(prefix))
+    if token is None:
+        raise MemoryUnauthorizedError("Missing or invalid service token")
+    if _constant_time_token_matches(token, expected):
         request.state.authenticated_actor_id = "root-service-token"
         return
     db_token = await get_active_db_token(container, token)
@@ -67,6 +72,7 @@ async def require_service_token(
     if not db_token.binding_active:
         raise MemoryForbiddenError("Service token scope is no longer active")
     request.state.authenticated_actor_id = db_token.token_id
+    request.state.active_service_token = db_token
     _ensure_permission(request, db_token)
     await _ensure_scoped_token_can_access_request(container, request, db_token)
     await _ensure_memory_scope_scoped_token_can_access_request(container, request, db_token)
@@ -93,12 +99,12 @@ async def require_strict_admin_service_token(
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
-    token = authorization.removeprefix(prefix).strip()
-    if not token:
+    token = _canonical_presented_token(authorization.removeprefix(prefix))
+    if token is None:
         raise MemoryUnauthorizedError("Missing or invalid service token")
 
     expected = container.settings.service_token
-    if expected and hmac.compare_digest(token, expected):
+    if expected and _constant_time_token_matches(token, expected):
         return
     db_token = await get_active_db_token(container, token)
     if db_token is None:
@@ -109,6 +115,19 @@ async def require_strict_admin_service_token(
         raise MemoryForbiddenError("Service token lacks required permission")
     if db_token.space_id is not None or db_token.memory_scope_ids is not None:
         raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
+
+
+def _canonical_presented_token(value: str) -> str | None:
+    token = value.strip()
+    if not token or not token.isascii() or not token.isprintable():
+        return None
+    return token
+
+
+def _constant_time_token_matches(presented: str, expected: str) -> bool:
+    return expected.isascii() and expected.isprintable() and hmac.compare_digest(
+        presented, expected
+    )
 
 
 def _ensure_permission(request: Request, token: ActiveServiceToken) -> None:
@@ -251,7 +270,7 @@ def _ensure_repository_token_endpoint_isolated(
     )
     allowed = (
         (method == "GET" and path == "/v1/capabilities")
-        or (method == "POST" and path in {"/v1/context", "/v1/search"})
+        or (method == "POST" and path in {"/v1/context", "/v1/search", "/v1/context/retrieve"})
         or (method == "POST" and path == "/v1/context/benchmark-search")
         or (method == "POST" and path == "/v1/captures")
         or (method == "POST" and path == "/v1/facts")
@@ -292,7 +311,7 @@ def _required_permission(request: Request) -> str | None:
     if path.startswith("/v1/export"):
         return MEMORY_PERMISSION_ADMIN
 
-    if path in {"/v1/context", "/v1/search"}:
+    if path in {"/v1/context", "/v1/search", "/v1/context/retrieve"}:
         return MEMORY_PERMISSION_READ
 
     if path.startswith("/api/v1/interview-memory"):
@@ -338,7 +357,7 @@ def _required_permission(request: Request) -> str | None:
         return _fact_required_permission(path, method)
 
     if path.startswith("/v1/documents"):
-        return _document_required_permission(method)
+        return _document_required_permission(path, method)
 
     if path.startswith("/v1/suggestions"):
         return _suggestion_required_permission(path, method)
@@ -379,7 +398,9 @@ def _fact_required_permission(path: str, method: str) -> str:
     return MEMORY_PERMISSION_READ
 
 
-def _document_required_permission(method: str) -> str:
+def _document_required_permission(path: str, method: str) -> str:
+    if path == "/v1/documents/reconcile-exact" and method == "POST":
+        return MEMORY_PERMISSION_READ
     if method == "DELETE":
         return MEMORY_PERMISSION_DELETE
     if method in {"POST", "PATCH", "PUT"}:
@@ -410,6 +431,8 @@ async def _ensure_scoped_token_can_access_request(
 ) -> None:
     if token.space_id is None:
         return
+    if _uses_trusted_post_resolution_scope(request):
+        return
     if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
         raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
     if _is_safe_unscoped_endpoint(request):
@@ -430,6 +453,8 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
     token: ActiveServiceToken,
 ) -> None:
     if token.memory_scope_ids is None:
+        return
+    if _uses_trusted_post_resolution_scope(request):
         return
     if request.url.path.startswith("/v1/internal/memory-comparison/runs"):
         raise MemoryForbiddenError(
@@ -463,6 +488,30 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
 
 def _is_safe_unscoped_endpoint(request: Request) -> bool:
     return request.method.upper() == "GET" and request.url.path == "/v1/capabilities"
+
+
+def _uses_trusted_post_resolution_scope(request: Request) -> bool:
+    return request.method.upper() == "POST" and request.url.path == "/v1/context/retrieve"
+
+
+def authorize_resolved_retrieval_scope(
+    request: Request, *, space_id: str, memory_scope_id: str
+) -> None:
+    """Authorize canonical IDs after server-side scope resolution."""
+
+    token = getattr(request.state, "active_service_token", None)
+    if token is None:
+        return
+    if not isinstance(token, ActiveServiceToken):
+        raise MemoryForbiddenError("Invalid authenticated service token context")
+    if token.repository_id is not None or token.code_scope_id is not None:
+        raise MemoryForbiddenError("Repository-scoped tokens cannot use document locator retrieval")
+    if token.space_id is not None and token.space_id != space_id:
+        raise MemoryForbiddenError("Scoped service token cannot access requested space")
+    if token.memory_scope_ids is not None and memory_scope_id not in token.memory_scope_ids:
+        raise MemoryForbiddenError(
+            "MemoryScope-scoped service token cannot access requested memory_scope"
+        )
 
 
 async def _requested_space_refs(container: Container, request: Request) -> set[str]:
@@ -616,6 +665,9 @@ async def _requested_memory_scope_refs(container: Container, request: Request) -
 async def _json_body(request: Request) -> dict[str, Any]:
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return {}
+    cached, body = cached_exact_reconciliation_json(request)
+    if cached:
+        return body if isinstance(body, dict) else {}
     try:
         body = await request.json()
     except Exception:

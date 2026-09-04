@@ -433,6 +433,9 @@ class FakeUnitOfWork:
     async def commit(self) -> None:
         self.events.append("commit")
 
+    async def coordinate_source_refs(self, *, scope, source_refs) -> None:
+        del scope, source_refs
+
     async def rollback(self) -> None:
         self.events.append("rollback")
 

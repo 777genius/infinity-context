@@ -108,7 +108,7 @@ def test_synthetic_2040_lane_is_opt_in_and_provider_free() -> None:
     assert "benchmarks/mem0-oss-adapter-v5" not in job
     assert "${{ secrets." not in job
     assert "--allow-live" not in job
-    assert '-m "not synthetic_2040"' in test_suite_job
+    assert '-m "not synthetic_2040 and not disposable_root"' in test_suite_job
 
 
 def test_benchmark_selection_inventory_is_explicit_and_complete() -> None:

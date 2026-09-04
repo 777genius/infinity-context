@@ -11,12 +11,16 @@ from datetime import datetime, timedelta
 
 from infinity_context_adapters.postgres import create_schema
 from infinity_context_adapters.postgres.models import MemoryOutboxRow
-from sqlalchemy import select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from infinity_context_server.composition import Container, build_container
 from infinity_context_server.config import Settings
-from infinity_context_server.processes import ClaimedOutboxJob, build_outbox_event_dispatcher
+from infinity_context_server.processes import (
+    ClaimedOutboxJob,
+    build_outbox_event_dispatcher,
+)
 from infinity_context_server.storage_maintenance import run_asset_storage_maintenance
 
 MAX_ATTEMPTS = 5
@@ -58,13 +62,26 @@ class OutboxWorker:
     ) -> None:
         self._container = container
         self._filter = worker_filter or OutboxWorkerFilter()
-        self._running_heartbeat_interval = (
-            running_heartbeat_interval or RUNNING_HEARTBEAT_INTERVAL
-        )
+        self._running_heartbeat_interval = running_heartbeat_interval or RUNNING_HEARTBEAT_INTERVAL
         self._dispatcher = build_outbox_event_dispatcher(container)
+        self._runtime_started = False
+
+    async def start(self) -> None:
+        if self._runtime_started or not _should_run_projection_maintenance(self._filter):
+            return
+        await self._container.retrieval_runtime.start_runtime(now=self._container.clock.now())
+        self._runtime_started = True
+
+    async def aclose(self) -> None:
+        if not self._runtime_started:
+            return
+        await self._container.retrieval_runtime.close_runtime(now=self._container.clock.now())
+        self._runtime_started = False
 
     async def run_once(self, *, limit: int = 25, concurrency: int = 1) -> int:
         normalized_limit = max(0, int(limit))
+        await self.start()
+        await self._reconcile_active_retrieval_profile()
         if _should_run_suggestion_maintenance(self._filter):
             await self._container.expire_pending_suggestions.execute(limit=normalized_limit)
         if self._should_run_storage_maintenance():
@@ -72,6 +89,18 @@ class OutboxWorker:
         jobs = await self._claim_pending(limit=normalized_limit)
         await self._process_claimed_jobs(jobs, concurrency=concurrency)
         return len(jobs)
+
+    async def _reconcile_active_retrieval_profile(self) -> None:
+        if not _should_run_projection_maintenance(self._filter):
+            return
+        try:
+            await self._container.retrieval_runtime.reconcile_active(
+                now=self._container.clock.now()
+            )
+        except Exception:
+            # Reconciliation itself expires/marks the canonical lease on drift.
+            # Outbox processing remains available to repair the derived index.
+            return
 
     def _should_run_storage_maintenance(self) -> bool:
         settings = self._container.settings
@@ -137,11 +166,27 @@ class OutboxWorker:
         now = self._container.clock.now()
         async with AsyncSession(self._container.engine) as session:
             await self._recover_expired_running_jobs(session, now=now, limit=limit)
+            predecessor = aliased(MemoryOutboxRow)
+            active_statuses = ("pending", "retry_pending", "running")
+            earlier_same_key = exists(
+                select(predecessor.id).where(
+                    predecessor.fairness_key == MemoryOutboxRow.fairness_key,
+                    predecessor.status.in_(active_statuses),
+                    or_(
+                        predecessor.created_at < MemoryOutboxRow.created_at,
+                        and_(
+                            predecessor.created_at == MemoryOutboxRow.created_at,
+                            predecessor.id < MemoryOutboxRow.id,
+                        ),
+                    ),
+                )
+            )
             query = (
                 select(MemoryOutboxRow)
                 .where(
-                    MemoryOutboxRow.status.in_(("pending", "retry_pending")),
+                    MemoryOutboxRow.status.in_(active_statuses[:2]),
                     MemoryOutboxRow.next_attempt_at <= now,
+                    ~earlier_same_key,
                 )
                 .order_by(MemoryOutboxRow.created_at)
                 .limit(limit)
@@ -159,6 +204,7 @@ class OutboxWorker:
                     workload_class=row.workload_class,
                     fairness_key=row.fairness_key,
                     payload_json=dict(row.payload_json),
+                    aggregate_type=row.aggregate_type,
                 )
                 for row in rows
             ]
@@ -310,6 +356,14 @@ def _should_run_storage_maintenance(worker_filter: OutboxWorkerFilter) -> bool:
     return "extraction" in worker_filter.workload_classes
 
 
+def _should_run_projection_maintenance(worker_filter: OutboxWorkerFilter) -> bool:
+    if worker_filter.event_types and not any(
+        value.startswith("vector.") for value in worker_filter.event_types
+    ):
+        return False
+    return not worker_filter.workload_classes or "projection" in worker_filter.workload_classes
+
+
 def _worker_filter_from_args(args: argparse.Namespace) -> OutboxWorkerFilter:
     workload_classes = tuple(args.workload_class or ())
     if not workload_classes:
@@ -326,6 +380,7 @@ async def _run(args: argparse.Namespace) -> None:
         await create_schema(container.engine)
     worker = OutboxWorker(container, worker_filter=_worker_filter_from_args(args))
     try:
+        await container.start_retrieval_runtime()
         while True:
             count = await worker.run_once(limit=args.limit, concurrency=args.concurrency)
             print({"processed": count})

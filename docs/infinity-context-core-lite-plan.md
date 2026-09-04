@@ -4770,7 +4770,7 @@ Config rules:
 
 - disabled adapter must become a `Noop*Adapter`;
 - missing optional adapter config must not crash the server;
-- missing `MEMORY_SERVICE_TOKEN` crashes startup outside test mode;
+- missing `MEMORY_SERVICE_TOKEN` crashes startup in canary and server modes;
 - test mode uses fake clock, fake ids and no external network;
 - config is read only in `infinity_context_server`, never inside domain entities.
 
@@ -4795,6 +4795,7 @@ local
 
 canary
   Client App shadow ingest/retrieve
+  service token required, including provider-free local canaries
   production-safe diagnostics
   strict timeouts
   fallback always enabled
@@ -4815,7 +4816,8 @@ MEMORY_DEPLOY_PROFILE=test | local | canary | server
 Rules:
 
 - `test` memory scope cannot use real provider clients;
-- `server` memory scope cannot start without service token and migrations;
+- `canary` and `server` memory scopes cannot start without a service token;
+- `server` memory scope cannot start without migrations;
 - `canary` memory scope keeps active context disabled unless explicitly enabled;
 - deploy profile validation happens at startup in `infinity_context_server`;
 - domain/application code never branches by deploy profile.

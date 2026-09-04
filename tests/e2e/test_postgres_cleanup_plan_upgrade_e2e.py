@@ -1,4 +1,4 @@
-"""Real PostgreSQL proof for the focused cleanup-plan 0033 upgrade."""
+"""Real PostgreSQL proofs for cleanup-plan and appended migration upgrades."""
 
 import asyncio
 import os
@@ -19,6 +19,49 @@ def test_cleanup_plan_upgrade_couples_legacy_and_v2_rows_when_configured() -> No
     if not database_url:
         pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
     asyncio.run(_assert_cleanup_plan_upgrade(database_url))
+
+
+def test_exact_pr57_history_upgrades_with_appended_document_indexes() -> None:
+    database_url = os.getenv("INFINITY_CONTEXT_TEST_POSTGRES_URL")
+    if not database_url:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not configured")
+    asyncio.run(_assert_pr57_history_upgrade(database_url))
+
+
+async def _assert_pr57_history_upgrade(database_url: str) -> None:
+    asyncpg = pytest.importorskip("asyncpg")
+    try:
+        database = PostgresTestDatabase.from_url(
+            database_url,
+            prefix="pr57_history_upgrade",
+            asyncpg=asyncpg,
+        )
+    except ValueError:
+        pytest.skip("INFINITY_CONTEXT_TEST_POSTGRES_URL is not PostgreSQL")
+    try:
+        await database.recreate()
+        await _install_versioned_schema_through(database, "0051_")
+        engine = build_async_engine(database.app_url)
+        try:
+            upgrade = await upgrade_schema(engine)
+            assert upgrade.applied == (
+                "0052_document_scope_listing_indexes",
+                "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
+                "0056_fact_outbox_receipt_trigger_scope",
+                "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
+            )
+            assert upgrade.current == "0059_locator_parent_lifecycle"
+            assert (await upgrade_schema(engine)).applied == ()
+            await _assert_cleanup_plan_schema(engine)
+        finally:
+            await engine.dispose()
+    finally:
+        await database.drop()
 
 
 async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
@@ -45,6 +88,28 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0036_memory_comparison_strict_v4_preparations",
                 "0037_strict_v4_fact_writer",
                 "0038_strict_v4_document_writer",
+                "0039_locator_retrieval_attributes",
+                "0040_locator_profile_lifecycle",
+                "0041_locator_profile_attestation_fence",
+                "0042_locator_profile_retirement",
+                "0043_locator_profile_transition_audit",
+                "0044_locator_profile_operator_receipts",
+                "0045_locator_profile_incremental_attestation",
+                "0046_locator_profile_linearizable_fences",
+                "0047_locator_runtime_supervisor_proofs",
+                "0048_locator_lifecycle_release_identity",
+                "0049_reconciliation_runtime_generation",
+                "0050_locator_profile_outbox_transaction_coalescing",
+                "0051_locator_profile_acl_search_path_hardening",
+                "0052_document_scope_listing_indexes",
+                "0052_reconciliation_outbox_binding_index",
+                "0053_retrieval_default_lifecycle",
+                "0054_locator_profile_exact_delete_generation",
+                "0055_generic_vector_rebuild_operations",
+                "0056_fact_outbox_receipt_trigger_scope",
+                "0057_unmanaged_document_trigger_scope",
+                "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)

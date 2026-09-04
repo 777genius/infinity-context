@@ -123,6 +123,7 @@ async def ensure_import_threads(
     space_id: str,
     memory_scope_id: str,
     now: datetime,
+    referenced_thread_id_map: dict[str, str] | None = None,
 ) -> None:
     threads = threads or []
     skipped_thread_ids = skipped_thread_ids or set()
@@ -145,6 +146,7 @@ async def ensure_import_threads(
         if str(episode.get("id")) not in skipped_episode_ids
         and episode_source_thread_id(episode) not in thread_payload_ids
     }
+    needed.update(referenced_thread_id_map or {})
     needed = {
         source_thread_id: target_thread_id
         for source_thread_id, target_thread_id in needed.items()

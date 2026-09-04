@@ -492,6 +492,18 @@ async def _assert_runtime_boundary(asyncpg, admin_dsn: str, database: str) -> No
     )
     try:
         assert await runtime.fetchval("SELECT count(*) FROM public.memory_spaces") == 0
+        assert (
+            await runtime.fetchval(
+                "SELECT count(*) FROM public.memory_locator_profile_tombstone_replays"
+            )
+            == 0
+        )
+        assert (
+            await runtime.fetchval(
+                "SELECT count(*) FROM public.memory_document_projection_receipts"
+            )
+            == 0
+        )
         await runtime.execute(
             "INSERT INTO public.memory_spaces "
             "(id, slug, name, status, created_at, updated_at) VALUES "
@@ -503,6 +515,37 @@ async def _assert_runtime_boundary(asyncpg, admin_dsn: str, database: str) -> No
                 "SELECT count(*) FROM public.memory_spaces WHERE slug='selfhost-e2e'"
             )
             == 1
+        )
+        await runtime.execute(
+            "INSERT INTO public.memory_scopes "
+            "(id, space_id, external_ref, name, status, created_at, updated_at) VALUES "
+            "('selfhost-e2e-scope', 'selfhost-e2e-space', 'selfhost-e2e', "
+            "'Selfhost E2E', 'active', now(), now())"
+        )
+        await runtime.execute(
+            "INSERT INTO public.memory_documents "
+            "(id, space_id, memory_scope_id, title, source_type, source_external_id, "
+            "content_hash, classification, status, created_at, updated_at) VALUES "
+            "('selfhost-e2e-document', 'selfhost-e2e-space', 'selfhost-e2e-scope', "
+            "'Document', 'test', 'document-1', 'document-hash', "
+            "'internal', 'active', now(), now())"
+        )
+        await runtime.execute(
+            "INSERT INTO public.memory_chunks "
+            "(id, space_id, memory_scope_id, document_id, source_type, "
+            "source_external_id, source_hash, kind, text, normalized_text, status, "
+            "sequence, char_start, char_end, token_estimate, classification, "
+            "created_at, updated_at, metadata_json) VALUES "
+            "('selfhost-e2e-chunk', 'selfhost-e2e-space', 'selfhost-e2e-scope', "
+            "'selfhost-e2e-document', 'test', 'document-1', 'chunk-hash', "
+            "'text', 'test', 'test', 'active', 0, 0, 4, 1, "
+            "'internal', now(), now(), '{}'::jsonb)"
+        )
+        await runtime.execute(
+            "INSERT INTO public.memory_idempotency_records "
+            "(space_id, key, fingerprint, result_type, result_id, created_at) VALUES "
+            "('selfhost-e2e-space', 'ordinary-document-key', 'document-hash', "
+            "'document', 'selfhost-e2e-document', now())"
         )
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await runtime.execute("CREATE TABLE public.selfhost_acl_escape(id integer)")

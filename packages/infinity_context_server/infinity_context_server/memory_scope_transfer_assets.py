@@ -79,7 +79,9 @@ def remap_asset(
     asset_id = str(item["id"])
     mapped_id = asset_id_map.get(asset_id, asset_id)
     thread_id = item.get("thread_id")
-    mapped_thread_id = thread_id_map.get(str(thread_id)) if thread_id is not None else None
+    mapped_thread_id = (
+        thread_id_map.get(str(thread_id), str(thread_id)) if thread_id is not None else None
+    )
     digest = str(item.get("sha256_hex") or "")
     filename = str(item.get("filename") or mapped_id)
     return {

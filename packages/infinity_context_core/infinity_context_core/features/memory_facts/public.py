@@ -45,6 +45,7 @@ from infinity_context_core.features.memory_facts.application import (
     UpdateFactHandler,
     UpdateFactResult,
     UpdateFactUseCase,
+    memory_fact_identity_lock_key,
 )
 from infinity_context_core.features.memory_facts.domain import (
     FEATURE_ID,
@@ -180,6 +181,7 @@ __all__ = (
     "MemoryFactUnitOfWorkPort",
     "MemoryFactVisibility",
     "MemoryFactsFeature",
+    "memory_fact_identity_lock_key",
     "NormalizedFactTaxonomy",
     "normalize_fact_taxonomy_fields",
     "RememberFactCommand",

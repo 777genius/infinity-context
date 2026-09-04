@@ -88,6 +88,8 @@ def test_browser_serializers_redact_metadata_and_quote_previews() -> None:
             metadata={
                 "debug": f"Bearer {raw_secret}",
                 "source_refs": [{"quote_preview": f"Bearer {raw_secret}"}],
+                "_retrieval_projection_contract": {"locator": "internal-contract"},
+                "_canonical_retrieval_projection": {"locator": "internal-canonical"},
             },
         )
     )
@@ -180,6 +182,8 @@ def test_browser_serializers_redact_metadata_and_quote_previews() -> None:
     assert "token" not in anchor["metadata"]
     assert "[redacted]" in anchor["evidence_refs"][0]["quote_preview"]
     assert "[redacted]" in chunk["source_refs"][0]["quote_preview"]
+    assert "_retrieval_projection_contract" not in chunk["metadata"]
+    assert "_canonical_retrieval_projection" not in chunk["metadata"]
     assert "[redacted]" in context_item["source_refs"][0]["quote_preview"]
     assert "api_key" not in context_item["diagnostics"]
     assert "token" not in context_item["diagnostics"]["provenance"]
@@ -701,9 +705,7 @@ def test_memory_suggestion_review_audit_is_bounded_and_redacted() -> None:
     assert "authorization" not in response["review_audit"]["events"][0]
     assert response["review_reason"] == "[redacted]"
     assert response["safe_reason"] == "[redacted]"
-    assert response["source_refs"][0]["source_id"] == (
-        "https://[redacted]@example.com/private"
-    )
+    assert response["source_refs"][0]["source_id"] == ("https://[redacted]@example.com/private")
     assert response["source_refs"][0]["chunk_id"] == "chunk-[redacted]"
     assert raw_secret not in rendered
     assert "user:password" not in rendered
@@ -872,9 +874,7 @@ def test_context_item_response_redacts_sensitive_source_ref_identities() -> None
 
     rendered = json.dumps(response, sort_keys=True)
 
-    assert response["source_refs"][0]["source_id"] == (
-        "https://[redacted]@example.com/private"
-    )
+    assert response["source_refs"][0]["source_id"] == ("https://[redacted]@example.com/private")
     assert response["source_refs"][0]["chunk_id"] == "chunk-[redacted]"
     assert "https://[redacted]@example.com/private" in response["citations"][0]["label"]
     assert raw_secret not in rendered

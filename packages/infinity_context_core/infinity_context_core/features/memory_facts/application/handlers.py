@@ -65,6 +65,10 @@ class RememberFactHandler:
                     )
                     if receipt is not None:
                         return _remember_replay(receipt, fingerprint)
+                await uow.coordinate_source_refs(
+                    scope=command.scope,
+                    source_refs=command.source_refs,
+                )
                 now = self.clock.now()
                 aggregate = MemoryFact.remember(
                     identity=MemoryFactIdentity(
@@ -156,6 +160,10 @@ class UpdateFactHandler:
                             command.authorized_code_scope,
                         )
                         return result
+                await uow.coordinate_source_refs(
+                    scope=command.identity.scope,
+                    source_refs=command.source_refs,
+                )
                 current = await uow.facts.get_for_update(command.identity)
                 if key is not None:
                     receipt = await uow.operation_receipts.get(

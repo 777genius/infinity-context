@@ -5,7 +5,10 @@ from __future__ import annotations
 from types import TracebackType
 from typing import Protocol
 
-from infinity_context_core.features.memory_facts.domain import MemoryFactScope
+from infinity_context_core.features.memory_facts.domain import (
+    MemoryFactScope,
+    MemoryFactSourceRef,
+)
 from infinity_context_core.features.memory_facts.ports.idempotency import (
     MemoryFactOperationReceiptPort,
 )
@@ -30,6 +33,14 @@ class MemoryFactTransactionPort(Protocol):
 
     async def lock_scope(self, scope: MemoryFactScope) -> None:
         """Serialize graph-wide invariants inside one canonical fact scope."""
+
+    async def coordinate_source_refs(
+        self,
+        *,
+        scope: MemoryFactScope,
+        source_refs: tuple[MemoryFactSourceRef, ...],
+    ) -> None:
+        """Coordinate canonical document evidence before locking fact aggregates."""
 
 
 class MemoryFactUnitOfWorkPort(MemoryFactTransactionPort, Protocol):

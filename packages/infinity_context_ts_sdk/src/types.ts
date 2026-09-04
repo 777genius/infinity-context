@@ -70,6 +70,8 @@ export interface FactRecord extends JsonObject {
 export interface DocumentRecord extends JsonObject {
   readonly id: string;
   readonly title: string;
+  readonly source_type: string;
+  readonly source_external_id: string;
   readonly status: string;
 }
 
@@ -256,4 +258,10 @@ export interface InfinityContextCapabilities extends JsonObject {
   readonly enabled_adapters?: string[];
   readonly supports_qdrant?: boolean;
   readonly supports_graphiti?: boolean;
+  readonly context?: JsonObject & {
+    readonly retrieval?: JsonObject & import("./retrieval-types.js").RetrievalCapability;
+  };
+  readonly documents?: JsonObject & {
+    readonly exact_reconciliation?: JsonObject & import("./document-reconciliation.js").ExactDocumentReconciliationCapabilityV1;
+  };
 }

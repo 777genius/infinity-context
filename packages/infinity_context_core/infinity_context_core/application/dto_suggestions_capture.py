@@ -28,6 +28,7 @@ class CreateSuggestionCommand:
     kind: MemoryKind
     source_refs: tuple[SourceRef, ...]
     safe_reason: str
+    thread_id: str | None = None
     confidence: str = "medium"
     trust_level: str = "medium"
     target_fact_id: str | None = None

@@ -41,6 +41,7 @@ class MemorySuggestion:
     target_fact_version: int | None
     created_at: datetime
     updated_at: datetime
+    thread_id: str | None = None
     category: str | None = None
     tags: tuple[str, ...] = ()
     ttl_policy: str | None = None
@@ -59,6 +60,7 @@ class MemorySuggestion:
         suggestion_id: MemorySuggestionId,
         space_id: SpaceId,
         memory_scope_id: MemoryScopeId,
+        thread_id: str | None = None,
         candidate_text: str,
         kind: MemoryKind,
         source_refs: tuple[SourceRef, ...],
@@ -82,6 +84,8 @@ class MemorySuggestion:
             raise MemoryValidationError("Suggestion candidate_text is required")
         if not safe_reason.strip():
             raise MemoryValidationError("Suggestion safe_reason is required")
+        if thread_id is not None and not str(thread_id).strip():
+            raise MemoryValidationError("Suggestion thread_id cannot be blank")
         if len(tags) > 10:
             raise MemoryValidationError("Suggestion tags exceed limit")
         if (
@@ -94,6 +98,7 @@ class MemorySuggestion:
             space_id=space_id,
             memory_scope_id=memory_scope_id,
             candidate_text=candidate_text.strip(),
+            thread_id=str(thread_id).strip() if thread_id is not None else None,
             kind=kind,
             operation=operation,
             status=SuggestionStatus.PENDING,

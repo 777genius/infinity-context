@@ -1,4 +1,4 @@
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import type { JsonObject } from "../types.js";
 import type {
   InspectMemoryIssue,
@@ -181,7 +181,7 @@ export function assertMemoryInspectionPolicy(
     return evaluation;
   }
 
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.inspection_policy_failed",
     message: `Memory inspection policy failed: ${evaluation.errors.join("; ")}`,

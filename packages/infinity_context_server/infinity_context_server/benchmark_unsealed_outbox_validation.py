@@ -14,6 +14,10 @@ from infinity_context_core.ports.benchmark_runs import BenchmarkRunRegistryRecor
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server.projection_delete_payload import (
+    valid_versioned_chunk_delete_payload,
+)
+
 MAX_RECOVERY_OBSOLETE_UPSERT_JOBS = MAX_CLEANUP_PLAN_RECOVERY_TOTAL_ROWS * 4
 MAX_RECOVERY_DELETE_OUTBOX_ROWS = MAX_CLEANUP_PLAN_RECOVERY_ROWS_PER_KIND + 1
 _UPSERT_EVENT_TYPES = frozenset(
@@ -152,12 +156,17 @@ def _require_delete_payloads(
     expected_facts = sorted(str(row.id) for row in facts)
     vector = [row for row in rows if row.event_type == "vector.delete_chunks"]
     graph = [row for row in rows if row.event_type == "graph.delete_fact"]
-    if vector and vector[0].payload_json != {
-        "chunk_ids": expected_chunks,
-        "space_id": record.space_id,
-        "cleanup_run_id_sha256": record.run_id_sha256,
-    }:
-        raise MemoryConflictError("Unsealed vector cleanup payload differs")
+    if vector:
+        payload = vector[0].payload_json
+        if not valid_versioned_chunk_delete_payload(
+            payload,
+            chunk_ids=expected_chunks,
+            metadata={
+                "space_id": record.space_id,
+                "cleanup_run_id_sha256": record.run_id_sha256,
+            },
+        ):
+            raise MemoryConflictError("Unsealed vector cleanup payload differs")
     if sorted(row.aggregate_id for row in graph) != expected_facts:
         raise MemoryConflictError("Unsealed graph cleanup payload identities differ")
     for row in graph:

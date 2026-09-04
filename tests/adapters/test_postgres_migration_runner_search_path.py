@@ -20,19 +20,99 @@ class _EmptyResult:
 
 
 class _RecordingConnection:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        events: list[str] | None = None,
+        *,
+        lock_attempts: tuple[bool | BaseException, ...] = (True,),
+        unlock_result: bool | BaseException = True,
+    ) -> None:
         self.statements: list[str] = []
+        self.events = events if events is not None else []
+        self.invalidated = False
+        self.closed = False
+        self.driver = _RecordingDriver(
+            self.events,
+            lock_attempts=lock_attempts,
+            unlock_result=unlock_result,
+        )
 
     async def execute(self, statement, *_args, **_kwargs) -> _EmptyResult:
-        self.statements.append(_sql(statement))
+        normalized = _sql(statement)
+        self.statements.append(normalized)
+        self.events.append(f"sqlalchemy:{normalized}")
         return _EmptyResult()
 
     async def scalar(self, statement, *_args, **_kwargs) -> bool:
         self.statements.append(_sql(statement))
         return False
 
+    def begin(self) -> _Begin:
+        return _Begin(self, self.events)
+
+    async def get_raw_connection(self):
+        return SimpleNamespace(driver_connection=self.driver)
+
+    async def invalidate(self) -> None:
+        self.invalidated = True
+        self.events.append("sqlalchemy:invalidate")
+
+    async def close(self) -> None:
+        self.closed = True
+        self.events.append("sqlalchemy:close")
+
+
+class _RecordingDriver:
+    def __init__(
+        self,
+        events: list[str],
+        *,
+        lock_attempts: tuple[bool | BaseException, ...],
+        unlock_result: bool | BaseException,
+    ) -> None:
+        self.statements: list[str] = []
+        self._events = events
+        self._lock_attempts = iter(lock_attempts)
+        self._unlock_result = unlock_result
+
+    async def execute(self, statement: str) -> str:
+        normalized = _sql(statement)
+        self.statements.append(normalized)
+        self._events.append(f"raw:{normalized}")
+        return "OK"
+
+    async def fetchval(self, statement: str) -> bool:
+        normalized = _sql(statement)
+        self.statements.append(normalized)
+        if "pg_advisory_unlock" in normalized:
+            if isinstance(self._unlock_result, BaseException):
+                self._events.append(f"raw-error:{normalized}")
+                raise self._unlock_result
+            result = self._unlock_result
+        else:
+            result = next(self._lock_attempts)
+            if isinstance(result, BaseException):
+                self._events.append(f"raw-error:{normalized}")
+                raise result
+        self._events.append(f"raw-complete:{normalized}:{result}")
+        return result
+
 
 class _Begin:
+    def __init__(self, connection: _RecordingConnection, events: list[str]) -> None:
+        self._connection = connection
+        self._events = events
+
+    async def __aenter__(self) -> _RecordingConnection:
+        self._events.append("sqlalchemy:begin")
+        return self._connection
+
+    async def __aexit__(self, *_args) -> None:
+        self._events.append("sqlalchemy:end")
+        return None
+
+
+class _ConnectionContext:
     def __init__(self, connection: _RecordingConnection) -> None:
         self._connection = connection
 
@@ -46,11 +126,21 @@ class _Begin:
 class _Engine:
     dialect = SimpleNamespace(name="postgresql")
 
-    def __init__(self) -> None:
-        self.connection = _RecordingConnection()
+    def __init__(
+        self,
+        events: list[str] | None = None,
+        *,
+        lock_attempts: tuple[bool | BaseException, ...] = (True,),
+        unlock_result: bool | BaseException = True,
+    ) -> None:
+        self.connection = _RecordingConnection(
+            events,
+            lock_attempts=lock_attempts,
+            unlock_result=unlock_result,
+        )
 
-    def begin(self) -> _Begin:
-        return _Begin(self.connection)
+    def connect(self) -> _ConnectionContext:
+        return _ConnectionContext(self.connection)
 
 
 def test_upgrade_sets_hostile_safe_search_path_before_catalog_work(monkeypatch) -> None:
@@ -72,21 +162,218 @@ def test_upgrade_sets_hostile_safe_search_path_before_catalog_work(monkeypatch) 
         events.append("apply-pending")
         return (migration.migration_id,)
 
+    async def record_backoff(delay: float) -> None:
+        assert delay == migration_runner._ADVISORY_LOCK_RETRY_SECONDS
+        events.append("backoff")
+
     monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
     monkeypatch.setattr(migration_runner, "_ensure_history_table", ensure_history)
     monkeypatch.setattr(migration_runner, "_load_history", load_history)
     monkeypatch.setattr(migration_runner, "_has_unversioned_schema", has_unversioned_schema)
     monkeypatch.setattr(migration_runner, "_apply_pending", apply_pending)
+    monkeypatch.setattr(migration_runner.asyncio, "sleep", record_backoff)
 
-    engine = _Engine()
+    engine = _Engine(events, lock_attempts=(False, True))
     result = asyncio.run(migration_runner.upgrade_schema(engine))
 
-    assert engine.connection.statements == [
-        "SET LOCAL search_path = public, pg_catalog, pg_temp",
-        f"SELECT pg_catalog.pg_advisory_xact_lock({migration_runner._ADVISORY_LOCK_ID})",
+    assert engine.connection.statements == []
+    assert engine.connection.driver.statements == [
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
     ]
-    assert events == ["ensure-history", "load-history", "detect-legacy", "apply-pending"]
+    assert events == [
+        "raw:SET search_path = public, pg_catalog, pg_temp",
+        "raw-complete:SELECT pg_catalog.pg_try_advisory_lock"
+        f"({migration_runner._ADVISORY_LOCK_ID}):False",
+        "backoff",
+        "raw-complete:SELECT pg_catalog.pg_try_advisory_lock"
+        f"({migration_runner._ADVISORY_LOCK_ID}):True",
+        "sqlalchemy:begin",
+        "ensure-history",
+        "load-history",
+        "detect-legacy",
+        "sqlalchemy:end",
+        "apply-pending",
+        "raw-complete:SELECT pg_catalog.pg_advisory_unlock"
+        f"({migration_runner._ADVISORY_LOCK_ID}):True",
+    ]
     assert result.applied == (migration.migration_id,)
+
+
+def test_upgrade_cancelled_while_waiting_does_not_unlock(monkeypatch) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def cancel_backoff(_delay: float) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner.asyncio, "sleep", cancel_backoff)
+
+    engine = _Engine(lock_attempts=(False,))
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.driver.statements == [
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+    ]
+    assert not engine.connection.invalidated
+    assert not engine.connection.closed
+
+
+@pytest.mark.parametrize(
+    "acquisition_error",
+    [OSError("connection lost"), asyncio.CancelledError("acquisition cancelled")],
+)
+def test_uncertain_acquisition_discards_connection(
+    monkeypatch,
+    acquisition_error: BaseException,
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    engine = _Engine(lock_attempts=(acquisition_error,))
+
+    with pytest.raises(type(acquisition_error), match=str(acquisition_error)):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.invalidated
+    assert engine.connection.closed
+
+
+@pytest.mark.parametrize("error_type", [RuntimeError, asyncio.CancelledError])
+def test_upgrade_releases_acquired_lock_after_application_failure(
+    monkeypatch,
+    error_type: type[BaseException],
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def fail_application(_connection, _migrations, _history) -> tuple[str, ...]:
+        raise error_type("application stopped")
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner, "_apply_pending", fail_application)
+
+    engine = _Engine()
+    with pytest.raises(error_type, match="application stopped"):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.driver.statements == [
+        "SET search_path = public, pg_catalog, pg_temp",
+        f"SELECT pg_catalog.pg_try_advisory_lock({migration_runner._ADVISORY_LOCK_ID})",
+        f"SELECT pg_catalog.pg_advisory_unlock({migration_runner._ADVISORY_LOCK_ID})",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("unlock_result", "error_type"),
+    [
+        (False, RuntimeError),
+        (OSError("connection lost"), OSError),
+        (asyncio.CancelledError("unlock cancelled"), asyncio.CancelledError),
+    ],
+)
+def test_uncertain_unlock_discards_connection(
+    monkeypatch,
+    unlock_result: bool | BaseException,
+    error_type: type[BaseException],
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def apply_pending(_connection, _migrations, _history) -> tuple[str, ...]:
+        return (migration.migration_id,)
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner, "_apply_pending", apply_pending)
+    engine = _Engine(unlock_result=unlock_result)
+
+    with pytest.raises(error_type):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.invalidated
+    assert engine.connection.closed
+
+
+@pytest.mark.parametrize(
+    "unlock_result",
+    [False, OSError("connection lost"), asyncio.CancelledError("unlock cancelled")],
+)
+@pytest.mark.parametrize(
+    "application_error",
+    [
+        LookupError("original application failure"),
+        asyncio.CancelledError("original application cancellation"),
+    ],
+)
+def test_uncertain_unlock_preserves_original_application_error(
+    monkeypatch,
+    unlock_result: bool | BaseException,
+    application_error: BaseException,
+) -> None:
+    migration = migration_runner._Migration("0001_test", "a" * 64, "SELECT 1")
+
+    async def fail_application(_connection, _migrations, _history) -> tuple[str, ...]:
+        raise application_error
+
+    monkeypatch.setattr(migration_runner, "_load_migrations", lambda: (migration,))
+    monkeypatch.setattr(migration_runner, "_apply_pending", fail_application)
+    engine = _Engine(unlock_result=unlock_result)
+
+    with pytest.raises(type(application_error), match=str(application_error)):
+        asyncio.run(migration_runner.upgrade_schema(engine))
+
+    assert engine.connection.invalidated
+    assert engine.connection.closed
+
+
+def test_pending_script_starts_physical_transaction_before_raw_ddl(monkeypatch) -> None:
+    events: list[str] = []
+    connection = _RecordingConnection(events)
+    migration = migration_runner._Migration(
+        "0001_atomic", "a" * 64, "CREATE TABLE atomic_proof (id integer)"
+    )
+
+    async def fail_history(*_args, **_kwargs) -> None:
+        events.append("history:failed")
+        raise RuntimeError("history persistence failed")
+
+    monkeypatch.setattr(migration_runner, "_record_migration", fail_history)
+    with pytest.raises(RuntimeError, match="history persistence failed"):
+        asyncio.run(migration_runner._apply_pending(connection, (migration,), {}))
+
+    assert events.index("sqlalchemy:SELECT 1") < events.index(
+        "raw:CREATE TABLE atomic_proof (id integer)"
+    )
+    assert events.index("raw:CREATE TABLE atomic_proof (id integer)") < events.index(
+        "history:failed"
+    )
+
+
+def test_pending_staged_migration_is_an_out_of_transaction_boundary() -> None:
+    migrations = (
+        migration_runner._Migration("0038_before", "a" * 64, "SELECT 1"),
+        migration_runner._Migration(
+            "0039_locator_retrieval_attributes", "b" * 64, "SELECT 2"
+        ),
+        migration_runner._Migration("0041_after", "c" * 64, "SELECT 3"),
+    )
+    assert all(migration.transactional for migration in migrations)
+
+    boundary = migration_runner._first_pending_out_of_transaction(
+        migrations,
+        {"0038_before": migrations[0].checksum},
+    )
+
+    assert boundary == 1
+    with pytest.raises(RuntimeError, match="Staged migration entered transactional phase"):
+        asyncio.run(
+            migration_runner._apply_transactional_pending(
+                object(),
+                (migrations[1],),
+                {},
+            )
+        )
 
 
 def test_history_and_legacy_catalog_sql_cannot_resolve_hostile_shadows() -> None:

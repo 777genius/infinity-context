@@ -353,7 +353,7 @@ describe("full memory proof", () => {
       startedAt: "2026-06-06T00:00:00.000Z",
       finishedAt: "2026-06-06T00:00:02.500Z",
       metadata: {
-        sdk: { packageName: "@infinity-context/sdk", packageVersion: "0.1.0" },
+        sdk: { packageName: "@infinity-context/sdk", packageVersion: "0.2.0" },
         git: { commitSha: "abc123", branch: "main", repository: "777genius/memo-stack" },
         runtime: { baseUrl: "http://memory.test", requireFullMemory: true },
       },
@@ -367,7 +367,7 @@ describe("full memory proof", () => {
       durationMs: 2500,
       ok: true,
       metadata: {
-        sdk: { packageName: "@infinity-context/sdk", packageVersion: "0.1.0" },
+        sdk: { packageName: "@infinity-context/sdk", packageVersion: "0.2.0" },
         git: { commitSha: "abc123", branch: "main", repository: "777genius/memo-stack" },
         runtime: { baseUrl: "http://memory.test", requireFullMemory: true },
       },

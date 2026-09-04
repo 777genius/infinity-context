@@ -65,3 +65,15 @@ def test_create_suggestion_rejects_unknown_source_ref_fields(tmp_path: Path) -> 
 
     assert created.status_code == 400
     assert created.json()["error"]["code"] == "memory.validation"
+
+
+def test_create_suggestion_rejects_client_owned_canonical_thread_payload(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        created = client.post(
+            "/v1/suggestions",
+            json=_payload(review_payload={"canonical_source_thread_id": "thread-other"}),
+            headers={"Authorization": "Bearer test-token"},
+        )
+
+    assert created.status_code == 400
+    assert created.json()["error"]["code"] == "memory.validation"

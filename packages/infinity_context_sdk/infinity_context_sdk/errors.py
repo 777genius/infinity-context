@@ -24,6 +24,20 @@ class InfinityContextError(RuntimeError):
         self.unknown_commit_state = unknown_commit_state
 
 
+class InfinityContextTransportCapabilityError(InfinityContextError):
+    """Configured transport cannot implement the requested SDK operation safely."""
+
+
+def transport_capability_error(message: str) -> InfinityContextTransportCapabilityError:
+    return InfinityContextTransportCapabilityError(
+        status_code=0,
+        code="memory.transport_capability_invalid",
+        message=message,
+        retryable=False,
+        unknown_commit_state=False,
+    )
+
+
 def to_error(
     response: httpx.Response,
     *,
@@ -51,4 +65,9 @@ def _safe_error_message(value: str) -> str:
     return redact_sensitive_text(value.strip() or "Infinity Context request failed")[:500]
 
 
-__all__ = ("InfinityContextError", "to_error")
+__all__ = (
+    "InfinityContextError",
+    "InfinityContextTransportCapabilityError",
+    "to_error",
+    "transport_capability_error",
+)

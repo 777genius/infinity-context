@@ -77,6 +77,7 @@ dev = [
 
 [project.scripts]
 infinity-context = "infinity_context_cli.cli:main"
+infinity-context-admin = "infinity_context_server.admin:main"
 infinity-context-managed-preflight = "infinity_context_server.memory_comparison_managed_preflight_cli:main"
 infinity-context-managed-production-pre-readiness = "infinity_context_server.memory_comparison_managed_production_cli:main"
 infinity-context-managed-live-canary = "infinity_context_server.memory_comparison_managed_live_cli:main"
@@ -125,7 +126,11 @@ infinity_context_adapters = [
   "extraction/prompts/*.md",
   "extraction/schemas/*.json",
   "postgres/migrations/*.sql",
+  "postgres/maintenance/*.sql",
   "postgres/provisioning/*.sql",
+]
+infinity_context_contracts = [
+  "fixtures/context_retrieval_v2/*.json",
 ]
 infinity_context_server = [
   "web/*.html",
@@ -139,6 +144,7 @@ infinity_context_obsidian = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/infinity_context_core/infinity_context_core/features"]
 markers = [
+  "disposable_root: mandatory E2E contracts requiring the disposable root CI harness",
   "synthetic_2040: opt-in provider-free synthetic 2,040-case contracts",
 ]
 pythonpath = [

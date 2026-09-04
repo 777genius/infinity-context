@@ -74,6 +74,7 @@ def build_memory_scope_snapshot_import_preview(
         context_links=context_links,
         context_link_suggestions=context_link_suggestions,
         relations=relations,
+        source_refs=source_refs,
     )
     conflicts = _conflicts_by_type(
         conflict_ids=conflict_ids,
@@ -230,6 +231,7 @@ def skipped_snapshot_ids(
     threads: list[dict[str, Any]] | None = None,
     context_link_suggestions: list[dict[str, Any]] | None = None,
     relations: list[dict[str, Any]] | None = None,
+    source_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, set[str]]:
     relations = relations or []
     threads = threads or []
@@ -237,6 +239,7 @@ def skipped_snapshot_ids(
     asset_extraction_jobs = asset_extraction_jobs or []
     extraction_artifacts = extraction_artifacts or []
     extraction_artifact_blobs = extraction_artifact_blobs or []
+    source_refs = source_refs or []
     thread_ids = _record_ids(threads)
     fact_ids = _record_ids(facts)
     document_ids = _record_ids(documents)
@@ -323,6 +326,23 @@ def skipped_snapshot_ids(
             skipped_episodes=skipped_episodes,
         )
     )
+    # A fact and its declared canonical evidence are one import unit. In
+    # particular, skip_existing must never retain the fact after a local chunk
+    # or direct document dependency has been skipped and later manufacture an
+    # unrelated import citation for it.
+    if merge_strategy == "skip_existing":
+        skipped_facts.update(
+            str(ref["fact_id"])
+            for ref in source_refs
+            if str(ref.get("fact_id")) in fact_ids
+            and _canonical_source_ref_dependency_skipped(
+                ref,
+                document_ids=document_ids,
+                skipped_documents=skipped_documents,
+                chunk_ids=chunk_ids,
+                skipped_chunks=skipped_chunks,
+            )
+        )
     skipped_assets.update(
         str(asset["id"])
         for asset in assets
@@ -857,6 +877,24 @@ def _skipped_source_ref_indexes(
         if str(ref.get("fact_id")) in skipped["facts"]
         or (ref.get("chunk_id") is not None and str(ref["chunk_id"]) in skipped["chunks"])
     }
+
+
+def _canonical_source_ref_dependency_skipped(
+    ref: dict[str, Any],
+    *,
+    document_ids: set[str],
+    skipped_documents: set[str],
+    chunk_ids: set[str],
+    skipped_chunks: set[str],
+) -> bool:
+    chunk_id = ref.get("chunk_id")
+    if chunk_id is not None:
+        normalized_chunk_id = str(chunk_id)
+        return normalized_chunk_id in chunk_ids and normalized_chunk_id in skipped_chunks
+    if str(ref.get("source_type") or "") != "document":
+        return False
+    source_id = str(ref.get("source_id") or "")
+    return source_id in document_ids and source_id in skipped_documents
 
 
 def _count_skipped(items: list[dict[str, Any]], skipped: set[str]) -> int:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from infinity_context_adapters.postgres import build_async_engine, upgrade_schema
+from infinity_context_adapters.postgres.migration_runner import _load_migrations
 from infinity_context_adapters.postgres.strict_v4_database_roles import (
     STRICT_V4_CANONICAL_WRITER_ROLE,
     STRICT_V4_REGISTRAR_ROLE,
@@ -33,6 +34,13 @@ _TABLE_PRIVILEGES = (
     "REFERENCES",
     "TRIGGER",
 )
+_INSTALLED_SCHEMA_HEAD = "0035_projection_result_receipts"
+
+
+def _expected_upgrade_migrations() -> tuple[str, ...]:
+    migration_ids = tuple(migration.migration_id for migration in _load_migrations())
+    installed_head_index = migration_ids.index(_INSTALLED_SCHEMA_HEAD)
+    return migration_ids[installed_head_index + 1 :]
 
 
 async def assert_upgrade_normalizes_all_authority_acls(database_url: str) -> None:
@@ -63,11 +71,7 @@ async def assert_upgrade_normalizes_all_authority_acls(database_url: str) -> Non
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.applied == (
-                "0036_memory_comparison_strict_v4_preparations",
-                "0037_strict_v4_fact_writer",
-                "0038_strict_v4_document_writer",
-            )
+            assert result.applied == _expected_upgrade_migrations()
         finally:
             await engine.dispose()
 

@@ -22,6 +22,7 @@ class RuntimeMetrics:
     _storage_maintenance_degraded_count: int = 0
     _last_storage_maintenance_trace: dict[str, Any] | None = None
     _last_storage_maintenance_started_at: datetime | None = None
+    _retrieval_profiles: dict[str, dict[str, float]] = field(default_factory=dict)
     _lock: Lock = field(default_factory=Lock)
 
     def record_context(
@@ -63,6 +64,22 @@ class RuntimeMetrics:
         if last_started_at is None:
             return True
         return now - _align_tz(last_started_at, now) >= interval
+
+    def record(self, profile_id: str, event: str, value: int | float = 1) -> None:
+        """Record only bounded profile identity and registered operational event names."""
+
+        if not _safe_profile_metric_key(profile_id) or not _safe_profile_metric_event(event):
+            raise ValueError("unsafe retrieval profile metric label")
+        with self._lock:
+            profile = self._retrieval_profiles.setdefault(profile_id, {})
+            profile[event] = profile.get(event, 0.0) + max(0.0, float(value))
+
+    def retrieval_profile_snapshot(self) -> dict[str, dict[str, float]]:
+        with self._lock:
+            return {
+                profile_id: dict(events)
+                for profile_id, events in sorted(self._retrieval_profiles.items())
+            }
 
     def record_storage_maintenance(
         self,
@@ -114,6 +131,7 @@ class RuntimeMetrics:
             "stale_hydration_drop_count": stale_drop_count,
             "collection": "in_memory",
             "last_trace": last_trace,
+            "retrieval_profiles": self.retrieval_profile_snapshot(),
         }
 
 
@@ -262,3 +280,69 @@ def _safe_metric_value(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)[:120]
+
+
+def _safe_profile_metric_key(value: str) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 200
+        and all(character.isalnum() or character in "._:-" for character in value)
+    )
+
+
+def _safe_profile_metric_event(value: str) -> bool:
+    exact = {
+        "activation_lease_issued",
+        "backfill_projected",
+        "coverage_expected",
+        "coverage_projected",
+        "coverage_watermark",
+        "fingerprint_failure",
+        "profile_activated",
+        "profile_building_created",
+        "profile_cleanup_failed",
+        "profile_retired",
+        "profile_retired_by_bound",
+        "profile_retired_by_reconcile",
+        "profile_rolled_back",
+        "projected_watermark",
+        "queue_dead",
+        "queue_oldest_lag_ms",
+        "queue_retry",
+        "request_latency_ms",
+        "tombstone_completed",
+        "tombstone_required",
+    }
+    if value in exact:
+        return True
+    prefixes = {
+        "activation_rejected:": {
+            "backfill_incomplete",
+            "concurrent_drift",
+            "coverage_count_mismatch",
+            "coverage_digest_mismatch",
+            "coverage_watermark_mismatch",
+            "projection_jobs_dead",
+            "projection_queue_lag_exceeded",
+            "required_lane_missing",
+            "required_lane_unhealthy",
+            "required_lane_unqualified",
+            "retained_profile_tombstones_incomplete",
+        },
+        "request_outcome:": {"available", "unavailable", "unqualified"},
+        "profile_cleanup:": {
+            "requested",
+            "waiting_for_jobs",
+            "collection_deleted",
+            "postgres_cleaned",
+            "complete",
+            "failed",
+        },
+    }
+    for prefix, suffixes in prefixes.items():
+        if value.startswith(prefix):
+            return value.removeprefix(prefix) in suffixes
+    for prefix in ("lane_failure:", "profile_failure:"):
+        if value.startswith(prefix):
+            return _safe_profile_metric_key(value.removeprefix(prefix))
+    return False

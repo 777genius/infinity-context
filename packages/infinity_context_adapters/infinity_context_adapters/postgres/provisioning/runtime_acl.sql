@@ -14,13 +14,32 @@ DECLARE
         'code_scope_authorizations', 'memory_anchors', 'memory_asset_extraction_artifacts',
         'memory_asset_extraction_jobs', 'memory_assets', 'memory_captures', 'memory_chunks',
         'memory_cognitive_dependencies', 'memory_cognitive_projections', 'memory_context_links',
-        'memory_context_link_suggestions', 'memory_documents', 'memory_episodes',
+        'memory_context_link_suggestions', 'memory_document_projection_receipts',
+        'memory_documents', 'memory_episodes',
         'memory_fact_operation_receipts', 'memory_fact_relations',
         'memory_fact_temporal_decisions', 'memory_fact_versions', 'memory_facts',
         'memory_idempotency_records', 'memory_outbox', 'memory_projection_receipt_claims',
+        'memory_locator_profile_attestation_checkpoints',
+        'memory_locator_profile_attestation_pages',
+        'memory_locator_profile_cleanups', 'memory_locator_profile_lanes',
+        'memory_locator_profile_operator_rebuilds',
+        'memory_locator_profile_operator_operations',
+        'memory_locator_profile_operator_receipts',
+        'memory_locator_profile_provider_mutations',
+        'memory_locator_profile_queries',
+        'memory_locator_profile_evidence_versions',
+        'memory_locator_profile_maintenance_fence',
+        'memory_locator_provider_reconciliation_receipts',
+        'memory_locator_runtime_incarnations',
+        'memory_locator_profile_recovery_receipts',
+        'memory_locator_profile_projection_receipts', 'memory_locator_profile_tombstones',
+        'memory_locator_profile_reconciliation_operations',
+        'memory_locator_profile_tombstone_replays',
+        'memory_locator_profile_transition_audit', 'memory_locator_profiles',
         'memory_projection_receipt_identity_links', 'memory_projection_result_receipts',
         'memory_projection_target_identities', 'memory_scopes', 'memory_service_tokens',
         'memory_source_refs', 'memory_space_memberships', 'memory_spaces', 'memory_suggestions',
+        'memory_vector_rebuild_operations',
         'memory_threads', 'memory_usage_records', 'memory_users',
         'suggestion_resolution_receipts'
     ];
@@ -32,7 +51,9 @@ DECLARE
     runtime_sequences constant text[] := ARRAY[
         'code_repository_aliases_id_seq', 'memory_cognitive_dependencies_id_seq',
         'memory_fact_versions_id_seq', 'memory_idempotency_records_id_seq',
-        'memory_outbox_id_seq', 'memory_source_refs_id_seq'
+        'memory_locator_commit_watermark_seq', 'memory_outbox_id_seq',
+        'memory_locator_profile_transition_audit_event_id_seq',
+        'memory_source_refs_id_seq'
     ];
     strict_capability_functions constant text[] := ARRAY[
         'memory_comparison_is_strict_v4_canonical_writer',

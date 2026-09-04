@@ -9,6 +9,8 @@ from infinity_context_core.domain.errors import MemoryConflictError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server import projection_delete_payload
+
 _MAX_DELETE_OUTBOX_IDS = 5_000
 
 
@@ -92,31 +94,20 @@ async def load_exact_projection_delete_events(
         raise MemoryConflictError("Relevant projection outbox work is not terminal")
 
     if event_type == "vector.delete_chunks":
-        _require_vector_job(rows, sealed_scope, space_id)
+        projection_delete_payload.require_versioned_chunk_delete_job(
+            rows,
+            aggregate_id=sealed_scope.run_id_sha256,
+            chunk_ids=list(sealed_scope.all_chunk_ids),
+            metadata={
+                "space_id": space_id,
+                "cleanup_run_id_sha256": sealed_scope.run_id_sha256,
+            },
+        )
     elif event_type == "graph.delete_fact":
         _require_graph_jobs(rows, sealed_scope, space_id)
     else:
         raise MemoryConflictError("Projection delete outbox event type is unsupported")
     return rows
-
-
-def _require_vector_job(
-    rows: list[MemoryOutboxRow],
-    sealed_scope: SealedBenchmarkDeleteScope,
-    space_id: str,
-) -> None:
-    if len(rows) != 1:
-        raise MemoryConflictError("Benchmark vector cleanup outbox proof conflicted")
-    _require_job(
-        rows[0],
-        event_type="vector.delete_chunks",
-        aggregate_id=sealed_scope.run_id_sha256,
-        payload={
-            "chunk_ids": list(sealed_scope.all_chunk_ids),
-            "space_id": space_id,
-            "cleanup_run_id_sha256": sealed_scope.run_id_sha256,
-        },
-    )
 
 
 def _require_graph_jobs(

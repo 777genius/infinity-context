@@ -87,6 +87,7 @@ def reviewed_fact_decision(
     scope = MemoryFactScope(
         space_id=str(suggestion.space_id),
         memory_scope_id=str(suggestion.memory_scope_id),
+        thread_id=suggestion.thread_id,
     )
     sources = tuple(_canonical_source_ref(ref) for ref in suggestion.source_refs)
     candidate = ReviewedFactCandidate(

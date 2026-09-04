@@ -35,6 +35,10 @@ from infinity_context_adapters.postgres.benchmark_run_completion import (
 from infinity_context_adapters.postgres.benchmark_run_record_codec import (
     benchmark_run_record_from_row as _decode_record,
 )
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    lock_exact_thread_lifecycle,
+    lock_global_fact_lifecycle,
+)
 from infinity_context_adapters.postgres.models import (
     MemoryAnchorRow,
     MemoryAssetExtractionJobRow,
@@ -232,6 +236,43 @@ class PostgresBenchmarkRunRepository:
             space_id=record.space_id,
         )
         projection_cleanup = "pending" if row.projection_cleanup_state == "sealed" else "blocked"
+        memory_scope_ids = tuple(
+            (
+                await self._session.execute(
+                    select(MemoryScopeRow.id)
+                    .where(
+                        MemoryScopeRow.space_id == record.space_id,
+                        MemoryScopeRow.status != "deleted",
+                    )
+                    .order_by(MemoryScopeRow.id)
+                )
+            ).scalars()
+        )
+        for memory_scope_id in memory_scope_ids:
+            await lock_global_fact_lifecycle(
+                self._session,
+                space_id=record.space_id,
+                memory_scope_id=memory_scope_id,
+            )
+        exact_threads = tuple(
+            (
+                await self._session.execute(
+                    select(MemoryThreadRow.memory_scope_id, MemoryThreadRow.id)
+                    .where(
+                        MemoryThreadRow.space_id == record.space_id,
+                        MemoryThreadRow.status != "deleted",
+                    )
+                    .order_by(MemoryThreadRow.memory_scope_id, MemoryThreadRow.id)
+                )
+            ).all()
+        )
+        for memory_scope_id, thread_id in exact_threads:
+            await lock_exact_thread_lifecycle(
+                self._session,
+                space_id=record.space_id,
+                memory_scope_id=memory_scope_id,
+                thread_id=thread_id,
+            )
         space = (
             await self._session.execute(
                 select(MemorySpaceRow).where(MemorySpaceRow.id == record.space_id).with_for_update()
@@ -241,7 +282,8 @@ class PostgresBenchmarkRunRepository:
             raise MemoryConflictError("Benchmark canonical space conflicted")
         fact_ids = await self._ids(MemoryFactRow, record.space_id)
         document_ids = await self._ids(MemoryDocumentRow, record.space_id)
-        chunk_ids = await self._ids(MemoryChunkRow, record.space_id)
+        chunk_versions = await self._chunk_versions(record.space_id)
+        chunk_ids = tuple(item["chunk_id"] for item in chunk_versions)
         episode_ids = await self._ids(MemoryEpisodeRow, record.space_id)
         thread_ids = await self._ids(MemoryThreadRow, record.space_id)
         memory_scope_ids = await self._ids(MemoryScopeRow, record.space_id)
@@ -270,6 +312,7 @@ class PostgresBenchmarkRunRepository:
                     aggregate_id=record.run_id_sha256,
                     payload={
                         "chunk_ids": list(chunk_ids),
+                        "chunk_versions": list(chunk_versions),
                         "space_id": record.space_id,
                         "cleanup_run_id_sha256": record.run_id_sha256,
                     },
@@ -336,9 +379,16 @@ class PostgresBenchmarkRunRepository:
         row.cleanup_receipt_json = _receipt_json(receipt)
         row.updated_at = now
         await self._session.flush()
-        await self._soft_delete(MemoryFactRow, record.space_id, now=now)
+        for model in (MemoryDocumentRow, MemoryChunkRow, MemoryFactRow):
+            await self._session.execute(
+                select(model.id)
+                .where(model.space_id == record.space_id, model.status != "deleted")
+                .order_by(model.id)
+                .with_for_update()
+            )
         await self._soft_delete(MemoryDocumentRow, record.space_id, now=now)
         await self._soft_delete(MemoryChunkRow, record.space_id, now=now)
+        await self._soft_delete(MemoryFactRow, record.space_id, now=now)
         await self._soft_delete(MemoryEpisodeRow, record.space_id, now=now)
         await self._soft_delete(MemoryThreadRow, record.space_id, now=now)
         await self._soft_delete(MemoryScopeRow, record.space_id, now=now)
@@ -433,6 +483,22 @@ class PostgresBenchmarkRunRepository:
             )
         ).scalars()
         return tuple(str(value) for value in rows)
+
+    async def _chunk_versions(self, space_id: str) -> tuple[dict[str, object], ...]:
+        rows = (
+            await self._session.execute(
+                select(MemoryChunkRow.id, MemoryChunkRow.retrieval_version)
+                .where(
+                    MemoryChunkRow.space_id == space_id,
+                    MemoryChunkRow.status == "active",
+                )
+                .order_by(MemoryChunkRow.id)
+            )
+        ).all()
+        return tuple(
+            {"chunk_id": str(chunk_id), "canonical_version": int(version)}
+            for chunk_id, version in rows
+        )
 
     async def _soft_delete(
         self,

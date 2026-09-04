@@ -101,10 +101,175 @@ def test_in_memory_supersession_is_atomic_audited_and_idempotent() -> None:
     assert len(factory.outbox_messages) == 2
 
 
+def test_supersession_coordinates_all_existing_and_command_source_refs_before_fact_locks() -> None:
+    module = importlib.import_module("infinity_context_adapters.features.memory_facts")
+    predecessor = replace(
+        _fact_snapshot(fact_id="old"),
+        source_refs=(_source_ref("old-document"),),
+        temporal_extent=FactTemporalExtent.ongoing_state(
+            observed_at=EARLIER,
+            valid_from=EARLIER,
+            basis="primary_evidence",
+        ),
+    )
+    successor = replace(
+        _fact_snapshot(fact_id="new"),
+        source_refs=(_source_ref("new-document"),),
+        temporal_extent=FactTemporalExtent.ongoing_state(
+            observed_at=NOW,
+            valid_from=NOW,
+            basis="primary_evidence",
+        ),
+    )
+    inner = module.create_in_memory_memory_fact_unit_of_work_factory((predecessor, successor))
+    factory = _RecordingCoordinationFactory(inner)
+    command_ref = _source_ref("decision-document")
+
+    asyncio.run(
+        SupersedeFactHandler(
+            uow_factory=factory,
+            clock=FakeClock(NOW),
+            ids=FakeIds(
+                outbox_message_ids=("outbox-new", "outbox-old"),
+                temporal_decision_ids=("decision-1",),
+                fact_relation_ids=("relation-1",),
+            ),
+        ).execute(
+            SupersedeFactCommand(
+                successor_identity=successor.identity,
+                predecessor_identity=predecessor.identity,
+                expected_successor_version=1,
+                expected_predecessor_version=1,
+                effective_at=NOW,
+                evidence_refs=(MemoryFactEvidenceRef(source_ref=command_ref),),
+                actor_id="reviewer-1",
+                reason_code="accepted_replacement",
+                idempotency_key="supersede-source-union",
+            )
+        )
+    )
+
+    assert factory.events.index("coordinate") < factory.events.index("get_many_for_update")
+    assert set(factory.coordinated_refs) == {
+        predecessor.source_refs[0],
+        successor.source_refs[0],
+        command_ref,
+    }
+
+
+def test_supersession_rejects_source_ref_change_during_document_coordination() -> None:
+    module = importlib.import_module("infinity_context_adapters.features.memory_facts")
+    predecessor = replace(
+        _fact_snapshot(fact_id="old"),
+        temporal_extent=FactTemporalExtent.ongoing_state(
+            observed_at=EARLIER,
+            valid_from=EARLIER,
+        ),
+    )
+    successor = replace(
+        _fact_snapshot(fact_id="new"),
+        temporal_extent=FactTemporalExtent.ongoing_state(
+            observed_at=NOW,
+            valid_from=NOW,
+        ),
+    )
+    changed_successor = replace(
+        successor,
+        source_refs=(_source_ref("concurrent-source"),),
+    )
+    inner = module.create_in_memory_memory_fact_unit_of_work_factory((predecessor, successor))
+    factory = _RecordingCoordinationFactory(inner, locked_replacement=changed_successor)
+
+    with pytest.raises(ValueError, match="changed during source coordination"):
+        asyncio.run(
+            SupersedeFactHandler(
+                uow_factory=factory,
+                clock=FakeClock(NOW),
+                ids=FakeIds(),
+            ).execute(
+                SupersedeFactCommand(
+                    successor_identity=successor.identity,
+                    predecessor_identity=predecessor.identity,
+                    expected_successor_version=1,
+                    expected_predecessor_version=1,
+                    effective_at=NOW,
+                    evidence_refs=(
+                        MemoryFactEvidenceRef(source_ref=_source_ref("decision-source")),
+                    ),
+                    actor_id="reviewer-1",
+                    reason_code="accepted_replacement",
+                    idempotency_key="supersede-concurrent-source-change",
+                )
+            )
+        )
+
+    assert inner.facts == (predecessor, successor)
+
+
+class _RecordingCoordinationFactory:
+    def __init__(self, inner, *, locked_replacement=None) -> None:
+        self._inner = inner
+        self.locked_replacement = locked_replacement
+        self.events: list[str] = []
+        self.coordinated_refs = ()
+
+    def __call__(self):
+        return _RecordingCoordinationUnitOfWork(self._inner(), self)
+
+
+class _RecordingCoordinationUnitOfWork:
+    def __init__(self, inner, owner) -> None:
+        self._inner = inner
+        self._owner = owner
+
+    async def __aenter__(self):
+        await self._inner.__aenter__()
+        self.facts = _RecordingFactRepository(self._inner.facts, self._owner)
+        self.outbox = self._inner.outbox
+        self.supersessions = self._inner.supersessions
+        self.temporal_decisions = self._inner.temporal_decisions
+        self.operation_receipts = self._inner.operation_receipts
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        await self._inner.__aexit__(exc_type, exc, tb)
+
+    async def lock_scope(self, scope):
+        await self._inner.lock_scope(scope)
+
+    async def coordinate_source_refs(self, *, scope, source_refs):
+        self._owner.events.append("coordinate")
+        self._owner.coordinated_refs = source_refs
+        await self._inner.coordinate_source_refs(scope=scope, source_refs=source_refs)
+
+    async def commit(self):
+        await self._inner.commit()
+
+
+class _RecordingFactRepository:
+    def __init__(self, inner, owner) -> None:
+        self._inner = inner
+        self._owner = owner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def get_many_for_update(self, identities):
+        self._owner.events.append("get_many_for_update")
+        locked = await self._inner.get_many_for_update(identities)
+        replacement = self._owner.locked_replacement
+        if replacement is None:
+            return locked
+        return tuple(
+            replacement if fact.identity == replacement.identity else fact for fact in locked
+        )
+
+
 def test_reinstatement_compensates_without_rewriting_supersession_history() -> None:
     module = importlib.import_module("infinity_context_adapters.features.memory_facts")
     predecessor = replace(
         _fact_snapshot(fact_id="old"),
+        source_refs=(_source_ref("predecessor-document"),),
         text="The API uses version one.",
         temporal_extent=FactTemporalExtent.ongoing_state(
             observed_at=EARLIER,
@@ -114,6 +279,7 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
     )
     successor = replace(
         _fact_snapshot(fact_id="new"),
+        source_refs=(_source_ref("successor-document"),),
         text="The API uses version two.",
         temporal_extent=FactTemporalExtent.ongoing_state(
             observed_at=NOW,
@@ -165,8 +331,28 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
         reason_code="replacement_rejected",
         idempotency_key="reinstate-1",
     )
+    changed_while_coordinating = replace(
+        first.successor,
+        source_refs=(_source_ref("legacy-update-document"),),
+        visibility=replace(first.successor.visibility, version=3),
+    )
+    rejected_factory = _RecordingCoordinationFactory(
+        factory,
+        locked_replacement=changed_while_coordinating,
+    )
+    with pytest.raises(ValueError, match="Reinstatement fact changed during source coordination"):
+        asyncio.run(
+            ReinstateSupersededFactHandler(
+                uow_factory=rejected_factory,
+                clock=FakeClock(LATER),
+                ids=FakeIds(),
+            ).execute(compensation_command)
+        )
+    assert len(factory.temporal_decisions) == 1
+
+    coordinated_factory = _RecordingCoordinationFactory(factory)
     compensator = ReinstateSupersededFactHandler(
-        uow_factory=factory,
+        uow_factory=coordinated_factory,
         clock=FakeClock(LATER),
         ids=FakeIds(
             fact_ids=("restored",),
@@ -192,6 +378,14 @@ def test_reinstatement_compensates_without_rewriting_supersession_history() -> N
     assert len(factory.temporal_decisions) == 2
     assert len(factory.supersessions) == 2
     assert replay.replayed
+    assert coordinated_factory.events.index("coordinate") < coordinated_factory.events.index(
+        "get_many_for_update"
+    )
+    assert set(coordinated_factory.coordinated_refs) == {
+        _source_ref("predecessor-document"),
+        _source_ref("successor-document"),
+        _source_ref("incident-1"),
+    }
 
     async def select_current() -> tuple[MemoryFactSnapshot, ...]:
         async with factory() as uow:

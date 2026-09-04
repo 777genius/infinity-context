@@ -55,7 +55,10 @@ from infinity_context_core.ports.auto_memory import (
 )
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
+from infinity_context_core.ports.unit_of_work import (
+    UnitOfWorkFactoryPort,
+    coordinate_fact_source_refs,
+)
 
 RESOLVER_VERSION = "capture-resolver-v1"
 
@@ -150,6 +153,7 @@ class ConsolidateCaptureUseCase:
 
             created_ids: list[str] = []
             auto_applied_ids: list[str] = []
+            pending_auto_applied_facts: list[MemoryFact] = []
             resolver_rejected_codes: list[str] = []
             pending_suggestion_count = await uow.suggestions.count_for_scope(
                 space_id=str(current.space_id),
@@ -229,6 +233,7 @@ class ConsolidateCaptureUseCase:
                     category=taxonomy.category,
                     repository_id=repository_id,
                     code_scope_id=code_scope_id,
+                    thread_id=str(current.thread_id) if current.thread_id else None,
                 )
                 if fingerprint in seen_fingerprints:
                     resolver_rejected_codes.append("duplicate_candidate_in_capture")
@@ -272,10 +277,12 @@ class ConsolidateCaptureUseCase:
                         category=duplicate_taxonomy.category,
                         repository_id=repository_id,
                         code_scope_id=code_scope_id,
+                        thread_id=str(current.thread_id) if current.thread_id else None,
                     )
                     duplicate_pending = await uow.suggestions.find_pending_duplicate(
                         space_id=str(current.space_id),
                         memory_scope_id=str(current.memory_scope_id),
+                        thread_id=str(current.thread_id) if current.thread_id else None,
                         candidate_fingerprint=duplicate_fingerprint,
                         operation=SuggestionOperation.REVIEW.value,
                         target_fact_id=str(active_duplicate.id),
@@ -296,6 +303,7 @@ class ConsolidateCaptureUseCase:
                         suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                         space_id=current.space_id,
                         memory_scope_id=current.memory_scope_id,
+                        thread_id=current.thread_id,
                         candidate_text=candidate.text,
                         kind=candidate.kind,
                         source_refs=candidate.source_refs,
@@ -335,6 +343,9 @@ class ConsolidateCaptureUseCase:
                             "rejected_extractor_codes": list(validation.rejected_codes),
                             "rejected_resolver_codes": list(resolver_rejected_codes),
                             "unknown_taxonomy_labels": list(duplicate_taxonomy.unknown_labels),
+                            "canonical_source_thread_id": (
+                                str(current.thread_id) if current.thread_id is not None else None
+                            ),
                         },
                         now=now,
                     )
@@ -361,6 +372,7 @@ class ConsolidateCaptureUseCase:
                 duplicate = await uow.suggestions.find_pending_duplicate(
                     space_id=str(current.space_id),
                     memory_scope_id=str(current.memory_scope_id),
+                    thread_id=str(current.thread_id) if current.thread_id else None,
                     candidate_fingerprint=fingerprint,
                     operation=_suggestion_operation(candidate.operation_hint).value,
                     target_fact_id=candidate.target_fact_id,
@@ -394,17 +406,7 @@ class ConsolidateCaptureUseCase:
                         code_scope_id=code_scope_id,
                         now=now,
                     )
-                    saved_fact = await uow.facts.create(fact)
-                    await uow.outbox.enqueue(
-                        OutboxEvent(
-                            event_type="graph.upsert_fact",
-                            aggregate_type="fact",
-                            aggregate_id=str(saved_fact.id),
-                            aggregate_version=saved_fact.version,
-                            payload={"fact_id": str(saved_fact.id), "version": saved_fact.version},
-                        )
-                    )
-                    auto_applied_ids.append(str(saved_fact.id))
+                    pending_auto_applied_facts.append(fact)
                     continue
                 resolver_rejected_codes.append(
                     "temporal_window_requires_review" if auto_apply.allowed else auto_apply.reason
@@ -418,6 +420,7 @@ class ConsolidateCaptureUseCase:
                     suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                     space_id=current.space_id,
                     memory_scope_id=current.memory_scope_id,
+                    thread_id=current.thread_id,
                     candidate_text=candidate.text,
                     kind=candidate.kind,
                     source_refs=source_refs,
@@ -478,6 +481,9 @@ class ConsolidateCaptureUseCase:
                         "conflict_overlap_terms": list(active_conflict_match.overlap_terms)
                         if active_conflict_match is not None
                         else [],
+                        "canonical_source_thread_id": (
+                            str(current.thread_id) if current.thread_id is not None else None
+                        ),
                         "diff_preview": _diff_preview(target_fact, candidate.text),
                         "valid_from": candidate.valid_from.isoformat()
                         if candidate.valid_from
@@ -493,6 +499,31 @@ class ConsolidateCaptureUseCase:
                 )
                 saved_suggestion = await uow.suggestions.create(suggestion)
                 created_ids.append(str(saved_suggestion.id))
+
+            if pending_auto_applied_facts:
+                await coordinate_fact_source_refs(
+                    uow,
+                    space_id=str(current.space_id),
+                    memory_scope_id=str(current.memory_scope_id),
+                    thread_id=str(current.thread_id) if current.thread_id is not None else None,
+                    source_refs=tuple(
+                        source_ref
+                        for fact in pending_auto_applied_facts
+                        for source_ref in fact.source_refs
+                    ),
+                )
+                for fact in pending_auto_applied_facts:
+                    saved_fact = await uow.facts.create(fact)
+                    await uow.outbox.enqueue(
+                        OutboxEvent(
+                            event_type="graph.upsert_fact",
+                            aggregate_type="fact",
+                            aggregate_id=str(saved_fact.id),
+                            aggregate_version=saved_fact.version,
+                            payload={"fact_id": str(saved_fact.id), "version": saved_fact.version},
+                        )
+                    )
+                    auto_applied_ids.append(str(saved_fact.id))
 
             saved_capture = await uow.captures.save(
                 current.mark_consolidated(
@@ -681,9 +712,11 @@ def _candidate_fingerprint(
     category: str,
     repository_id: str | None,
     code_scope_id: str | None,
+    thread_id: str | None = None,
 ) -> str:
     raw = (
-        f"{space_id}:{memory_scope_id}:{repository_id or ''}:{code_scope_id or ''}:"
+        f"{space_id}:{memory_scope_id}:{thread_id or ''}:{repository_id or ''}:"
+        f"{code_scope_id or ''}:"
         f"{operation}:{target_fact_id or ''}:{category}:{text}"
     )
     return sha256(raw.encode("utf-8")).hexdigest()

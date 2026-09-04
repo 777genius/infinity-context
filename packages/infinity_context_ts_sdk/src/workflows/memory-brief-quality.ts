@@ -1,5 +1,5 @@
 import type { ContextRetrievalComponent } from "../diagnostics.js";
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import type { JsonObject, SourceRef } from "../types.js";
 import type { BuildMemoryBriefResult, MemoryBriefDiagnostics } from "./memory.js";
 import {
@@ -135,7 +135,7 @@ export function assertMemoryBriefQuality(
     return report;
   }
 
-  throw new InfinityContextError({
+  throw createInfinityContextError({
     statusCode: 0,
     code: "memory.brief_quality_failed",
     message: `Memory brief quality failed: ${report.errors.join("; ")}`,

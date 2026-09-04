@@ -84,6 +84,7 @@ def test_ingestion_application_contracts_are_frozen_dataclasses() -> None:
                 "classification",
                 "chunking_policy",
                 "idempotency_key",
+                "retrieval_projection",
             ),
         ),
         (
@@ -155,19 +156,17 @@ def test_document_ingestion_ports_are_protocol_boundaries() -> None:
         "SourceDocumentRepositoryPort",
         "DocumentChunkRepositoryPort",
         "DocumentChunkIndexPort",
+        "DocumentRetrievalProjectionOwnershipPortV1",
+        "ExactDocumentObservationPort",
     )
     for name in protocol_names:
         assert getattr(getattr(ports, name), "_is_protocol", False)
 
     for method_name in ("create", "get", "find_active_by_content_hash"):
-        assert inspect.iscoroutinefunction(
-            getattr(ports.SourceDocumentRepositoryPort, method_name)
-        )
+        assert inspect.iscoroutinefunction(getattr(ports.SourceDocumentRepositoryPort, method_name))
     for method_name in ("upsert", "list_for_document"):
-        assert inspect.iscoroutinefunction(
-            getattr(ports.DocumentChunkRepositoryPort, method_name)
-        )
-    for method_name in ("upsert_chunks", "delete_chunks"):
+        assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkRepositoryPort, method_name))
+    for method_name in ("upsert_chunks", "delete_chunks_if_version"):
         assert inspect.iscoroutinefunction(getattr(ports.DocumentChunkIndexPort, method_name))
 
     scope = domain.DocumentIngestionScope(space_id="space-1", memory_scope_id="scope-1")
@@ -218,8 +217,26 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "DocumentIngestionScope": domain,
         "DocumentIngestionUseCases": application,
         "DocumentIngestionValidationError": domain,
+        "DOCUMENT_RETRIEVAL_PROJECTION_SCHEMA_V1": domain,
+        "DocumentProjectionConflictError": domain,
+        "DocumentProjectionIdempotencyConflictError": domain,
+        "DocumentProjectionInvalidError": domain,
+        "DocumentProjectionLocatorConflictError": domain,
+        "DocumentProjectionOrdinalConflictError": domain,
+        "DocumentReconciliationState": domain,
+        "DocumentProjectionOwnershipClaimV1": ports,
+        "DocumentProjectionOwnershipDecisionV1": ports,
+        "DocumentRetrievalProjectionOwnershipPortV1": ports,
+        "DocumentRetrievalProjectionTimeIntervalV1": domain,
+        "DocumentRetrievalProjectionRelativeTimeIntervalV1": domain,
+        "DocumentRetrievalProjectionV1": domain,
+        "DocumentVisibilityEvidence": domain,
         "DocumentTextRange": domain,
         "FEATURE_ID": domain,
+        "ExactDocumentIdentity": domain,
+        "ExactDocumentObservation": domain,
+        "ExactDocumentObservationPort": ports,
+        "ExactDocumentReconciliation": domain,
         "IngestDocumentCommand": application,
         "IngestDocumentHandler": application,
         "IngestDocumentResult": application,
@@ -227,6 +244,8 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "PreparedDocumentIngestion": application,
         "PrepareDocumentIngestionHandler": application,
         "PrepareDocumentIngestionUseCase": application,
+        "ReconcileExactDocumentHandler": application,
+        "ReconcileExactDocumentQuery": application,
         "SourceDocument": domain,
         "SourceDocumentClassification": domain,
         "SourceDocumentContent": domain,
@@ -239,6 +258,7 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "content_hash_for_text": domain,
         "estimate_token_count": domain,
         "normalize_document_text": domain,
+        "reconcile_exact_document": domain,
     }
 
     assert public.__all__ == tuple(expected_exports)
@@ -328,7 +348,4 @@ def _package_context(path: Path) -> str | None:
 
 
 def _matches_prefix(imported: str, prefixes: tuple[str, ...]) -> bool:
-    return any(
-        imported == prefix or imported.startswith(f"{prefix}.")
-        for prefix in prefixes
-    )
+    return any(imported == prefix or imported.startswith(f"{prefix}.") for prefix in prefixes)

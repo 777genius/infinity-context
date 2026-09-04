@@ -290,6 +290,7 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
         "MemoryFactUnitOfWorkPort": ports,
         "MemoryFactVisibility": domain,
         "MemoryFactsFeature": domain,
+        "memory_fact_identity_lock_key": application,
         "NormalizedFactTaxonomy": domain,
         "normalize_fact_taxonomy_fields": domain,
         "RememberFactCommand": application,

@@ -1,3 +1,6 @@
+"""Provider adapter contracts that still share the legacy test fixture surface."""
+# Provider-free startup fencing is covered in its focused configuration module.
+
 import asyncio
 import importlib.util
 import json
@@ -505,11 +508,11 @@ def test_noop_vector_adapter_contract_fails_closed_without_candidates() -> None:
                     text="Noop vector source text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
-        deleted = await adapter.delete_chunks(("chunk_1",))
-
+        deleted = await adapter.delete_chunks_if_version(("chunk_1",), canonical_version=1)
         assert capabilities.enabled is False
         assert capabilities.supports_search is False
         assert search.status == PortStatus.DEGRADED
@@ -723,7 +726,14 @@ class FakeQdrantModels:
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
 
+    FilterSelector = Filter
+    Range = Filter
+
     class FieldCondition:
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+
+    class HasIdCondition:
         def __init__(self, **kwargs: object) -> None:
             self.kwargs = kwargs
 
@@ -760,6 +770,7 @@ class FakeQdrantClient:
         self.upsert_points: list[list[object]] = []
         self.query_calls: list[dict[str, object]] = []
         self.query_points_by_using: dict[object, list[object]] = {}
+
     async def collection_exists(self, collection_name: str) -> bool:
         return collection_name in self.collections
 
@@ -769,29 +780,33 @@ class FakeQdrantClient:
         self.collections.add(collection_name)
         self.create_collection_calls.append(kwargs)
         assert vectors_config is not None
+
     async def get_collection(self, *, collection_name: str) -> object:
         assert collection_name in self.collections
         vectors = self.create_collection_calls[-1]["vectors_config"]
         return SimpleNamespace(config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)))
+
     async def upsert(self, *, collection_name: str, points: list[object], wait: bool) -> None:
         assert collection_name in self.collections
         assert points
         assert wait is True
         self.upserts += 1
         self.upsert_points.append(points)
+
     async def delete(self, **_kwargs: object) -> None:
         assert _kwargs["wait"] is True
         return None
+
+    async def scroll(self, **_kwargs: object) -> tuple[list[object], None]:
+        assert _kwargs["limit"] == 1
+        assert _kwargs["consistency"] == "all"
+        return [], None
+
     async def query_points(self, **_kwargs: object) -> object:
         self.query_calls.append(_kwargs)
         points = self.query_points_by_using.get(_kwargs.get("using"))
         if points is None:
-            points = [
-                _fake_qdrant_point(
-                    chunk_id="chunk_1",
-                    score=0.9,
-                )
-            ]
+            points = [_fake_qdrant_point(chunk_id="chunk_1", score=0.9)]
         return SimpleNamespace(points=points)
 
 
@@ -873,6 +888,7 @@ def test_qdrant_adapter_creates_collection_before_upsert_and_search() -> None:
                     text="Qdrant projection text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
@@ -882,7 +898,6 @@ def test_qdrant_adapter_creates_collection_before_upsert_and_search() -> None:
             query_vector=(0.1, 0.2, 0.3),
             limit=3,
         )
-
         assert upsert.status == PortStatus.OK
         assert fake.upserts == 1
         assert search.items[0].chunk_id == "chunk_1"
@@ -917,6 +932,7 @@ def test_qdrant_adapter_search_contract_uses_scope_and_projection_filters() -> N
             "space_id": {"value": "space_client_app"},
             "projection_version": {"value": "projection_v2"},
             "memory_scope_id": {"any": ["memory_scope_default", "memory_scope_candidate"]},
+            "generic_identity_version": {"value": "stable.v1"},
         }
 
     asyncio.run(run())
@@ -978,10 +994,10 @@ def test_qdrant_hybrid_sparse_mode_creates_named_vectors_and_indexes_bm25() -> N
                     text="Project Atlas uses BM25 sparse retrieval for exact markers.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
-
         assert upsert.status == PortStatus.OK
         create_call = fake.create_collection_calls[0]
         assert set(create_call["vectors_config"]) == {"dense"}
@@ -1085,6 +1101,7 @@ def test_qdrant_dimension_mismatch_fails_closed() -> None:
                     text="Qdrant projection text.",
                     vector=(0.1, 0.2, 0.3),
                     projection_version="v1",
+                    metadata={"canonical_version": 1},
                 ),
             )
         )
@@ -1094,7 +1111,6 @@ def test_qdrant_dimension_mismatch_fails_closed() -> None:
             query_vector=(0.1, 0.2, 0.3),
             limit=3,
         )
-
         assert capabilities.healthy is False
         assert capabilities.degraded_reason == "qdrant.dimension_mismatch"
         assert upsert.status == PortStatus.DEGRADED
@@ -1710,19 +1726,3 @@ def test_capture_openai_extractor_requires_supported_provider_and_api_key() -> N
         assert "MEMORY_OPENAI_API_KEY" in str(exc)
     else:
         raise AssertionError("Expected missing OpenAI key validation to fail")
-
-
-def test_real_provider_disabled_in_test_memory_scope() -> None:
-    settings = Settings(
-        deploy_profile="test",
-        embeddings_enabled=True,
-        embeddings_provider="openai",
-        openai_api_key="test-key",
-    )
-
-    try:
-        settings.validate_for_startup()
-    except RuntimeError as exc:
-        assert "test deploy profile cannot use external adapters" in str(exc)
-    else:
-        raise AssertionError("Expected test deploy profile external provider validation to fail")

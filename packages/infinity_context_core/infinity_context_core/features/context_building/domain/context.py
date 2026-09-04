@@ -100,8 +100,12 @@ class ContextEvidence:
             raise ValueError("Context evidence requires text")
         if not self.source_refs:
             raise ValueError("Context evidence requires at least one source ref")
-        if self.canonical_version is not None and self.canonical_version < 1:
-            raise ValueError("Context evidence canonical version must be positive")
+        if self.canonical_version is not None and (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
+            raise ValueError("Context evidence canonical version must be lossless and positive")
         for field_name in ("observed_at", "valid_from", "valid_to", "last_confirmed_at"):
             value = getattr(self, field_name)
             if value is not None and (value.tzinfo is None or value.utcoffset() is None):

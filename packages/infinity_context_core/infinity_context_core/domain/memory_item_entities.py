@@ -375,6 +375,15 @@ class MemoryChunk:
     updated_at: datetime
     metadata: dict[str, object]
     classification: str = DataClassification.UNKNOWN.value
+    canonical_version: int = 1
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.canonical_version, int)
+            or isinstance(self.canonical_version, bool)
+            or not 1 <= self.canonical_version <= 9_007_199_254_740_991
+        ):
+            raise MemoryValidationError("Chunk canonical_version must be a positive integer")
 
     @classmethod
     def create(

@@ -1,4 +1,5 @@
 """Composition root for infinity_context_server."""
+# ruff: noqa: F403, F405
 
 from __future__ import annotations
 
@@ -6,6 +7,7 @@ import inspect
 from dataclasses import dataclass
 
 import infinity_context_core.features.context_building.public as context_building_feature
+import infinity_context_core.features.document_ingestion.public as document_ingestion_feature
 import infinity_context_core.features.memory_facts.public as memory_facts_feature
 from infinity_context_adapters.features import document_ingestion as document_ingestion_adapters
 from infinity_context_adapters.features.context_building import (
@@ -29,99 +31,13 @@ from infinity_context_adapters.postgres.context_candidates import (
     PostgresMemoryFactCandidateLookup,
     create_postgres_memory_fact_selection,
 )
-from infinity_context_adapters.s3_blob import S3BlobStorage
-from infinity_context_core.application import (
-    ApproveSuggestionUseCase,
-    BackfillAnchorsUseCase,
-    BuildContextUseCase,
-    BuildMemoryBrowserUseCase,
-    BuildMemoryDigestUseCase,
-    BuildMemoryInsightsUseCase,
-    BuildMemoryOperationsConsoleUseCase,
-    CancelAssetExtractionUseCase,
-    CheckSpaceAccessUseCase,
-    CleanupBenchmarkRunUseCase,
-    ConsolidateCaptureUseCase,
-    CreateAnchorUseCase,
-    CreateAssetUseCase,
-    CreateContextLinkUseCase,
-    CreateMemoryScopeUseCase,
-    CreateSpaceMembershipUseCase,
-    CreateSpaceUseCase,
-    CreateSuggestionsBatchUseCase,
-    CreateSuggestionUseCase,
-    CreateUserUseCase,
-    DeleteAnchorUseCase,
-    DeleteAssetUseCase,
-    DeleteContextLinkUseCase,
-    DeleteDocumentUseCase,
-    DeleteMemoryScopeUseCase,
-    DeleteThreadMemoryUseCase,
-    EnsureScopeUseCase,
-    ExpirePendingSuggestionsUseCase,
-    ExpireSuggestionUseCase,
-    ExportGraphUseCase,
-    FinalizeBenchmarkRunCleanupUseCase,
-    FinalizeUnsealedBenchmarkAbortUseCase,
-    ForgetFactUseCase,
-    GetAssetExtractionUseCase,
-    GetAssetUseCase,
-    GetBenchmarkRunLifecycleUseCase,
-    GetCapabilitiesUseCase,
-    GetCaptureUseCase,
-    GetDocumentUseCase,
-    GetFactUseCase,
-    GetSessionStatusUseCase,
-    GetUsageSummaryUseCase,
-    IngestDocumentUseCase,
-    IngestEpisodeUseCase,
-    LinkFactsUseCase,
-    ListAnchorRelationsUseCase,
-    ListAnchorsUseCase,
-    ListAssetExtractionsUseCase,
-    ListAssetsUseCase,
-    ListCapturesUseCase,
-    ListContextLinkSuggestionsUseCase,
-    ListContextLinksUseCase,
-    ListDocumentChunksUseCase,
-    ListFactRelationsUseCase,
-    ListFactsUseCase,
-    ListFactVersionsUseCase,
-    ListMemoryScopesUseCase,
-    ListSpaceMembershipsUseCase,
-    ListSpacesUseCase,
-    ListSuggestionsUseCase,
-    ListUsersUseCase,
-    MergeAnchorsUseCase,
-    ProcessDocumentUseCase,
-    PurgeCaptureUseCase,
-    ReadAssetBytesUseCase,
-    ReadExtractionArtifactBytesUseCase,
-    ReceiveCaptureUseCase,
-    RegisterBenchmarkRunUseCase,
-    RejectSuggestionUseCase,
-    RelatedFactsUseCase,
-    RememberFactUseCase,
-    RequestAssetExtractionUseCase,
-    ResolveDuplicateMergeUseCase,
-    ResolveSuggestionConflictUseCase,
-    RetryAssetExtractionUseCase,
-    ReviewContextLinkSuggestionsBatchUseCase,
-    ReviewContextLinkSuggestionUseCase,
-    ReviewSuggestionsBatchUseCase,
-    RunAssetExtractionUseCase,
-    RunBlobStorageCleanupUseCase,
-    RunBlobStorageIntegrityAuditUseCase,
-    SealProjectionManifestUseCase,
-    SplitAnchorUseCase,
-    SuggestAnchorMergesUseCase,
-    SuggestContextLinksUseCase,
-    UnlinkFactRelationUseCase,
-    UpdateAnchorUseCase,
-    UpdateContextLinkUseCase,
-    UpdateFactUseCase,
-    UpdateMemoryScopeUseCase,
+from infinity_context_adapters.postgres.document_reconciliation import (
+    PostgresExactDocumentObservationAdapter,
 )
+from infinity_context_adapters.postgres.projected_document_ingestion import (
+    PostgresProjectedDocumentIngestor,
+)
+from infinity_context_adapters.s3_blob import S3BlobStorage
 from infinity_context_core.application.auto_memory import RuleBasedMemoryClassifier
 from infinity_context_core.application.benchmark_managed_write_admission import (
     ManagedBenchmarkCreateMemoryScopeAdmission,
@@ -135,12 +51,7 @@ from infinity_context_core.application.extractor import (
     RuleBasedMemoryExtractor,
 )
 from infinity_context_core.domain.usage import ProductPlan
-from infinity_context_core.ports.adapters import (
-    EmbeddingPort,
-    GraphMemoryPort,
-    MemoryAdapterPort,
-    VectorMemoryPort,
-)
+from infinity_context_core.ports.adapters import EmbeddingPort, GraphMemoryPort, MemoryAdapterPort
 from infinity_context_core.ports.assets import BlobStorageMaintenancePort
 from infinity_context_core.ports.auto_memory import MemoryExtractorPort
 from infinity_context_core.ports.capabilities import DocumentMemoryPort
@@ -165,9 +76,11 @@ from infinity_context_server import (
     derived_provider_composition,
 )
 from infinity_context_server import processes as server_processes
-from infinity_context_server.config import CaptureMode, MemoryPolicyMode, Settings
+from infinity_context_server.composition_use_cases import *  # noqa: F403
+from infinity_context_server.config import CaptureMode, DeployProfile, MemoryPolicyMode, Settings
 from infinity_context_server.derived_identity_evidence import DerivedIdentityEvidenceCoordinator
 from infinity_context_server.embedding_composition import build_embedding_adapter
+from infinity_context_server.features.context_building import public as context_building_server
 from infinity_context_server.metrics import RuntimeMetrics
 from infinity_context_server.provider_budget import QueryEmbeddingBudgetAdapter
 from infinity_context_server.provider_circuit import (
@@ -175,6 +88,22 @@ from infinity_context_server.provider_circuit import (
     CircuitBreakingGraphMemoryAdapter,
     CircuitBreakingVectorMemoryAdapter,
     ProviderCircuitBreaker,
+)
+from infinity_context_server.retrieval_profile_composition import (
+    ProfileAwareLocatorRetrievalService,
+    RetrievalProfileOutboxCoordinator,
+    build_retrieval_profile_lifecycle,
+)
+from infinity_context_server.retrieval_runtime import (
+    ActiveRetrievalRuntimeLifecycle,
+    DisabledRetrievalRuntimeLifecycle,
+)
+from infinity_context_server.retrieval_runtime import (
+    RetrievalRuntimeLifecycle as RetrievalRuntimeLifecycleCapability,
+)
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    ProviderFreeRetrievalRuntimeLifecycle,
+    RetrievalRuntimeLifecycle,
 )
 from infinity_context_server.serving_profile import (
     VerifiedServingProfile,
@@ -265,13 +194,21 @@ class Container:
     ensure_scope: EnsureScopeUseCase
     ingest_episode: IngestEpisodeUseCase
     ingest_document: IngestDocumentUseCase
+    projected_document_ingestion: PostgresProjectedDocumentIngestor
+    reconcile_exact_document: document_ingestion_feature.ReconcileExactDocumentHandler
     get_document: GetDocumentUseCase
+    list_documents: ListDocumentsUseCase
     list_document_chunks: ListDocumentChunksUseCase
     process_document: ProcessDocumentUseCase
     delete_document: DeleteDocumentUseCase
     build_context: BuildContextUseCase
     canonical_fact_selection: memory_facts_feature.MemoryFactSelectionPort
     build_canonical_fact_context: context_building_feature.BuildContextHandler
+    locator_retrieval: context_building_server.LocatorRetrievalService | None
+    retrieval_runtime: RetrievalRuntimeLifecycleCapability
+    retrieval_profile_lifecycle: object
+    retrieval_profile_outbox: RetrievalProfileOutboxCoordinator
+    retrieval_runtime_lifecycle: RetrievalRuntimeLifecycle | ProviderFreeRetrievalRuntimeLifecycle
     memory_fact_lifecycle: memory_facts_feature.MemoryFactLifecycleUseCases
     memory_fact_reads: memory_facts_feature.MemoryFactReadUseCases
     memory_fact_temporal: memory_facts_feature.MemoryFactTemporalUseCases
@@ -303,7 +240,15 @@ class Container:
     runtime_metrics: RuntimeMetrics
     provider_circuits: tuple[ProviderCircuitBreaker, ...]
 
+    async def start_retrieval_runtime(self) -> None:
+        await self.retrieval_runtime_lifecycle.start(now=self.clock.now())
+
     async def aclose(self) -> None:
+        first_error: BaseException | None = None
+        try:
+            await self.retrieval_runtime_lifecycle.close(now=self.clock.now())
+        except BaseException as exc:
+            first_error = exc
         closed: set[int] = set()
         for resource in (
             *self.adapters,
@@ -320,8 +265,18 @@ class Container:
             if resource_id in closed:
                 continue
             closed.add(resource_id)
-            await _close_resource(resource)
-        await self.engine.dispose()
+            try:
+                await _close_resource(resource)
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+        try:
+            await self.engine.dispose()
+        except BaseException as exc:
+            if first_error is None:
+                first_error = exc
+        if first_error is not None:
+            raise first_error
 
 
 def build_container(
@@ -416,6 +371,52 @@ def build_container(
         inner=embeddings,
         clock=clock,
         max_per_minute=resolved_settings.max_query_embeddings_per_minute,
+    )
+    runtime_metrics = RuntimeMetrics()
+    retrieval_profile_lifecycle, retrieval_profile_outbox = build_retrieval_profile_lifecycle(
+        session_factory=session_factory,
+        settings=resolved_settings,
+        query_embeddings=query_embeddings,
+        diagnostics=runtime_metrics,
+    )
+    provider_free_local_runtime = (
+        resolved_settings.deploy_profile in {DeployProfile.LOCAL, DeployProfile.TEST}
+        and engine.dialect.name != "postgresql"
+        and not any(
+            (
+                resolved_settings.qdrant_enabled,
+                resolved_settings.graphiti_enabled,
+                resolved_settings.embeddings_enabled,
+            )
+        )
+    )
+    retrieval_runtime_lifecycle = (
+        ProviderFreeRetrievalRuntimeLifecycle()
+        if provider_free_local_runtime
+        else RetrievalRuntimeLifecycle(
+            retrieval_profile_outbox.registry,
+            retrieval_profile_outbox.projection.runtime_owner,
+        )
+    )
+    locator_retrieval = (
+        ProfileAwareLocatorRetrievalService(
+            registry=retrieval_profile_outbox.registry,
+            projection=retrieval_profile_outbox.projection,
+            sessions=session_factory,
+            query_embeddings=query_embeddings,
+            runtime_lifecycle=retrieval_runtime_lifecycle,
+            service_revision=serving_profile.service_revision,
+            sdk_revision=serving_profile.service_revision,
+            diagnostics=runtime_metrics,
+            runtime_owner=retrieval_profile_outbox.projection.runtime_owner,
+        )
+        if serving_profile.service_revision is not None
+        else None
+    )
+    retrieval_runtime: RetrievalRuntimeLifecycleCapability = (
+        ActiveRetrievalRuntimeLifecycle(retrieval_runtime_lifecycle, locator_retrieval)
+        if locator_retrieval is not None
+        else DisabledRetrievalRuntimeLifecycle()
     )
     blob_storage = _build_blob_storage(resolved_settings)
     product_plan = ProductPlan.create(
@@ -625,6 +626,14 @@ def build_container(
             asr_compute_type=resolved_settings.extraction_asr_compute_type,
         )
     )
+    projected_document_ingestion = PostgresProjectedDocumentIngestor(
+        engine=engine,
+        clock=clock,
+        ids=ids,
+    )
+    reconcile_exact_document = document_ingestion_feature.ReconcileExactDocumentHandler(
+        PostgresExactDocumentObservationAdapter(session_factory)
+    )
     run_asset_extraction = RunAssetExtractionUseCase(
         uow_factory=uow_factory,
         blob_storage=blob_storage,
@@ -649,6 +658,7 @@ def build_container(
     split_anchor = SplitAnchorUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     backfill_anchors = BackfillAnchorsUseCase(uow_factory=uow_factory, clock=clock, ids=ids)
     get_document = GetDocumentUseCase(uow_factory=uow_factory)
+    list_documents = ListDocumentsUseCase(uow_factory=uow_factory)
     list_document_chunks = ListDocumentChunksUseCase(uow_factory=uow_factory)
     process_document = ManagedBenchmarkDocumentMutationBlocker(
         uow_factory=uow_factory,
@@ -721,7 +731,9 @@ def build_container(
         uow_factory=uow_factory,
         clock=clock,
         ids=ids,
-        max_pending_captures_per_memory_scope=resolved_settings.max_pending_captures_per_memory_scope,
+        max_pending_captures_per_memory_scope=(
+            resolved_settings.max_pending_captures_per_memory_scope
+        ),
     )
     get_capture = GetCaptureUseCase(uow_factory=uow_factory)
     list_captures = ListCapturesUseCase(uow_factory=uow_factory)
@@ -759,7 +771,6 @@ def build_container(
         blob_storage=blob_storage,
         clock=clock,
     )
-    runtime_metrics = RuntimeMetrics()
     return Container(
         settings=resolved_settings,
         serving_profile=serving_profile,
@@ -844,13 +855,21 @@ def build_container(
         ensure_scope=ensure_scope,
         ingest_episode=ingest_episode,
         ingest_document=ingest_document,
+        projected_document_ingestion=projected_document_ingestion,
+        reconcile_exact_document=reconcile_exact_document,
         get_document=get_document,
+        list_documents=list_documents,
         list_document_chunks=list_document_chunks,
         process_document=process_document,
         delete_document=delete_document,
         build_context=build_context,
         canonical_fact_selection=canonical_fact_selection,
         build_canonical_fact_context=build_canonical_fact_context,
+        locator_retrieval=locator_retrieval,
+        retrieval_runtime=retrieval_runtime,
+        retrieval_profile_lifecycle=retrieval_profile_lifecycle,
+        retrieval_profile_outbox=retrieval_profile_outbox,
+        retrieval_runtime_lifecycle=retrieval_runtime_lifecycle,
         memory_fact_lifecycle=memory_fact_lifecycle,
         memory_fact_reads=memory_fact_reads,
         memory_fact_temporal=memory_fact_temporal,

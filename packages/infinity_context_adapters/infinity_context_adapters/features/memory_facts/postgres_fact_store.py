@@ -41,6 +41,10 @@ from infinity_context_adapters.features.memory_facts.postgres_temporal_decision_
     PostgresFactSupersessionRepository,
     PostgresFactTemporalDecisionRepository,
 )
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    coordinate_document_source_ref_write,
+    fence_fact_scope_writer,
+)
 from infinity_context_adapters.postgres.fact_selection_conditions import (
     memory_fact_selection_conditions,
 )
@@ -67,6 +71,7 @@ class PostgresMemoryFactStore:
         self._session = session
 
     async def create(self, fact: MemoryFactSnapshot) -> MemoryFactSnapshot:
+        await self._fence(fact)
         self._session.add(memory_fact_snapshot_to_row(fact))
         await self._write_version(fact)
         await self._write_source_refs(fact)
@@ -87,6 +92,12 @@ class PostgresMemoryFactStore:
         self,
         identity: MemoryFactIdentity,
     ) -> MemoryFactSnapshot | None:
+        await fence_fact_scope_writer(
+            self._session,
+            space_id=identity.scope.space_id,
+            memory_scope_id=identity.scope.memory_scope_id,
+            thread_id=identity.scope.thread_id,
+        )
         row = (
             await self._session.execute(
                 select(MemoryFactRow).where(*_identity_conditions(identity)).with_for_update()
@@ -109,6 +120,7 @@ class PostgresMemoryFactStore:
         return tuple(locked)
 
     async def save(self, fact: MemoryFactSnapshot) -> MemoryFactSnapshot:
+        await self._fence(fact)
         expected_version = fact.visibility.version - 1
         if expected_version < 1:
             raise ValueError("Memory fact version conflict")
@@ -139,6 +151,15 @@ class PostgresMemoryFactStore:
         await self._write_version(fact)
         await self._write_source_refs(fact)
         return fact
+
+    async def _fence(self, fact: MemoryFactSnapshot) -> None:
+        scope = fact.identity.scope
+        await fence_fact_scope_writer(
+            self._session,
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            thread_id=scope.thread_id,
+        )
 
     async def _materialize_prior_version(
         self,
@@ -498,6 +519,20 @@ class PostgresMemoryFactTransaction:
             {"identity": lock_identity},
         )
 
+    async def coordinate_source_refs(
+        self,
+        *,
+        scope: MemoryFactScope,
+        source_refs: tuple[MemoryFactSourceRef, ...],
+    ) -> None:
+        await coordinate_document_source_ref_write(
+            self._session,
+            space_id=scope.space_id,
+            memory_scope_id=scope.memory_scope_id,
+            thread_id=scope.thread_id,
+            source_refs=source_refs,
+        )
+
 
 class PostgresMemoryFactUnitOfWork:
     """One transaction for fact snapshots, version history and outbox intents."""
@@ -531,6 +566,16 @@ class PostgresMemoryFactUnitOfWork:
         if self._session is None:
             raise RuntimeError("Memory fact unit of work is not open")
         await self._transaction.lock_scope(scope)
+
+    async def coordinate_source_refs(
+        self,
+        *,
+        scope: MemoryFactScope,
+        source_refs: tuple[MemoryFactSourceRef, ...],
+    ) -> None:
+        if self._session is None:
+            raise RuntimeError("Memory fact unit of work is not open")
+        await self._transaction.coordinate_source_refs(scope=scope, source_refs=source_refs)
 
     async def __aexit__(
         self,

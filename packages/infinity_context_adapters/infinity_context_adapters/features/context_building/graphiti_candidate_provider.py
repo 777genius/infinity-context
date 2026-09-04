@@ -1,8 +1,9 @@
-"""Graphiti-derived candidate provider seam for context_building."""
+"""Graphiti anti-corruption adapter for identity-only context candidates."""
 
 from __future__ import annotations
 
-from typing import NoReturn
+from dataclasses import dataclass
+from typing import Protocol
 
 from infinity_context_core.features.context_building.public import (
     FEATURE_ID,
@@ -12,33 +13,73 @@ from infinity_context_core.features.context_building.public import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class GraphitiCandidatePointer:
+    """Versioned canonical pointer returned by bounded graph recall."""
+
+    canonical_id: str
+    canonical_version: int
+    rank: int
+    query_key: str = "graphiti"
+    match_reasons: tuple[str, ...] = ("graph_relation",)
+
+
+class GraphitiCandidateLookupPort(Protocol):
+    async def find_candidate_pointers(
+        self,
+        request: ContextCandidateRequest,
+    ) -> tuple[GraphitiCandidatePointer, ...]:
+        """Return a stable, already bounded identity/version/rank page."""
+
+
+@dataclass(frozen=True, slots=True)
 class GraphitiContextCandidateProvider:
-    """Placeholder for future graph-derived context candidates."""
+    """Translate versioned graph pointers without exposing graph-owned text."""
+
+    lookup: GraphitiCandidateLookupPort
 
     adapter_name = "graphiti"
     feature_id = FEATURE_ID
+    provider_id = "graphiti"
 
     async def find_candidate_hits(
         self,
-        _request: ContextCandidateRequest,
+        request: ContextCandidateRequest,
     ) -> tuple[CandidateHit, ...]:
-        _raise_not_implemented("find_candidate_hits")
+        pointers = await self.lookup.find_candidate_pointers(request)
+        if len(pointers) > request.limit:
+            raise RuntimeError("graphiti candidate lookup exceeded the requested page bound")
+        expected_rank = request.offset + 1
+        hits: list[CandidateHit] = []
+        seen: set[tuple[str, int]] = set()
+        for pointer in pointers:
+            identity = (pointer.canonical_id, pointer.canonical_version)
+            if identity in seen or pointer.rank != expected_rank:
+                raise RuntimeError("graphiti candidate lookup returned an unstable ranking")
+            seen.add(identity)
+            expected_rank += 1
+            hits.append(
+                CandidateHit(
+                    canonical_id=pointer.canonical_id,
+                    canonical_version=pointer.canonical_version,
+                    provider_id=self.provider_id,
+                    query_key=pointer.query_key,
+                    rank=pointer.rank,
+                    match_reasons=pointer.match_reasons,
+                )
+            )
+        return tuple(hits)
 
 
-def create_graphiti_context_candidate_provider() -> ContextCandidateHitProviderPort:
-    """Create the feature-owned Graphiti candidate provider placeholder."""
-
-    return GraphitiContextCandidateProvider()
-
-
-def _raise_not_implemented(operation: str) -> NoReturn:
-    raise NotImplementedError(
-        f"context_building Graphiti candidate provider {operation} is a placeholder seam; "
-        "real Graphiti graph recall wiring is deferred."
-    )
+def create_graphiti_context_candidate_provider(
+    *, lookup: GraphitiCandidateLookupPort
+) -> ContextCandidateHitProviderPort:
+    return GraphitiContextCandidateProvider(lookup=lookup)
 
 
 __all__ = (
+    "GraphitiCandidateLookupPort",
+    "GraphitiCandidatePointer",
     "GraphitiContextCandidateProvider",
     "create_graphiti_context_candidate_provider",
 )

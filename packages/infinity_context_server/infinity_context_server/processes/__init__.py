@@ -22,6 +22,7 @@ from infinity_context_server.processes.projections import (
     OutboxProjectionError,
     ProjectionOutboxProcess,
 )
+from infinity_context_server.processes.vector_rebuild import GenericVectorRebuildProcess
 from infinity_context_server.processes.workspace_scope_claim_verification import (
     WorkspaceScopeClaimVerificationProcess,
 )
@@ -33,6 +34,7 @@ def build_outbox_event_dispatcher(container) -> OutboxEventDispatcher:
     return OutboxEventDispatcher(
         merge_outbox_handlers(
             projections.vector_handlers(),
+            GenericVectorRebuildProcess(container).handlers(),
             fact_projections.legacy_handlers(),
             projections.document_handlers(),
             ExtractionOutboxProcess(container).handlers(),

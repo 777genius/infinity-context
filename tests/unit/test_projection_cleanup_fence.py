@@ -99,6 +99,9 @@ class FakeUnitOfWork:
     async def __aexit__(self, _exc_type, _exc, _tb) -> None:
         return None
 
+    async def commit(self) -> None:
+        return None
+
 
 class FakeUnitOfWorkFactory:
     def __init__(self, *, chunks, facts, documents, document_chunks) -> None:
@@ -138,7 +141,10 @@ class RecordingAdapters:
         await self._record_upsert("vector")
         return VectorWriteResult.ok(1)
 
-    async def delete_chunks(self, _chunk_ids) -> VectorWriteResult:
+    async def delete_chunks_if_version(
+        self, _chunk_ids, *, canonical_version: int
+    ) -> VectorWriteResult:
+        del canonical_version
         self.events.append("vector.delete")
         return VectorWriteResult.ok(1)
 
@@ -188,13 +194,48 @@ class ConfigurableProjectionDelete:
         self._result = result
         self.requests: list[tuple[str, object]] = []
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
-        self.requests.append(("vector", chunk_ids))
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> VectorWriteResult:
+        self.requests.append(("vector", (chunk_ids, canonical_version)))
         return self._result
 
     async def delete_fact(self, fact_id: str) -> VectorWriteResult:
         self.requests.append(("graph", fact_id))
         return self._result
+
+
+class ImmediateVectorAdapter:
+    def __init__(self) -> None:
+        self.upserts: list[object] = []
+        self.deletes: list[tuple[tuple[str, ...], int]] = []
+
+    async def capabilities(self) -> AdapterCapabilities:
+        return AdapterCapabilities(
+            name="immediate-vector",
+            enabled=True,
+            healthy=True,
+            supports_upsert=True,
+            supports_delete=True,
+            supports_search=True,
+            supports_filters=True,
+        )
+
+    async def upsert_chunks(self, items) -> VectorWriteResult:
+        self.upserts.extend(items)
+        return VectorWriteResult.ok(len(items))
+
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> VectorWriteResult:
+        self.deletes.append((chunk_ids, canonical_version))
+        return VectorWriteResult.ok(len(chunk_ids))
+
+    async def embed_texts(self, texts) -> EmbeddingResult:
+        return EmbeddingResult(
+            status=PortStatus.OK,
+            vectors=tuple((0.25, 0.75) for _ in texts),
+        )
 
 
 def _chunk(space_id: str = "benchmark-space") -> SimpleNamespace:
@@ -208,6 +249,7 @@ def _chunk(space_id: str = "benchmark-space") -> SimpleNamespace:
         classification="internal",
         text="chunk text",
         metadata={},
+        canonical_version=1,
         source_type="document",
         source_external_id="source-1",
         kind=SimpleNamespace(value="document"),
@@ -281,7 +323,12 @@ def _job(
         "vector": (
             "vector.delete_chunks" if delete else "vector.upsert_chunk",
             "chunk-1",
-            {"chunk_ids": ["chunk-1"]} if delete else {"chunk_id": "chunk-1"},
+            {
+                "chunk_ids": ["chunk-1"],
+                "chunk_versions": [{"chunk_id": "chunk-1", "canonical_version": 1}],
+            }
+            if delete
+            else {"chunk_id": "chunk-1"},
         ),
         "graph": (
             "graph.delete_fact" if delete else "graph.upsert_fact",
@@ -307,6 +354,90 @@ def _job(
         workload_class="projection",
         fairness_key=f"{lane}:{aggregate_id}",
         payload_json=payload,
+    )
+
+
+def test_vector_worker_preserves_standard_upsert_without_retrieval_metadata() -> None:
+    vector = ImmediateVectorAdapter()
+    process = _immediate_vector_process(_chunk(), vector=vector)
+
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert len(vector.upserts) == 1
+    assert vector.upserts[0].metadata == {
+        "source_type": "document",
+        "kind": "document",
+        "classification": "internal",
+        "canonical_version": 1,
+    }
+    assert vector.deletes == []
+
+
+def test_vector_worker_fence_blocks_generation_deleted_before_provider_upsert() -> None:
+    vector = ImmediateVectorAdapter()
+    active = _chunk()
+    deleted = SimpleNamespace(**{**vars(active), "status": LifecycleStatus.DELETED})
+    process = ProjectionOutboxProcess(
+        SimpleNamespace(
+            projection_fence=CoordinatedFence([]),
+            uow_factory=FakeUnitOfWorkFactory(
+                chunks=(active, active, deleted),
+                facts=(),
+                documents=(_document(),),
+                document_chunks=(active,),
+            ),
+            vector_index=vector,
+            embedder=vector,
+            settings=SimpleNamespace(max_embedding_tokens_per_document=100),
+        )
+    )
+
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert vector.upserts == []
+    assert vector.deletes == []
+
+
+def test_late_vector_worker_cannot_write_after_newer_canonical_generation() -> None:
+    vector = ImmediateVectorAdapter()
+    version_one = _chunk()
+    version_two = SimpleNamespace(**{**vars(version_one), "canonical_version": 2})
+    process = ProjectionOutboxProcess(
+        SimpleNamespace(
+            projection_fence=CoordinatedFence([]),
+            uow_factory=FakeUnitOfWorkFactory(
+                chunks=(version_one, version_one, version_two),
+                facts=(),
+                documents=(_document(),),
+                document_chunks=(version_one,),
+            ),
+            vector_index=vector,
+            embedder=vector,
+            settings=SimpleNamespace(max_embedding_tokens_per_document=100),
+        )
+    )
+
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert vector.upserts == []
+    assert vector.deletes == []
+
+
+def _immediate_vector_process(chunk, *, vector) -> ProjectionOutboxProcess:
+    chunks = (chunk, chunk)
+    return ProjectionOutboxProcess(
+        SimpleNamespace(
+            projection_fence=CoordinatedFence([]),
+            uow_factory=FakeUnitOfWorkFactory(
+                chunks=chunks,
+                facts=(),
+                documents=(_document(),),
+                document_chunks=(chunk,),
+            ),
+            vector_index=vector,
+            embedder=vector,
+            settings=SimpleNamespace(max_embedding_tokens_per_document=100),
+        )
     )
 
 
@@ -424,7 +555,16 @@ def test_vector_and_graph_delete_preserve_benchmark_cleanup_semantics(
             VectorWriteResult.degraded(f"{lane}.disabled", retryable=False)
         )
         process = ProjectionOutboxProcess(
-            SimpleNamespace(vector_index=adapter, graph_index=adapter)
+            SimpleNamespace(
+                vector_index=adapter,
+                graph_index=adapter,
+                uow_factory=FakeUnitOfWorkFactory(
+                    chunks=(_chunk(),),
+                    facts=(),
+                    documents=(),
+                    document_chunks=(),
+                ),
+            )
         )
         try:
             await _dispatch(
@@ -442,7 +582,7 @@ def test_vector_and_graph_delete_preserve_benchmark_cleanup_semantics(
     diagnostic_code, adapter = asyncio.run(run())
 
     assert diagnostic_code == expected_diagnostic_code
-    assert adapter.requests == [(lane, ("chunk-1",) if lane == "vector" else "fact-1")]
+    assert adapter.requests == [(lane, (("chunk-1",), 1) if lane == "vector" else "fact-1")]
 
 
 @pytest.mark.parametrize("lane", ["vector", "graph", "cognee"])

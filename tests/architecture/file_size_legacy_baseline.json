@@ -46,7 +46,6 @@
   "packages/infinity_context_server/infinity_context_server/memory_comparison_source_identity.py": 1655,
   "packages/infinity_context_server/infinity_context_server/public_benchmark.py": 2532,
   "packages/infinity_context_server/infinity_context_server/web/assets/memory-browser.js": 3299,
-  "packages/infinity_context_ts_sdk/tests/sdk.test.ts": 4448,
   "scripts/clean_full_smoke.py": 2522,
   "scripts/locomo_failure_analysis.py": 1360,
   "scripts/multimodal_docker_live_proof.py": 2196,
@@ -79,8 +78,8 @@
   "tests/unit/test_context_temporal_query.py": 1782,
   "tests/unit/test_context_temporal_source_identity_scoring.py": 1758,
   "tests/unit/test_context_temporal_source_turn_order.py": 1034,
-  "tests/unit/test_health_capabilities.py": 1562,
-  "tests/unit/test_legacy_and_context_api.py": 2274,
+  "tests/unit/test_health_capabilities.py": 1551,
+  "tests/unit/test_legacy_and_context_api.py": 2264,
   "tests/unit/test_local_runbook.py": 1873,
   "tests/unit/test_locomo_failure_analysis.py": 1361,
   "tests/unit/test_mcp_adapter.py": 1220,
@@ -105,6 +104,6 @@
   "tests/unit/test_quality_evidence_bundle.py": 1136,
   "tests/unit/test_sdk_contract.py": 3788,
   "tests/unit/test_suggestions_api.py": 1082,
-  "tests/unit/test_worker_eval.py": 2003,
+  "tests/unit/test_worker_eval.py": 1997,
   "tests/unit/test_worker_eval_scorecard.py": 2994
 }

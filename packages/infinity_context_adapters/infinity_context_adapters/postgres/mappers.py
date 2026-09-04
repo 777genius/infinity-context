@@ -90,6 +90,9 @@ from infinity_context_adapters.postgres.models import (
     MemoryThreadRow,
     MemoryUserRow,
 )
+from infinity_context_adapters.postgres.retrieval_projection_mapping import (
+    typed_retrieval_projection,
+)
 
 __all__ = [
     "anchor_row_to_domain",
@@ -484,6 +487,7 @@ def document_row_to_domain(row: MemoryDocumentRow) -> MemoryDocument:
 
 
 def chunk_to_row(chunk: MemoryChunk) -> MemoryChunkRow:
+    retrieval = typed_retrieval_projection(chunk.metadata)
     return MemoryChunkRow(
         id=str(chunk.id),
         space_id=str(chunk.space_id),
@@ -506,10 +510,43 @@ def chunk_to_row(chunk: MemoryChunk) -> MemoryChunkRow:
         created_at=chunk.created_at,
         updated_at=chunk.updated_at,
         metadata_json=chunk.metadata,
+        retrieval_locator=None if retrieval is None else retrieval["locator"],
+        retrieval_source_key=None if retrieval is None else retrieval["source_key"],
+        retrieval_projection_generation=(
+            None if retrieval is None else retrieval["projection_generation"]
+        ),
+        retrieval_sequence_ordinal=(None if retrieval is None else retrieval["sequence_ordinal"]),
+        retrieval_kind=None if retrieval is None else retrieval["kind"],
+        retrieval_version=1,
+        retrieval_actor_keys_json=([] if retrieval is None else retrieval["actor_keys"]),
+        retrieval_start_at=None if retrieval is None else retrieval["start_at"],
+        retrieval_end_at=None if retrieval is None else retrieval["end_at"],
+        retrieval_relative_start_ms=(None if retrieval is None else retrieval["relative_start_ms"]),
+        retrieval_relative_end_ms=(None if retrieval is None else retrieval["relative_end_ms"]),
+        retrieval_category=None if retrieval is None else retrieval["category"],
+        retrieval_tags_json=[] if retrieval is None else retrieval["tags"],
     )
 
 
 def chunk_row_to_domain(row: MemoryChunkRow) -> MemoryChunk:
+    metadata = dict(row.metadata_json or {})
+    retrieval = {
+        "locator": row.retrieval_locator,
+        "source_key": row.retrieval_source_key,
+        "projection_generation": row.retrieval_projection_generation,
+        "sequence_ordinal": row.retrieval_sequence_ordinal,
+        "actor_keys": list(row.retrieval_actor_keys_json or ()),
+        "start_at": row.retrieval_start_at,
+        "end_at": row.retrieval_end_at,
+        "relative_start_ms": row.retrieval_relative_start_ms,
+        "relative_end_ms": row.retrieval_relative_end_ms,
+        "kind": row.retrieval_kind,
+        "category": row.retrieval_category,
+        "tags": list(row.retrieval_tags_json or ()),
+        "canonical_version": row.retrieval_version,
+    }
+    if row.retrieval_locator is not None:
+        metadata["_canonical_retrieval_projection"] = retrieval
     return MemoryChunk(
         id=MemoryChunkId(row.id),
         space_id=SpaceId(row.space_id),
@@ -531,7 +568,8 @@ def chunk_row_to_domain(row: MemoryChunkRow) -> MemoryChunk:
         classification=row.classification,
         created_at=row.created_at,
         updated_at=row.updated_at,
-        metadata=dict(row.metadata_json or {}),
+        metadata=metadata,
+        canonical_version=row.retrieval_version,
     )
 
 
@@ -562,6 +600,7 @@ def suggestion_to_row(suggestion: MemorySuggestion) -> MemorySuggestionRow:
         id=str(suggestion.id),
         space_id=str(suggestion.space_id),
         memory_scope_id=str(suggestion.memory_scope_id),
+        thread_id=suggestion.thread_id,
         candidate_text=suggestion.candidate_text,
         kind=suggestion.kind.value,
         operation=suggestion.operation.value,
@@ -593,6 +632,7 @@ def suggestion_to_json(suggestion: MemorySuggestion) -> dict[str, object]:
         "id": str(suggestion.id),
         "space_id": str(suggestion.space_id),
         "memory_scope_id": str(suggestion.memory_scope_id),
+        "thread_id": suggestion.thread_id,
         "candidate_text": suggestion.candidate_text,
         "kind": suggestion.kind.value,
         "operation": suggestion.operation.value,
@@ -635,14 +675,13 @@ def suggestion_from_json(payload: Mapping[str, object]) -> MemorySuggestion:
         id=MemorySuggestionId(_required_json_text(payload, "id")),
         space_id=SpaceId(_required_json_text(payload, "space_id")),
         memory_scope_id=MemoryScopeId(_required_json_text(payload, "memory_scope_id")),
+        thread_id=_optional_json_text(payload.get("thread_id")),
         candidate_text=_required_json_text(payload, "candidate_text"),
         kind=MemoryKind(_required_json_text(payload, "kind")),
         operation=SuggestionOperation(_required_json_text(payload, "operation")),
         status=SuggestionStatus(_required_json_text(payload, "status")),
         source_refs=tuple(
-            source_ref_from_json(dict(item))
-            for item in source_refs
-            if isinstance(item, dict)
+            source_ref_from_json(dict(item)) for item in source_refs if isinstance(item, dict)
         ),
         confidence=Confidence(_required_json_text(payload, "confidence")),
         trust_level=TrustLevel(_required_json_text(payload, "trust_level")),
@@ -669,6 +708,7 @@ def suggestion_row_to_domain(row: MemorySuggestionRow) -> MemorySuggestion:
         id=MemorySuggestionId(row.id),
         space_id=SpaceId(row.space_id),
         memory_scope_id=MemoryScopeId(row.memory_scope_id),
+        thread_id=getattr(row, "thread_id", None),
         candidate_text=row.candidate_text,
         kind=MemoryKind(row.kind),
         operation=SuggestionOperation(getattr(row, "operation", None) or "add"),
@@ -725,6 +765,7 @@ def _optional_json_datetime(value: object) -> datetime | None:
 
 
 def apply_suggestion_to_row(suggestion: MemorySuggestion, row: MemorySuggestionRow) -> None:
+    row.thread_id = suggestion.thread_id
     row.candidate_text = suggestion.candidate_text
     row.kind = suggestion.kind.value
     row.operation = suggestion.operation.value

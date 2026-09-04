@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   InfinityContextClient,
   InfinityContextError,
+  FetchTransport,
+  HttpClient,
   parseRetryAfterMs,
+  redactSensitiveText,
 } from "../src/index.js";
 import {
   HangingTransport,
@@ -11,7 +14,277 @@ import {
   waitForRecordedRequests,
 } from "./fixtures.js";
 
+const TEXTUAL_REDACTION_CASES = [
+  ["Basic authorization header", "Authorization: Basic dXNlcjpwYXNzd29yZA==", "Authorization: [REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["standalone Basic credential", "Basic dXNlcjpwYXNzd29yZA==", "Basic [REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["assigned Basic credential", "authorization=Basic dXNlcjpwYXNzd29yZA==", "authorization=[REDACTED]", ["dXNlcjpwYXNzd29yZA=="]],
+  ["x_api_key", "x_api_key=x-api-key-value", "x_api_key=[REDACTED]", ["x-api-key-value"]],
+  ["api.key", "api.key=dot-api-key-value", "api.key=[REDACTED]", ["dot-api-key-value"]],
+  ["refresh_token", "refresh_token=refresh-token-value", "refresh_token=[REDACTED]", ["refresh-token-value"]],
+  ["api-key", "api-key=hyphenated-value", "api-key=[REDACTED]", ["hyphenated-value"]],
+  ["api key", "api key: spaced-value", "api key: [REDACTED]", ["spaced-value"]],
+  ["api_key", "api_key=underscored-value", "api_key=[REDACTED]", ["underscored-value"]],
+  ["credential", "credential: credential-value", "credential: [REDACTED]", ["credential-value"]],
+  ["token", "token=token-value", "token=[REDACTED]", ["token-value"]],
+  ["passwd", "passwd=passwd-value", "passwd=[REDACTED]", ["passwd-value"]],
+  ["password", "password=password-value", "password=[REDACTED]", ["password-value"]],
+  ["secret", "secret=secret-value", "secret=[REDACTED]", ["secret-value"]],
+  ["authorization", "authorization=authorization-value", "authorization=[REDACTED]", ["authorization-value"]],
+  ["quoted JSON api_key", "{\"api_key\":\"JSON_API_SENTINEL\"}", "{\"api_key\":\"[REDACTED]\"}", ["JSON_API_SENTINEL"]],
+  ["quoted Basic authorization", "authorization=\"Basic BASIC_QUOTED_SENTINEL==\"", "authorization=\"[REDACTED]\"", ["BASIC_QUOTED_SENTINEL"]],
+  ["quoted Bearer authorization", "authorization=\"Bearer BEARER_QUOTED_SENTINEL.abc\"", "authorization=\"[REDACTED]\"", ["BEARER_QUOTED_SENTINEL"]],
+  [
+    "escaped JSON credential delimiters",
+    "escaped {\\\"api_key\\\":\\\"ESCAPED_API_SENTINEL\\\"}",
+    "escaped {\\\"api_key\\\":\\\"[REDACTED]\\\"}",
+    ["ESCAPED_API_SENTINEL"],
+  ],
+  [
+    "escaped quoted Basic authorization",
+    "authorization=\\\"Basic BASIC_WRAPPED_SENTINEL==\\\"",
+    "authorization=\\\"[REDACTED]\\\"",
+    ["BASIC_WRAPPED_SENTINEL"],
+  ],
+  [
+    "parenthesized Basic authorization",
+    "Authorization: (Basic BASIC_PAREN_SENTINEL==)",
+    "Authorization: ([REDACTED])",
+    ["BASIC_PAREN_SENTINEL"],
+  ],
+  [
+    "escaped quoted Bearer authorization",
+    "authorization=\\\"Bearer BEARER_WRAPPED_SENTINEL.abc\\\"",
+    "authorization=\\\"[REDACTED]\\\"",
+    ["BEARER_WRAPPED_SENTINEL"],
+  ],
+  [
+    "parenthesized Bearer authorization",
+    "Authorization: (Bearer BEARER_PAREN_SENTINEL.abc)",
+    "Authorization: ([REDACTED])",
+    ["BEARER_PAREN_SENTINEL"],
+  ],
+  ["access_token", "access_token=ACCESS_TOKEN_SENTINEL!", "access_token=[REDACTED]!", ["ACCESS_TOKEN_SENTINEL"]],
+  ["client_secret", "client_secret=CLIENT_SECRET_SENTINEL?", "client_secret=[REDACTED]?", ["CLIENT_SECRET_SENTINEL"]],
+  [
+    "multiple punctuated credentials",
+    "api_key=FIRST_SENTINEL, authorization=(Bearer SECOND_SENTINEL); client_secret='THIRD_SENTINEL'.",
+    "api_key=[REDACTED], authorization=([REDACTED]); client_secret='[REDACTED]'.",
+    ["FIRST_SENTINEL", "SECOND_SENTINEL", "THIRD_SENTINEL"],
+  ],
+  [
+    "escaped JSON-like value",
+    "prefix {\"api.key\": \"before-\\\"still-secret-after\", \"safe\": true}",
+    "prefix {\"api.key\": \"[REDACTED]\", \"safe\": true}",
+    ["before-", "still-secret-after"],
+  ],
+] as const;
+
+const STRUCTURED_SENSITIVE_KEYS = [
+  "x_api_key", "api.key", "refresh_token", "api-key", "api key", "api_key",
+  "credential", "token", "passwd", "password", "secret", "authorization",
+] as const;
+
 describe("transport, retry and errors", () => {
+  it.each(["token", "onRequest", "onResponse", "onError", "onRetry", "sleep", "transport"] as const)(
+    "drains a late %s rejection after that extension synchronously aborts",
+    async (phase) => {
+      const controller = new AbortController();
+      const failure = new Error(`late ${phase} failure`);
+      const abortThenReject = <T,>(): Promise<T> => {
+        controller.abort(new Error(`cancel during ${phase}`));
+        return new Promise<T>((_resolve, reject) => queueMicrotask(() => reject(failure)));
+      };
+      const success = { status: 200, headers: new Headers(), body: "{}" };
+      const failingTransport = {
+        send: () => phase === "transport"
+          ? abortThenReject<never>()
+          : phase === "onResponse"
+            ? Promise.resolve(success)
+            : Promise.reject(new Error("transport unavailable")),
+      };
+      const client = new HttpClient({
+        ...(phase === "token" ? { token: () => abortThenReject<string>() } : {}),
+        transport: failingTransport,
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          ...(phase === "onRequest" ? { onRequest: () => abortThenReject<void>() } : {}),
+          ...(phase === "onResponse" ? { onResponse: () => abortThenReject<void>() } : {}),
+          ...(phase === "onError" ? { onError: () => abortThenReject<void>() } : {}),
+          ...(phase === "onRetry" ? { onRetry: () => abortThenReject<void>() } : {}),
+        },
+        sleep: phase === "sleep" ? () => abortThenReject<void>() : async () => undefined,
+      });
+
+      await expectNoUnhandledRejection(async () => {
+        await expect(client.request({
+          method: "GET", path: "/late-rejection", signal: controller.signal,
+        })).rejects.toMatchObject({ code: "memory.request_aborted", retryable: false });
+      });
+    },
+  );
+
+  it.each(["fetch", "stream read"] as const)(
+    "drains a late %s rejection after synchronous cancellation",
+    async (phase) => {
+      const controller = new AbortController();
+      const failure = new Error(`late ${phase} failure`);
+      const abortThenReject = <T,>(): Promise<T> => {
+        controller.abort(new Error(`cancel during ${phase}`));
+        return new Promise<T>((_resolve, reject) => queueMicrotask(() => reject(failure)));
+      };
+      const reader = {
+        read: () => abortThenReject<ReadableStreamReadResult<Uint8Array>>(),
+        cancel: async () => undefined,
+        releaseLock: () => undefined,
+      };
+      const response = {
+        status: 200,
+        headers: new Headers(),
+        body: { getReader: () => reader },
+      } as unknown as Response;
+      const fetchLike = (() => phase === "fetch"
+        ? abortThenReject<Response>()
+        : Promise.resolve(response)) as typeof fetch;
+      const transport = new FetchTransport(fetchLike);
+
+      await expectNoUnhandledRejection(async () => {
+        await expect(transport.send({
+          method: "GET", url: new URL("http://memory.test/late-rejection"),
+          headers: new Headers(), signal: controller.signal,
+        })).rejects.toMatchObject({ code: "memory.request_aborted", retryable: false });
+      });
+    },
+  );
+
+  it("stops bounded byte responses before buffering beyond the limit", async () => {
+    const fetchLike = (async () => new Response("x".repeat(33))) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    await expect(transport.send({
+      method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+      responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded", statusCode: 200, retryable: false,
+    });
+
+    const exact = await transport.send({
+      method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+      responseType: "bytes", maxResponseBytes: 33,
+    });
+    expect(exact.body).toBeInstanceOf(Uint8Array);
+    expect((exact.body as Uint8Array).byteLength).toBe(33);
+  });
+
+  it.each([
+    ["never settles", () => new Promise<void>(() => undefined)],
+    ["rejects", () => Promise.reject(new Error("cancel failed"))],
+  ] as const)("settles the typed byte-limit error promptly when reader cancellation %s", async (_name, cancel) => {
+    let cancelCalls = 0;
+    const fetchLike = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(33));
+      },
+      cancel() {
+        cancelCalls += 1;
+        return cancel();
+      },
+    }), { status: 403, headers: { "x-request-id": "request-cancel" } })) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      transport.send({
+        method: "GET", url: new URL("http://memory.test/bounded"), headers: new Headers(),
+        responseType: "bytes", maxResponseBytes: 32,
+      }).then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
+      ),
+      new Promise<{ readonly kind: "timeout" }>((resolve) => {
+        timeout = setTimeout(() => resolve({ kind: "timeout" }), 100);
+      }),
+    ]);
+    if (timeout !== undefined) clearTimeout(timeout);
+
+    expect(outcome.kind).toBe("rejected");
+    expect(outcome).toMatchObject({
+      error: {
+        code: "memory.response_byte_limit_exceeded", statusCode: 403,
+        requestId: "request-cancel", retryable: false,
+      },
+    });
+    expect(cancelCalls).toBe(1);
+  });
+
+  it.each([
+    [403, "request-403"],
+    [200, "request-200"],
+  ] as const)("preserves oversized HTTP %s identity without guessing a hidden server code", async (status, requestId) => {
+    const hidden = JSON.stringify({
+      error: { code: "memory.hidden_after_bound", message: "must not be parsed", retryable: true },
+      padding: "x".repeat(128),
+    });
+    let calls = 0;
+    const fetchLike = (async () => {
+      calls += 1;
+      return new Response(hidden, { status, headers: { "x-request-id": requestId } });
+    }) as typeof fetch;
+    const client = new HttpClient({
+      transport: new FetchTransport(fetchLike),
+      retryPolicy: { maxAttempts: 2 },
+    });
+
+    await expect(client.request({
+      method: "GET", path: "/bounded",
+      responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded",
+      statusCode: status,
+      requestId,
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+  });
+
+  it("applies the hard error-body cap when callers omit a per-request limit", async () => {
+    const hiddenCode = "memory.hidden_without_explicit_limit";
+    const hidden = JSON.stringify({
+      error: { code: hiddenCode, message: "must not be parsed", retryable: true },
+      padding: "x".repeat(16_384),
+    });
+    let calls = 0;
+    const client = new HttpClient({
+      transport: new FetchTransport((async () => {
+        calls += 1;
+        return new Response(hidden, {
+          status: 503,
+          headers: { "x-request-id": "request-default-hard-cap" },
+        });
+      }) as typeof fetch),
+      retryPolicy: { maxAttempts: 2 },
+    });
+
+    await expect(client.request({ method: "GET", path: "/default-hard-cap" })).rejects.toMatchObject({
+      code: "memory.response_byte_limit_exceeded",
+      statusCode: 503,
+      requestId: "request-default-hard-cap",
+      retryable: false,
+    });
+    expect(calls).toBe(1);
+    expect(hidden).toContain(hiddenCode);
+  });
+
+  it("retains an exact normal-sized 403 server error code and non-retryable semantics", async () => {
+    const transport = new RecordingTransport([
+      jsonResponse({ error: { code: "memory.denied", message: "denied", retryable: false } }, 403, {
+        "x-request-id": "request-denied",
+      }),
+    ]);
+    const client = new InfinityContextClient({ transport, retryPolicy: { maxAttempts: 2 } });
+    await expect(client.system.capabilities()).rejects.toMatchObject({
+      code: "memory.denied", statusCode: 403, requestId: "request-denied", retryable: false,
+    });
+    expect(transport.requests).toHaveLength(1);
+  });
+
   it("sends auth, params and idempotency headers through resource clients", async () => {
     const transport = new RecordingTransport([jsonResponse({ data: { id: "fact_1" } })]);
     const client = new InfinityContextClient({
@@ -129,6 +402,257 @@ describe("transport, retry and errors", () => {
       retryable: true,
     });
     expect(transport.requests[0]?.signal?.aborted).toBe(true);
+  });
+
+  it("starts the operation budget before async authentication", async () => {
+    let authSignal: AbortSignal | undefined;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      token: (signal) => { authSignal = signal; return new Promise<string>(() => undefined); },
+      transport, retryPolicy: { maxAttempts: 1 },
+    });
+    await expect(client.system.capabilities({ timeoutMs: 10 })).rejects.toMatchObject({ code: "memory.request_timeout" });
+    expect(authSignal?.aborted).toBe(true);
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("races caller cancellation through never-settling request instrumentation", async () => {
+    const controller = new AbortController();
+    let instrumentationSignal: AbortSignal | undefined;
+    const transport = new RecordingTransport([]);
+    const client = new InfinityContextClient({
+      transport, retryPolicy: { maxAttempts: 1 },
+      instrumentation: { onRequest: (event) => {
+        instrumentationSignal = event.signal;
+        return new Promise<void>(() => undefined);
+      } },
+    });
+    const request = client.system.capabilities({ signal: controller.signal });
+    controller.abort("cancel before transport");
+    await expect(request).rejects.toMatchObject({ code: "memory.request_aborted" });
+    expect(instrumentationSignal?.aborted).toBe(true);
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it("keeps response instrumentation inside the operation budget without duplicate effects", async () => {
+    let responses = 0;
+    let errors = 0;
+    const transport = new RecordingTransport([jsonResponse({ enabled_adapters: [] })]);
+    const client = new InfinityContextClient({
+      transport, retryPolicy: { maxAttempts: 2 },
+      instrumentation: {
+        onResponse: () => { responses += 1; return new Promise<void>(() => undefined); },
+        onError: () => { errors += 1; },
+      },
+    });
+    await expect(client.system.capabilities({ timeoutMs: 10 })).rejects.toMatchObject({ code: "memory.request_timeout" });
+    expect(transport.requests).toHaveLength(1);
+    expect(responses).toBe(1);
+    expect(errors).toBe(0);
+  });
+
+  it.each(["onError", "onRetry", "sleep"] as const)(
+    "normalizes timeout while %s never settles after a transport failure",
+    async (phase) => {
+      let sends = 0;
+      let errors = 0;
+      let retries = 0;
+      let sleeps = 0;
+      const client = new HttpClient({
+        transport: {
+          async send() {
+            sends += 1;
+            throw new Error("transport unavailable");
+          },
+        },
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          onError: () => {
+            errors += 1;
+            if (phase === "onError") return new Promise<void>(() => undefined);
+          },
+          onRetry: () => {
+            retries += 1;
+            if (phase === "onRetry") return new Promise<void>(() => undefined);
+          },
+        },
+        sleep: async () => {
+          sleeps += 1;
+          if (phase === "sleep") return new Promise<void>(() => undefined);
+        },
+      });
+
+      await expect(client.request({ method: "GET", path: "/failure", timeoutMs: 10 })).rejects.toMatchObject({
+        code: "memory.request_timeout",
+        retryable: true,
+      });
+      expect(sends).toBe(1);
+      expect(errors).toBe(1);
+      expect(retries).toBe(phase === "onError" ? 0 : 1);
+      expect(sleeps).toBe(phase === "sleep" ? 1 : 0);
+    },
+  );
+
+  it.each(["onError", "onRetry", "sleep"] as const)(
+    "normalizes caller abort while %s never settles after a transport failure",
+    async (phase) => {
+      const controller = new AbortController();
+      const reason = new Error(`cancel during ${phase}`);
+      let sends = 0;
+      const hang = () => {
+        controller.abort(reason);
+        return new Promise<void>(() => undefined);
+      };
+      const client = new HttpClient({
+        transport: {
+          async send() {
+            sends += 1;
+            throw new Error("transport unavailable");
+          },
+        },
+        retryPolicy: { maxAttempts: 2, baseDelayMs: 1, maxDelayMs: 1, jitter: false },
+        instrumentation: {
+          onError: () => phase === "onError" ? hang() : undefined,
+          onRetry: () => phase === "onRetry" ? hang() : undefined,
+        },
+        sleep: async () => {
+          if (phase === "sleep") await hang();
+        },
+      });
+
+      await expect(client.request({ method: "GET", path: "/failure", signal: controller.signal })).rejects.toMatchObject({
+        code: "memory.request_aborted",
+        retryable: false,
+        message: "Infinity Context request aborted",
+        cause: { name: "Error", message: "External error cause redacted" },
+      });
+      expect(sends).toBe(1);
+    },
+  );
+
+  it.each([
+    ["string", "cancel string", "memory.request_aborted", false],
+    ["generic Error", new Error("cancel error"), "memory.request_aborted", false],
+    ["AbortError", new DOMException("cancel abort", "AbortError"), "memory.request_aborted", false],
+    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_aborted", false],
+  ] as const)("classifies caller %s reasons from the operation signal", async (_name, reason, code, retryable) => {
+    const controller = new AbortController();
+    const transport = new HangingTransport();
+    const client = new HttpClient({ transport, timeoutMs: 0, retryPolicy: { maxAttempts: 2 } });
+    const request = client.request({ method: "GET", path: "/cancel", signal: controller.signal });
+    await waitForRecordedRequests(transport, 1);
+    controller.abort(reason);
+
+    try {
+      await request;
+      throw new Error("expected request to be cancelled");
+    } catch (error) {
+      expect(error).toMatchObject({ code, retryable, message: "Infinity Context request aborted" });
+      expect((error as Error).cause).toEqual(
+        typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
+      );
+    }
+    expect(transport.requests).toHaveLength(1);
+  });
+
+  it.each([
+    ["string", "cancel transport string", "memory.request_aborted", false],
+    ["generic Error", new Error("cancel transport error"), "memory.request_aborted", false],
+    ["AbortError", new DOMException("cancel transport abort", "AbortError"), "memory.request_aborted", false],
+    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_aborted", false],
+  ] as const)("classifies direct FetchTransport %s abort reasons from the request signal", async (
+    _name,
+    reason,
+    code,
+    retryable,
+  ) => {
+    const controller = new AbortController();
+    let fetchCalls = 0;
+    let cancellations = 0;
+    const fetchLike = ((_url: URL | RequestInfo, init?: RequestInit) => {
+      fetchCalls += 1;
+      init?.signal?.addEventListener("abort", () => { cancellations += 1; }, { once: true });
+      return new Promise<Response>(() => undefined);
+    }) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    const request = transport.send({
+      method: "GET", url: new URL("http://memory.test/direct-cancel"), headers: new Headers(),
+      signal: controller.signal,
+    });
+    controller.abort(reason);
+
+    try {
+      await request;
+      throw new Error("expected direct transport request to be cancelled");
+    } catch (error) {
+      expect(error).toMatchObject({
+        code,
+        retryable,
+        message: "Infinity Context request aborted",
+      });
+      expect((error as Error).cause).toEqual(
+        typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
+      );
+    }
+    expect(fetchCalls).toBe(1);
+    expect(cancellations).toBe(1);
+  });
+
+  it("propagates a caller abort when onResponse aborts synchronously and throws", async () => {
+    const controller = new AbortController();
+    const reason = new Error("cancel in response hook");
+    let responses = 0;
+    let errors = 0;
+    const transport = new RecordingTransport([jsonResponse({ enabled_adapters: [] })]);
+    const client = new InfinityContextClient({
+      transport,
+      retryPolicy: { maxAttempts: 2 },
+      instrumentation: {
+        onResponse: () => {
+          responses += 1;
+          controller.abort(reason);
+          throw new Error("instrumentation failed after abort");
+        },
+        onError: () => { errors += 1; },
+      },
+    });
+
+    await expect(client.system.capabilities({ signal: controller.signal })).rejects.toMatchObject({
+      code: "memory.request_aborted",
+      retryable: false,
+      message: "Infinity Context request aborted",
+      cause: { name: "Error", message: "External error cause redacted" },
+    });
+    expect(transport.requests).toHaveLength(1);
+    expect(responses).toBe(1);
+    expect(errors).toBe(0);
+  });
+
+  it("bounds a never-settling fetch before response buffering begins", async () => {
+    const fetchLike = (() => new Promise<Response>(() => undefined)) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    await expect(transport.send({
+      method: "GET", url: new URL("http://memory.test/capabilities"), headers: new Headers(),
+      signal: AbortSignal.timeout(10), responseType: "bytes", maxResponseBytes: 32,
+    })).rejects.toMatchObject({ code: "memory.request_aborted" });
+  });
+
+  it("aborts and cancels a stalled response stream", async () => {
+    let cancelCalls = 0;
+    const fetchLike = (async () => new Response(new ReadableStream<Uint8Array>({
+      cancel() { cancelCalls += 1; },
+    }))) as typeof fetch;
+    const transport = new FetchTransport(fetchLike);
+    const controller = new AbortController();
+    const response = transport.send({
+      method: "GET", url: new URL("http://memory.test/stalled"), headers: new Headers(),
+      signal: controller.signal, responseType: "bytes", maxResponseBytes: 32,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(response).rejects.toMatchObject({ code: "memory.request_aborted" });
+    expect(cancelCalls).toBe(1);
   });
 
   it("propagates caller aborts while a request is in flight", async () => {
@@ -316,20 +840,145 @@ describe("transport, retry and errors", () => {
       expect(error).toBeInstanceOf(InfinityContextError);
       const sdkError = error as InfinityContextError;
       expect(sdkError.code).toBe("memory.bad_request");
-      expect(sdkError.message).toBe("bad Authorization: [REDACTED] and ?api_key=[REDACTED]");
+      expect(sdkError.message).toBe("[REDACTED]");
       expect(sdkError.retryable).toBe(false);
     }
   });
 
-  it("downloads byte responses without JSON parsing", async () => {
-    const bytes = new Uint8Array([1, 2, 3]);
-    const transport = new RecordingTransport([{ status: 200, headers: new Headers(), body: bytes }]);
-    const client = new InfinityContextClient({
-      baseUrl: "http://memory.test",
-      transport,
+  it.each(TEXTUAL_REDACTION_CASES)(
+    "redacts %s while snapshotting external details and causes",
+    (_name, value, _expected, secretParts) => {
+      expect(redactSensitiveText(value)).toBe("[REDACTED]");
+      const leaf = new Error(value);
+      const middle = new Error("safe middle", { cause: leaf });
+      const error = new InfinityContextError({
+        statusCode: 400,
+        code: "memory.bad_request",
+        message: value,
+        retryable: false,
+        details: { outer: [{ nested: value }] },
+        cause: middle,
+      });
+      expect(error.message).toBe("[REDACTED]");
+      expect(error.details).toBe("[Untrusted details omitted]");
+      expect(error.cause).not.toBe(middle);
+      const exposed = publicErrorText(error);
+      for (const secret of secretParts) expect(exposed).not.toContain(secret);
+      expect(exposed).toContain("External error cause redacted");
+    },
+  );
+
+  it.each(STRUCTURED_SENSITIVE_KEYS)("fails closed on external structured detail key %s", (key) => {
+    const secret = `structured-${key}-value`;
+    const error = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "bad request",
+      retryable: false,
+      details: { outer: [{ nested: { [key]: secret } }] },
+    });
+    expect(error.details).toBe("[Untrusted details omitted]");
+  });
+
+  it("never preserves a native Error or DOMException cause identity", () => {
+    const domCause = new DOMException("caller cancelled", "AbortError");
+    const safeCause = new Error("transport stopped", { cause: domCause });
+    const error = new InfinityContextError({
+      statusCode: 0,
+      code: "memory.request_aborted",
+      message: "request aborted",
+      retryable: false,
+      cause: safeCause,
+    });
+
+    expect(error.cause).not.toBe(safeCause);
+    expect(error.cause).not.toBe(domCause);
+    expect(error.cause).toEqual({ name: "Error", message: "External error cause redacted" });
+  });
+
+  it("replaces an external cause graph with one frozen fixed descriptor", () => {
+    const safeCause = new DOMException("upstream cancelled", "AbortError");
+    const unsafeCause = new Error("credential=private-cause-value", { cause: safeCause });
+    const error = new InfinityContextError({
+      statusCode: 0,
+      code: "memory.network_error",
+      message: "request failed",
+      retryable: true,
+      cause: unsafeCause,
+    });
+
+    expect(error.cause).not.toBe(unsafeCause);
+    expect(error.cause).toEqual({ name: "Error", message: "External error cause redacted" });
+    expect(Object.isFrozen(error.cause)).toBe(true);
+  });
+
+  it("does not expose secrets through public error causes or details", async () => {
+    const nested = new Error("upstream api_key=nested-api-secret");
+    const raw = new Error("request failed with Bearer raw-bearer-secret", { cause: nested });
+    const client = new HttpClient({
+      transport: { send: async () => { throw raw; } },
       retryPolicy: { maxAttempts: 1 },
     });
 
-    await expect(client.assets.downloadAsset("asset_1")).resolves.toEqual(bytes);
+    try {
+      await client.request({ method: "GET", path: "/secret-failure" });
+      throw new Error("expected request to fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(InfinityContextError);
+      expect((error as Error).cause).not.toBe(raw);
+      const exposed = publicErrorText(error);
+      expect(exposed).not.toContain("raw-bearer-secret");
+      expect(exposed).not.toContain("nested-api-secret");
+      expect(exposed).toContain("External error cause redacted");
+    }
+
+    const sdkError = new InfinityContextError({
+      statusCode: 400,
+      code: "memory.bad_request",
+      message: "Authorization: Bearer message-secret",
+      retryable: false,
+      details: { diagnostic: "api_key=details-secret" },
+      cause: raw,
+    });
+    const exposed = publicErrorText(sdkError);
+    expect(exposed).not.toContain("message-secret");
+    expect(exposed).not.toContain("details-secret");
+    expect(exposed).not.toContain("raw-bearer-secret");
+    expect(exposed).not.toContain("nested-api-secret");
   });
+
 });
+
+async function expectNoUnhandledRejection(run: () => Promise<void>): Promise<void> {
+  const unhandled: unknown[] = [];
+  const listener = (reason: unknown) => { unhandled.push(reason); };
+  process.on("unhandledRejection", listener);
+  try {
+    await run();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    process.removeListener("unhandledRejection", listener);
+  }
+  expect(unhandled).toEqual([]);
+}
+
+function publicErrorText(value: unknown, seen = new WeakSet<object>()): string {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return String(value);
+  if (typeof value === "function") return "[function]";
+  if (seen.has(value)) return "[cycle]";
+  seen.add(value);
+  const surfaces: string[] = [];
+  let surface: object | null = value;
+  while (surface !== null) {
+    for (const key of Object.getOwnPropertyNames(surface)) {
+      if (key === "constructor") continue;
+      const descriptor = Object.getOwnPropertyDescriptor(surface, key);
+      surfaces.push(descriptor !== undefined && "value" in descriptor
+        ? `${key}:${publicErrorText(descriptor.value, seen)}`
+        : `${key}:[accessor]`);
+    }
+    surface = Object.getPrototypeOf(surface) as object | null;
+  }
+  return surfaces.join("\n");
+}

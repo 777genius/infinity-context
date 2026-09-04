@@ -63,8 +63,8 @@ def _migration_function_body(migration_name: str, function_name: str) -> str:
     return match.group(1)
 
 
-_DOCUMENT_POLICY_BODY_0038 = _migration_function_body(
-    "0038_strict_v4_document_writer.sql",
+_DOCUMENT_POLICY_BODY_0057 = _migration_function_body(
+    "0057_unmanaged_document_trigger_scope.sql",
     "memory_comparison_enforce_benchmark_document_idempotency",
 )
 _WRITER_POLICY_BODY_0037 = _migration_function_body(
@@ -357,7 +357,7 @@ async def _assert_strict_v4_writer_fence_topology(connection: Any, *, profile: _
         list(profile.sentinel_names),
         list(profile.sentinel_functions),
         list(profile.sentinel_types),
-        _DOCUMENT_POLICY_BODY_0038,
+        _DOCUMENT_POLICY_BODY_0057,
         profile.requires_document_policy,
     )
     observed: dict[tuple[str, str], Any] = {}

@@ -29,8 +29,11 @@ class QdrantDocumentChunkIndex:
     ) -> DocumentIndexingResult:
         _raise_not_implemented("upsert_chunks")
 
-    async def delete_chunks(self, _chunk_ids: tuple[str, ...]) -> DocumentIndexingResult:
-        _raise_not_implemented("delete_chunks")
+    async def delete_chunks_if_version(
+        self, _chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> DocumentIndexingResult:
+        del canonical_version
+        _raise_not_implemented("delete_chunks_if_version")
 
 
 def create_qdrant_document_chunk_index() -> DocumentChunkIndexPort:

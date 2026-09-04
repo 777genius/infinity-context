@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from infinity_context_contracts.features.document_ingestion import (
+    EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+    DocumentRetrievalProjectionV1Dto,
     IngestDocumentRequestDto,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +33,7 @@ class IngestDocumentHttpRequest(BaseModel):
     content_hash: str | None = Field(default=None, min_length=1, max_length=160)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    retrieval_projection: dict[str, Any] | None = None
 
     def to_contract(self) -> IngestDocumentRequestDto:
         metadata = dict(self.metadata)
@@ -55,6 +58,11 @@ class IngestDocumentHttpRequest(BaseModel):
             content_hash=self.content_hash,
             idempotency_key=self.idempotency_key,
             metadata=metadata,
+            retrieval_projection=(
+                None
+                if self.retrieval_projection is None
+                else DocumentRetrievalProjectionV1Dto.from_dict(self.retrieval_projection)
+            ),
         )
 
 
@@ -95,10 +103,29 @@ class LegacyIngestDocumentRequest(BaseModel):
         default_factory=list,
         max_length=24,
     )
+    retrieval_projection: dict[str, Any] | None = None
+
+
+class ReconcileExactDocumentHttpRequest(BaseModel):
+    """Bounded exact lookup; scope ids and external identity are opaque."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract_version: str = Field(default=EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1)
+    space_id: str = Field(min_length=1, max_length=80)
+    memory_scope_id: str = Field(min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, max_length=80)
+    source_type: str = Field(min_length=1, max_length=80)
+    source_external_id: str = Field(min_length=1, max_length=240)
+    projection_generation: str | None = Field(default=None, min_length=1, max_length=256)
+    profile_generation: str | None = Field(default=None, min_length=1, max_length=160)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
+    deadline_ms: int = Field(default=5_000, ge=50, le=10_000, strict=True)
 
 
 __all__ = (
     "IngestDocumentHttpRequest",
     "LegacyDocumentSourceRefRequest",
     "LegacyIngestDocumentRequest",
+    "ReconcileExactDocumentHttpRequest",
 )

@@ -24,12 +24,18 @@ from infinity_context_core.application import (
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from infinity_context_server import admin_qdrant_cli
 from infinity_context_server.admin_invariants import invariant_check
 from infinity_context_server.admin_outbox import compact_done_outbox, replay_outbox
 from infinity_context_server.admin_projection_repair import (
     reindex_graphiti,
-    reindex_qdrant,
     repair_projections,
+)
+from infinity_context_server.admin_retrieval_profiles import (
+    retrieval_profile_lifecycle_command,
+    retrieval_profile_maintenance_command,
+    retrieval_profile_recovery_command,
+    retrieval_profile_upgrade_preflight_command,
 )
 from infinity_context_server.auth_tokens import (
     create_service_token,
@@ -660,12 +666,7 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             dry_run=args.dry_run,
         )
     if args.command == "reindex-qdrant":
-        return await reindex_qdrant(
-            space=args.space,
-            memory_scope=args.memory_scope,
-            dry_run=args.dry_run,
-            confirmed=args.i_understand_this_enqueues_projection_jobs,
-        )
+        return await admin_qdrant_cli.run_qdrant_rebuild(args)
     if args.command == "reindex-graphiti":
         return await reindex_graphiti(
             space=args.space,
@@ -714,6 +715,68 @@ async def _run(args: argparse.Namespace) -> dict[str, object]:
             return await token_list(space_id=args.space)
         if args.token_command == "revoke":
             return await token_revoke(token_id=args.token_id)
+    if args.command == "retrieval-profile":
+        return await retrieval_profile_lifecycle_command(
+            operation=args.operation,
+            target=args.target,
+            limit=args.limit,
+            deadline_seconds=args.deadline_seconds,
+        )
+    if args.command == "retrieval-profile-upgrade-preflight":
+        return await retrieval_profile_upgrade_preflight_command()
+    if args.command == "retrieval-profile-recover":
+        return await retrieval_profile_recovery_command(
+            fence_kind=args.fence_kind,
+            profile_id=args.profile_id,
+            operation_id=args.operation_id,
+            owner_instance_id=args.owner_instance_id,
+            owner_generation=args.owner_generation,
+            stale_deadline=datetime.fromisoformat(args.stale_deadline.replace("Z", "+00:00")),
+            reason=args.reason,
+            idempotency_key=args.idempotency_key,
+            activation_lease_id=args.activation_lease_id,
+            mutation_epoch=args.mutation_epoch,
+            provider_receipt_id=args.provider_receipt_id,
+            maintenance_generation=args.maintenance_generation,
+        )
+    if args.command == "retrieval-profile-maintenance":
+        return await retrieval_profile_maintenance_command(
+            action=args.action,
+            reason=args.reason,
+            maintenance_generation=args.maintenance_generation,
+            owner_instance_id=args.owner_instance_id,
+            owner_generation=args.owner_generation,
+            proof_id=args.proof_id,
+            supervisor_key_id=args.supervisor_key_id,
+            trust_root_sha256=args.trust_root_sha256,
+            trust_registry_generation=args.trust_registry_generation,
+            launch_token=args.launch_token,
+            process_pid=args.process_pid,
+            process_birth_identity=args.process_birth_identity,
+            executable_identity=args.executable_identity,
+            executable_sha256=args.executable_sha256,
+            release_revision=args.release_revision,
+            release_source_tree_sha256=args.release_source_tree_sha256,
+            release_installed_distribution_sha256=(args.release_installed_distribution_sha256),
+            release_runtime_modules_sha256=args.release_runtime_modules_sha256,
+            exit_observation_id=args.exit_observation_id,
+            exited_at=(
+                datetime.fromisoformat(args.exited_at.replace("Z", "+00:00"))
+                if args.exited_at
+                else None
+            ),
+            exit_code=args.exit_code,
+            signature=args.signature,
+            profile_id=args.profile_id,
+            receipt_id=args.receipt_id,
+            operation_id=args.operation_id,
+            mutation_epoch=args.mutation_epoch,
+            stale_deadline=(
+                datetime.fromisoformat(args.stale_deadline.replace("Z", "+00:00"))
+                if args.stale_deadline
+                else None
+            ),
+        )
     if args.command == "reset-local":
         return await reset_local(confirmed=args.i_understand_this_deletes_local_memory)
     if args.command == "export-memory_scope":
@@ -758,6 +821,8 @@ def main() -> None:
         reindex.add_argument("--memory_scope", default=None)
         reindex.add_argument("--dry-run", action="store_true")
         reindex.add_argument("--i-understand-this-enqueues-projection-jobs", action="store_true")
+        if command == "reindex-qdrant":
+            admin_qdrant_cli.configure_qdrant_rebuild_parser(reindex)
     replay = sub.add_parser("replay-outbox")
     replay.add_argument("--status", choices=("dead",), default="dead")
     replay.add_argument("--limit", type=int, default=50)
@@ -811,6 +876,69 @@ def main() -> None:
     token_list_parser.add_argument("--space", default=None)
     token_revoke_parser = token_sub.add_parser("revoke")
     token_revoke_parser.add_argument("--token-id", required=True)
+    profile = sub.add_parser("retrieval-profile")
+    profile.add_argument(
+        "--operation", required=True, choices=("rollback", "retire", "delete", "reconcile")
+    )
+    profile.add_argument(
+        "--target",
+        required=True,
+        help=(
+            "Exact profile id; use 'pending' for cleanup reconciliation or "
+            "'active' for bounded active-lease reconciliation"
+        ),
+    )
+    profile.add_argument("--limit", type=int, default=4)
+    profile.add_argument("--deadline-seconds", type=float, default=30.0)
+    sub.add_parser(
+        "retrieval-profile-upgrade-preflight",
+        help="Read-only populated-upgrade diagnostic for migration 0049",
+    )
+    recovery = sub.add_parser("retrieval-profile-recover")
+    recovery.add_argument("--fence-kind", required=True, choices=("reader", "provider_mutation"))
+    recovery.add_argument("--profile-id", required=True)
+    recovery.add_argument("--operation-id", required=True)
+    recovery.add_argument("--owner-instance-id", required=True)
+    recovery.add_argument("--owner-generation", required=True)
+    recovery.add_argument("--stale-deadline", required=True)
+    recovery.add_argument("--reason", required=True)
+    recovery.add_argument("--idempotency-key", required=True)
+    recovery.add_argument("--activation-lease-id", default=None)
+    recovery.add_argument("--mutation-epoch", type=int, default=None)
+    recovery.add_argument("--provider-receipt-id", default=None)
+    recovery.add_argument("--maintenance-generation", type=int, required=True)
+    maintenance = sub.add_parser("retrieval-profile-maintenance")
+    maintenance.add_argument(
+        "--action",
+        required=True,
+        choices=("begin", "acknowledge", "seal_dead", "complete", "reconcile_provider"),
+    )
+    maintenance.add_argument("--reason")
+    maintenance.add_argument("--maintenance-generation", type=int)
+    maintenance.add_argument("--owner-instance-id")
+    maintenance.add_argument("--owner-generation")
+    maintenance.add_argument("--proof-id")
+    maintenance.add_argument("--supervisor-key-id")
+    maintenance.add_argument("--trust-root-sha256")
+    maintenance.add_argument("--trust-registry-generation", type=int)
+    maintenance.add_argument("--launch-token")
+    maintenance.add_argument("--process-pid", type=int)
+    maintenance.add_argument("--process-birth-identity")
+    maintenance.add_argument("--executable-identity")
+    maintenance.add_argument("--executable-sha256")
+    maintenance.add_argument("--release-revision")
+    maintenance.add_argument("--release-source-tree-sha256")
+    maintenance.add_argument("--release-installed-distribution-sha256")
+    maintenance.add_argument("--release-runtime-modules-sha256")
+    maintenance.add_argument("--exit-observation-id")
+    maintenance.add_argument("--exited-at")
+    maintenance.add_argument("--exit-code", type=int)
+    maintenance.add_argument("--signature")
+    maintenance.add_argument("--profile-id")
+    maintenance.add_argument("--receipt-id")
+    maintenance.add_argument("--operation-id")
+    maintenance.add_argument("--mutation-epoch", type=int)
+    maintenance.add_argument("--stale-deadline")
     reset = sub.add_parser("reset-local")
     reset.add_argument("--i-understand-this-deletes-local-memory", action="store_true")
     export = sub.add_parser("export-memory_scope")

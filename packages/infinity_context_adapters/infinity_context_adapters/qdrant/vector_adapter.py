@@ -1,8 +1,4 @@
-"""Optional Qdrant vector index adapter.
-
-Qdrant is a derived index. Every result must be hydrated through Postgres before
-it is rendered or returned to callers.
-"""
+"""Optional derived Qdrant vector index adapter."""
 
 from __future__ import annotations
 
@@ -17,7 +13,6 @@ from infinity_context_core.ports.adapters import (
     VectorCandidate,
     VectorSearchResult,
     VectorUpsertItem,
-    VectorWriteResult,
 )
 from infinity_context_core.ports.benchmark_unsealed_projection import (
     BenchmarkProjectionPassReceipt,
@@ -29,31 +24,59 @@ from infinity_context_core.ports.vector_projection_evidence import (
     VectorProjectionScope,
 )
 
+from infinity_context_adapters.qdrant.generation_fence import QdrantCanonicalVersionError
 from infinity_context_adapters.qdrant.identity_evidence import (
     QdrantIdentityEvidence,
     qdrant_point_id_for_chunk,
 )
-
-
-class QdrantDimensionMismatchError(RuntimeError):
-    pass
-
-
-class QdrantDistanceMismatchError(RuntimeError):
-    pass
-
-
-class QdrantHybridSchemaMismatchError(RuntimeError):
-    pass
-
-
-class QdrantHybridUnsupportedError(RuntimeError):
-    pass
-
-
-class QdrantSparseEncodingError(RuntimeError):
-    pass
-
+from infinity_context_adapters.qdrant.locator_profile import (
+    LOCATOR_PAYLOAD_SCHEMA,
+    QdrantLocatorPayloadError,
+    locator_payload,
+    payload_schema_matches,
+    validate_locator_payload,
+)
+from infinity_context_adapters.qdrant.locator_runtime import (
+    locator_points_absent as _locator_points_absent,
+)
+from infinity_context_adapters.qdrant.locator_runtime import (
+    locator_profile_attestation as _locator_profile_attestation,
+)
+from infinity_context_adapters.qdrant.locator_runtime import (
+    locator_profile_attestation_page as _locator_profile_attestation_page,
+)
+from infinity_context_adapters.qdrant.locator_runtime import (
+    locator_profile_complete as _locator_profile_complete,
+)
+from infinity_context_adapters.qdrant.locator_runtime import (
+    search_locator_chunks as _search_locator_chunks,
+)
+from infinity_context_adapters.qdrant.vector_mutations import QdrantVectorMutationMixin
+from infinity_context_adapters.qdrant.vector_schema import (
+    QdrantDimensionMismatchError,
+    QdrantDistanceMismatchError,
+    QdrantHybridSchemaMismatchError,
+    QdrantHybridUnsupportedError,
+    QdrantSparseEncodingError,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    is_loopback_url as _is_loopback_url,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    mapping_from_object as _mapping_from_object,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    sparse_vector_exists as _sparse_vector_exists,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    sparse_vector_params as _sparse_vector_params,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    vector_distance_from_collection as _vector_distance_from_collection,
+)
+from infinity_context_adapters.qdrant.vector_schema import (
+    vector_size_from_collection as _vector_size_from_collection,
+)
 
 _FUSION_RANK_CONSTANT = 60.0
 
@@ -64,7 +87,7 @@ class _FusedPoint:
     score: float
 
 
-class QdrantVectorMemoryAdapter:
+class QdrantVectorMemoryAdapter(QdrantVectorMutationMixin):
     def __init__(
         self,
         *,
@@ -78,6 +101,8 @@ class QdrantVectorMemoryAdapter:
         dense_vector_name: str = "dense",
         sparse_vector_name: str = "bm25",
         sparse_encoder_factory: Callable[[], object] | None = None,
+        index_profile_digest: str | None = None,
+        index_generation: str | None = None,
     ) -> None:
         self._url = url
         self._api_key = api_key
@@ -90,6 +115,8 @@ class QdrantVectorMemoryAdapter:
         self._sparse_vector_name = sparse_vector_name
         self._sparse_encoder_factory = sparse_encoder_factory
         self._sparse_encoder: object | None = None
+        self._index_profile_digest = index_profile_digest
+        self._index_generation = index_generation
         self._identity_evidence = QdrantIdentityEvidence(
             client_factory=lambda: self._client(),
             url=url,
@@ -122,7 +149,7 @@ class QdrantVectorMemoryAdapter:
                     collection,
                     vector_name=self._dense_vector_name if self._hybrid_sparse_enabled else None,
                 )
-                if existing_size is not None and existing_size != self._vector_size:
+                if existing_size != self._vector_size:
                     return AdapterCapabilities(
                         name="qdrant",
                         enabled=True,
@@ -151,6 +178,17 @@ class QdrantVectorMemoryAdapter:
                         supports_search=False,
                         supports_filters=True,
                         degraded_reason="qdrant.distance_mismatch",
+                    )
+                if self._locator_profile_enabled and not payload_schema_matches(collection):
+                    return AdapterCapabilities(
+                        name="qdrant",
+                        enabled=True,
+                        healthy=False,
+                        supports_upsert=False,
+                        supports_delete=True,
+                        supports_search=False,
+                        supports_filters=False,
+                        degraded_reason="qdrant.locator_payload_schema_unverified",
                     )
                 if (
                     self._hybrid_sparse_enabled
@@ -226,62 +264,23 @@ class QdrantVectorMemoryAdapter:
             supports_filters=True,
         )
 
-    async def upsert_chunks(self, items: tuple[VectorUpsertItem, ...]) -> VectorWriteResult:
-        if not items:
-            return VectorWriteResult.ok(0)
-        client = None
-        try:
-            client, models = await self._client()
-            await self._ensure_collection(client, models)
-            points = [
-                models.PointStruct(
-                    id=qdrant_point_id_for_chunk(item.chunk_id),
-                    vector=self._point_vector(models, item),
-                    payload={
-                        "chunk_id": item.chunk_id,
-                        "space_id": item.space_id,
-                        "memory_scope_id": item.memory_scope_id,
-                        "thread_id": item.thread_id,
-                        "projection_version": item.projection_version,
-                        **item.metadata,
-                    },
-                )
-                for item in items
-            ]
-            await client.upsert(collection_name=self._collection_name, points=points, wait=True)
-            return VectorWriteResult.ok(len(points))
-        except QdrantDimensionMismatchError:
-            return VectorWriteResult.degraded("qdrant.dimension_mismatch", retryable=False)
-        except QdrantDistanceMismatchError:
-            return VectorWriteResult.degraded("qdrant.distance_mismatch", retryable=False)
-        except QdrantHybridSchemaMismatchError:
-            return VectorWriteResult.degraded("qdrant.hybrid_schema_mismatch", retryable=False)
-        except QdrantHybridUnsupportedError:
-            return VectorWriteResult.degraded("qdrant.hybrid_unsupported", retryable=False)
-        except QdrantSparseEncodingError:
-            return VectorWriteResult.degraded("qdrant.sparse_encoding_failed", retryable=True)
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.upsert_failed", retryable=True)
-        finally:
-            await _close_client(client)
+    async def observe_chunk_versions(self, chunk_ids: tuple[str, ...]) -> tuple[int | None, ...]:
+        """Read the actual projected generation for deterministic chunk point ids."""
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
         if not chunk_ids:
-            return VectorWriteResult.ok(0)
+            return ()
         client = None
         try:
-            client, models = await self._client()
+            client, _ = await self._client()
             if not await client.collection_exists(self._collection_name):
-                return VectorWriteResult.ok(0)
-            point_ids = [qdrant_point_id_for_chunk(chunk_id) for chunk_id in chunk_ids]
-            await client.delete(
+                return tuple(None for _ in chunk_ids)
+            return await _retrieve_canonical_versions(
+                client,
                 collection_name=self._collection_name,
-                points_selector=models.PointIdsList(points=point_ids),
-                wait=True,
+                point_ids=tuple(qdrant_point_id_for_chunk(item) for item in chunk_ids),
             )
-            return VectorWriteResult.ok(len(chunk_ids))
-        except Exception:
-            return VectorWriteResult.degraded("qdrant.delete_failed", retryable=True)
+        except Exception as exc:
+            raise RuntimeError("qdrant.observe_canonical_version_failed") from exc
         finally:
             await _close_client(client)
 
@@ -341,7 +340,10 @@ class QdrantVectorMemoryAdapter:
         client = None
         try:
             client, models = await self._client()
-            await self._ensure_collection(client, models)
+            if self._locator_profile_enabled:
+                await self._require_collection(client)
+            else:
+                await self._ensure_collection(client, models)
             must_conditions = [
                 models.FieldCondition(key="space_id", match=models.MatchValue(value=space_id)),
                 models.FieldCondition(
@@ -353,6 +355,13 @@ class QdrantVectorMemoryAdapter:
                     match=models.MatchAny(any=list(memory_scope_ids)),
                 ),
             ]
+            if not self._locator_profile_enabled:
+                must_conditions.append(
+                    models.FieldCondition(
+                        key="generic_identity_version",
+                        match=models.MatchValue(value="stable.v1"),
+                    )
+                )
             filter_kwargs = {"must": must_conditions}
             if thread_id is not None:
                 filter_kwargs["min_should"] = models.MinShould(
@@ -413,10 +422,58 @@ class QdrantVectorMemoryAdapter:
         finally:
             await _close_client(client)
 
+    async def search_locator_chunks(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        query_vector: tuple[float, ...],
+        query_text: str,
+        limit: int,
+        filter_spec: dict[str, object],
+    ) -> tuple[dict[str, object], ...]:
+        return await _search_locator_chunks(
+            self,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+            query_vector=query_vector,
+            query_text=query_text,
+            limit=limit,
+            filter_spec=filter_spec,
+        )
+
+    @property
+    def _locator_profile_enabled(self) -> bool:
+        return bool(self._index_profile_digest and self._index_generation)
+
+    async def locator_profile_complete(self, expected: tuple[object, ...]) -> bool:
+        return await _locator_profile_complete(self, expected)
+
+    async def locator_profile_attestation(self) -> tuple[int, str]:
+        return await _locator_profile_attestation(self)
+
+    async def locator_profile_attestation_page(
+        self, *, cursor: str | None, limit: int
+    ) -> tuple[tuple[tuple[str, int, str], ...], str | None]:
+        return await _locator_profile_attestation_page(self, cursor=cursor, limit=limit)
+
+    async def locator_points_absent(self, chunk_ids: tuple[str, ...]) -> bool | None:
+        return await _locator_points_absent(self, chunk_ids)
+
     async def _client(self):
         from qdrant_client import AsyncQdrantClient, models
 
-        return AsyncQdrantClient(url=self._url, api_key=self._api_key), models
+        return (
+            AsyncQdrantClient(
+                url=self._url,
+                api_key=self._api_key,
+                timeout=10,
+                trust_env=not _is_loopback_url(self._url),
+            ),
+            models,
+        )
 
     async def _search(self, client, models, query_vector, query_text, query_filter, limit):
         if self._hybrid_sparse_enabled:
@@ -490,7 +547,7 @@ class QdrantVectorMemoryAdapter:
                 collection,
                 vector_name=self._dense_vector_name if self._hybrid_sparse_enabled else None,
             )
-            if existing_size is not None and existing_size != self._vector_size:
+            if existing_size != self._vector_size:
                 raise QdrantDimensionMismatchError
             if (
                 _vector_distance_from_collection(
@@ -509,6 +566,8 @@ class QdrantVectorMemoryAdapter:
                 )
             ):
                 raise QdrantHybridSchemaMismatchError
+            if self._locator_profile_enabled:
+                await self._ensure_payload_indexes(client, models)
             return
         if self._hybrid_sparse_enabled:
             self._ensure_hybrid_supported(models)
@@ -524,6 +583,8 @@ class QdrantVectorMemoryAdapter:
                     self._sparse_vector_name: _sparse_vector_params(models),
                 },
             )
+            if self._locator_profile_enabled:
+                await self._ensure_payload_indexes(client, models)
             return
         await client.create_collection(
             collection_name=self._collection_name,
@@ -532,6 +593,56 @@ class QdrantVectorMemoryAdapter:
                 distance=models.Distance.COSINE,
             ),
         )
+        if self._locator_profile_enabled:
+            await self._ensure_payload_indexes(client, models)
+
+    async def _ensure_payload_indexes(self, client, models) -> None:
+        schema_type = getattr(models, "PayloadSchemaType", None)
+        if schema_type is None or not hasattr(client, "create_payload_index"):
+            raise QdrantLocatorPayloadError("Qdrant payload indexes are unsupported")
+        collection = await self._get_collection_info(client)
+        raw_schema = _mapping_from_object(getattr(collection, "payload_schema", None)) or {}
+        for field_name, field_type in LOCATOR_PAYLOAD_SCHEMA.items():
+            existing = raw_schema.get(field_name)
+            if existing is not None:
+                data_type = getattr(existing, "data_type", existing)
+                normalized = str(getattr(data_type, "value", data_type)).casefold()
+                if normalized != field_type:
+                    raise QdrantLocatorPayloadError(
+                        f"Qdrant payload index type mismatch for {field_name}"
+                    )
+                continue
+            await client.create_payload_index(
+                collection_name=self._collection_name,
+                field_name=field_name,
+                field_schema=getattr(schema_type, field_type.upper()),
+                wait=True,
+            )
+
+    async def _require_collection(self, client) -> None:
+        """Validate a locator collection without performing a read-path mutation."""
+
+        if not await client.collection_exists(self._collection_name):
+            raise QdrantLocatorPayloadError("Qdrant locator collection is absent")
+        collection = await self._get_collection_info(client)
+        if (
+            _vector_size_from_collection(
+                collection,
+                vector_name=self._dense_vector_name if self._hybrid_sparse_enabled else None,
+            )
+            != self._vector_size
+        ):
+            raise QdrantDimensionMismatchError
+        if (
+            _vector_distance_from_collection(
+                collection,
+                vector_name=self._dense_vector_name if self._hybrid_sparse_enabled else None,
+            )
+            != "cosine"
+        ):
+            raise QdrantDistanceMismatchError
+        if not payload_schema_matches(collection):
+            raise QdrantLocatorPayloadError("Qdrant locator payload schema is incomplete")
 
     async def _existing_vector_size(self, client) -> int | None:
         collection = await self._get_collection_info(client)
@@ -556,6 +667,28 @@ class QdrantVectorMemoryAdapter:
                 raise QdrantSparseEncodingError
             vector[self._sparse_vector_name] = sparse_vector
         return vector
+
+    def _vector_payload(self, item: VectorUpsertItem) -> dict[str, object]:
+        payload = locator_payload(item)
+        if self._locator_profile_enabled:
+            payload.pop("chunk_id", None)
+            payload["index_profile_digest"] = self._index_profile_digest
+            payload["index_generation"] = self._index_generation
+            return validate_locator_payload(
+                payload,
+                projection_version=self._projection_version,
+                index_profile_digest=self._index_profile_digest or "",
+                index_generation=self._index_generation or "",
+            )
+        version = payload.get("canonical_version")
+        if (
+            not isinstance(version, int)
+            or isinstance(version, bool)
+            or not 1 <= version <= 9_007_199_254_740_991
+        ):
+            raise QdrantCanonicalVersionError
+        payload["generic_identity_version"] = "stable.v1"
+        return payload
 
     def _sparse_vector_for_text(self, models, text: str, *, is_query: bool):
         sparse_vector = getattr(models, "SparseVector", None)
@@ -613,107 +746,6 @@ class QdrantVectorMemoryAdapter:
             from fastembed import SparseTextEmbedding  # noqa: F401
         except Exception as exc:
             raise QdrantSparseEncodingError from exc
-
-
-def _vector_size_from_collection(
-    collection: object | None,
-    *,
-    vector_name: str | None = None,
-) -> int | None:
-    if collection is None:
-        return None
-    config = getattr(collection, "config", None)
-    params = getattr(config, "params", None)
-    vectors = getattr(params, "vectors", None)
-    return _vector_size_from_vectors(vectors, vector_name=vector_name)
-
-
-def _vector_size_from_vectors(vectors: object, *, vector_name: str | None = None) -> int | None:
-    if vectors is None:
-        return None
-    if vector_name is not None:
-        named_vectors = _mapping_from_object(vectors)
-        if named_vectors is None or vector_name not in named_vectors:
-            return None
-        return _vector_size_from_vectors(named_vectors[vector_name])
-    size = getattr(vectors, "size", None)
-    if isinstance(size, int):
-        return size
-    kwargs = getattr(vectors, "kwargs", None)
-    if isinstance(kwargs, dict) and isinstance(kwargs.get("size"), int):
-        return int(kwargs["size"])
-    if isinstance(vectors, dict):
-        for value in vectors.values():
-            nested_size = _vector_size_from_vectors(value)
-            if nested_size is not None:
-                return nested_size
-    return None
-
-
-def _vector_distance_from_collection(
-    collection: object | None,
-    *,
-    vector_name: str | None = None,
-) -> str | None:
-    if collection is None:
-        return None
-    config = getattr(collection, "config", None)
-    params = getattr(config, "params", None)
-    vectors = getattr(params, "vectors", None)
-    return _vector_distance_from_vectors(vectors, vector_name=vector_name)
-
-
-def _vector_distance_from_vectors(
-    vectors: object,
-    *,
-    vector_name: str | None = None,
-) -> str | None:
-    if vectors is None:
-        return None
-    if vector_name is not None:
-        named_vectors = _mapping_from_object(vectors)
-        if named_vectors is None or vector_name not in named_vectors:
-            return None
-        return _vector_distance_from_vectors(named_vectors[vector_name])
-    distance = getattr(vectors, "distance", None)
-    if distance is None:
-        kwargs = getattr(vectors, "kwargs", None)
-        if isinstance(kwargs, dict):
-            distance = kwargs.get("distance")
-    if distance is None:
-        return None
-    value = getattr(distance, "value", distance)
-    return str(value).split(".")[-1].lower()
-
-
-def _sparse_vector_exists(collection: object, vector_name: str) -> bool:
-    config = getattr(collection, "config", None)
-    params = getattr(config, "params", None)
-    sparse_vectors = getattr(params, "sparse_vectors", None)
-    sparse_mapping = _mapping_from_object(sparse_vectors)
-    return sparse_mapping is not None and vector_name in sparse_mapping
-
-
-def _mapping_from_object(value: object) -> dict[str, object] | None:
-    if isinstance(value, dict):
-        return value
-    kwargs = getattr(value, "kwargs", None)
-    if isinstance(kwargs, dict):
-        return kwargs
-    return None
-
-
-def _sparse_vector_params(models):
-    params = getattr(models, "SparseVectorParams", None)
-    if params is None:
-        raise QdrantHybridUnsupportedError
-    modifier = getattr(getattr(models, "Modifier", object), "IDF", None)
-    if modifier is not None:
-        try:
-            return params(modifier=modifier)
-        except TypeError:
-            pass
-    return params()
 
 
 def _call_sparse_embedding_method(
@@ -813,3 +845,32 @@ async def _close_client(client: object | None) -> None:
         if inspect.isawaitable(result):
             await result
         return
+
+
+async def _retrieve_canonical_versions(
+    client: object,
+    *,
+    collection_name: str,
+    point_ids: tuple[str, ...],
+) -> tuple[int | None, ...]:
+    observed = await client.retrieve(
+        collection_name=collection_name,
+        ids=list(point_ids),
+        with_payload=["canonical_version"],
+        with_vectors=False,
+    )
+    versions: dict[str, int] = {}
+    for point in observed:
+        point_id = str(getattr(point, "id", ""))
+        payload = getattr(point, "payload", None)
+        version = payload.get("canonical_version") if isinstance(payload, dict) else None
+        if (
+            point_id not in point_ids
+            or point_id in versions
+            or not isinstance(version, int)
+            or isinstance(version, bool)
+            or not 1 <= version <= 9_007_199_254_740_991
+        ):
+            raise RuntimeError("qdrant.canonical_version_observation_invalid")
+        versions[point_id] = version
+    return tuple(versions.get(point_id) for point_id in point_ids)

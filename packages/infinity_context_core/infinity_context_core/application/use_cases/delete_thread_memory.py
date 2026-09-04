@@ -30,6 +30,13 @@ class DeleteThreadMemoryUseCase:
                             "memory_scope_id": str(command.memory_scope_id),
                             "thread_id": str(command.thread_id),
                             "chunk_ids": list(result.deleted_chunk_ids),
+                            "chunk_versions": [
+                                {
+                                    "chunk_id": item.chunk_id,
+                                    "canonical_version": item.canonical_version,
+                                }
+                                for item in result.deleted_chunk_versions
+                            ],
                         },
                     )
                 )

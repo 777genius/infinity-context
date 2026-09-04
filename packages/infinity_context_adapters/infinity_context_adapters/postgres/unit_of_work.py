@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from types import TracebackType
 
+from infinity_context_core.domain.entities import SourceRef
 from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.features.memory_facts.public import (
     MemoryFactIdPort,
@@ -48,9 +49,16 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 from infinity_context_adapters.postgres.canonical_keyword_trigram import (
     ensure_canonical_keyword_trigram_access_path,
 )
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    coordinate_document_source_ref_write,
+)
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
     PostgresFactRepository,
+)
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresIdempotencyRepository,
+    PostgresOutbox,
 )
 from infinity_context_adapters.postgres.repositories import (
     PostgresAnchorRepository,
@@ -58,9 +66,10 @@ from infinity_context_adapters.postgres.repositories import (
     PostgresChunkRepository,
     PostgresDocumentRepository,
     PostgresEpisodeRepository,
-    PostgresIdempotencyRepository,
-    PostgresOutbox,
     PostgresSuggestionRepository,
+)
+from infinity_context_adapters.postgres.retrieval_schema_singletons import (
+    seed_retrieval_schema_singletons,
 )
 from infinity_context_adapters.postgres.schema_registry import load_schema_metadata
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
@@ -600,6 +609,7 @@ def _ensure_runtime_schema(connection: Connection) -> None:
 
     _ensure_legacy_profile_schema(connection)
     load_schema_metadata().create_all(connection)
+    seed_retrieval_schema_singletons(connection)
     ensure_benchmark_projection_manifest_schema(connection)
     _ensure_additive_schema_columns(connection)
     _backfill_memory_fact_temporal_columns(connection)
@@ -939,6 +949,24 @@ class PostgresUnitOfWork:
                 raise MemoryConflictError(_BENCHMARK_WRITER_FENCE_MESSAGE) from exc
             raise MemoryConflictError("Canonical write conflicted with existing data") from exc
         self._committed = True
+
+    async def coordinate_fact_source_refs(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        source_refs: tuple[SourceRef, ...],
+    ) -> None:
+        if self._session is None:
+            raise RuntimeError("UnitOfWork is not open")
+        await coordinate_document_source_ref_write(
+            self._session,
+            space_id=space_id,
+            memory_scope_id=memory_scope_id,
+            thread_id=thread_id,
+            source_refs=source_refs,
+        )
 
     async def rollback(self) -> None:
         if self._session is None:

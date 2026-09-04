@@ -325,6 +325,7 @@ def test_postgres_fact_store_persists_full_versions_and_outbox(tmp_path: Path) -
         try:
             await create_schema(engine)
             session_factory = build_session_factory(engine)
+            await _seed_documents(session_factory, "doc-1", "doc-2")
             factory = module.create_postgres_memory_fact_unit_of_work_factory(
                 session_factory=session_factory,
                 clock=FakeClock(NOW),
@@ -428,6 +429,7 @@ def test_postgres_lifecycle_receipt_replays_without_duplicate_fact(tmp_path: Pat
         try:
             await create_schema(engine)
             session_factory = build_session_factory(engine)
+            await _seed_documents(session_factory, "doc-1")
             factory = module.create_postgres_memory_fact_unit_of_work_factory(
                 session_factory=session_factory,
                 clock=FakeClock(NOW),
@@ -497,6 +499,7 @@ def test_postgres_fact_selection_filters_temporal_rows_before_limit(tmp_path: Pa
         try:
             await create_schema(engine)
             session_factory = build_session_factory(engine)
+            await _seed_documents(session_factory, "doc-1")
             factory = module.create_postgres_memory_fact_unit_of_work_factory(
                 session_factory=session_factory,
                 clock=FakeClock(NOW),
@@ -542,6 +545,31 @@ def test_postgres_fact_selection_filters_temporal_rows_before_limit(tmp_path: Pa
             await engine.dispose()
 
     asyncio.run(exercise())
+
+
+async def _seed_documents(session_factory, *document_ids: str) -> None:
+    from infinity_context_adapters.postgres.models import MemoryDocumentRow  # noqa: PLC0415
+
+    async with session_factory() as session:
+        session.add_all(
+            MemoryDocumentRow(
+                id=document_id,
+                space_id="space-1",
+                memory_scope_id="scope-1",
+                thread_id=None,
+                title=document_id,
+                source_type="document",
+                source_external_id=document_id,
+                content_hash=f"hash-{document_id}",
+                classification="internal",
+                status="active",
+                retrieval_projected=False,
+                created_at=EARLIER,
+                updated_at=EARLIER,
+            )
+            for document_id in document_ids
+        )
+        await session.commit()
 
 
 def test_fact_selection_never_leaks_repository_or_code_scope() -> None:
@@ -666,6 +694,7 @@ def test_postgres_supersession_commits_or_rolls_back_the_whole_decision(
         try:
             await create_schema(engine)
             session_factory = build_session_factory(engine)
+            await _seed_documents(session_factory, "doc-1", "adr-3")
             factory = module.create_postgres_memory_fact_unit_of_work_factory(
                 session_factory=session_factory,
                 clock=FakeClock(NOW),

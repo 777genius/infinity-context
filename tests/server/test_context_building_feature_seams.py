@@ -183,6 +183,8 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "LegacyContextApiResponseMapper",
         "LegacyDigestApiResponseMapper",
         "LegacyMemoryInsightsApiResponseMapper",
+        "LocatorRetrievalService",
+        "RetrievalProfileConflict",
         "build_context_building_server_feature",
         "build_context_query_from_contract",
         "build_context_result_to_contract",
@@ -190,6 +192,8 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "build_legacy_context_query_from_request",
         "build_legacy_digest_query_from_request",
         "create_context_building_router",
+        "retrieval_request_to_core",
+        "retrieval_response_to_contract",
     )
     assert server_public.FEATURE_ID == "context_building"
     assert {route.path for route in feature.create_router().routes} == {

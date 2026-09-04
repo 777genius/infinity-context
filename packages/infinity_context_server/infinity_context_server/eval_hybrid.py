@@ -65,7 +65,10 @@ class EvalHybridVectorAdapter:
     async def upsert_chunks(self, items: tuple[object, ...]) -> VectorWriteResult:
         return VectorWriteResult.ok(len(items))
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> VectorWriteResult:
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> VectorWriteResult:
+        del canonical_version
         return VectorWriteResult.ok(len(chunk_ids))
 
 

@@ -37,11 +37,20 @@ class UpsertChunkResult:
 
 
 @dataclass(frozen=True)
+class CanonicalChunkVersion:
+    """Exact canonical identity required to fence a derived chunk deletion."""
+
+    chunk_id: str
+    canonical_version: int
+
+
+@dataclass(frozen=True)
 class SessionDeleteResult:
     deleted_chunks: int
     deleted_facts: int
     deleted_jobs: int
     deleted_chunk_ids: tuple[str, ...] = ()
+    deleted_chunk_versions: tuple[CanonicalChunkVersion, ...] = ()
     deleted_fact_ids: tuple[str, ...] = ()
 
 
@@ -427,20 +436,37 @@ class DocumentRepositoryPort(Protocol):
         status: str | None,
         limit: int,
     ) -> list[MemoryDocument]:
-        """List documents for a single scope."""
+        """List documents visible from a scope."""
+
+    async def list_exact_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str,
+        limit: int,
+        source_external_id: str | None,
+        cursor_updated_at: datetime | None,
+        cursor_id: str | None,
+    ) -> list[MemoryDocument]:
+        """List documents owned by one exact scope using descending keyset order."""
 
     async def soft_delete_with_chunks(
         self,
         *,
         document_id: str,
         now: datetime,
-    ) -> tuple[MemoryDocument, tuple[str, ...]] | None:
-        """Soft-delete a document and its active chunks, returning deleted chunk ids."""
+    ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
+        """Soft-delete a document and return exact projected chunk versions to remove."""
 
 
 class ChunkRepositoryPort(Protocol):
     async def get_by_id(self, chunk_id: str) -> MemoryChunk | None:
         """Load a chunk by canonical id."""
+
+    async def get_for_update(self, chunk_id: str) -> MemoryChunk | None:
+        """Load and lock a chunk for a serialized canonical/provider mutation."""
 
     async def upsert(self, chunk: MemoryChunk) -> UpsertChunkResult:
         """Persist a chunk, returning duplicate=true on same source hash."""
@@ -537,6 +563,7 @@ class SuggestionRepositoryPort(Protocol):
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         candidate_fingerprint: str,
         operation: str,
         target_fact_id: str | None,

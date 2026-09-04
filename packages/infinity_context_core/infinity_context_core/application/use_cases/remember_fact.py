@@ -14,7 +14,10 @@ from infinity_context_core.domain.taxonomy import DefaultTaxonomyPolicy
 from infinity_context_core.ports.auto_memory import MemoryCandidate
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
-from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
+from infinity_context_core.ports.unit_of_work import (
+    UnitOfWorkFactoryPort,
+    coordinate_fact_source_refs,
+)
 
 
 def remember_fact_fingerprint(command: RememberFactCommand) -> str:
@@ -69,6 +72,13 @@ class RememberFactUseCase:
                         raise MemoryInvariantError("Idempotency result points to missing fact")
                     return FactResult(fact=fact, indexing_status="already_indexed_or_pending")
 
+            await coordinate_fact_source_refs(
+                uow,
+                space_id=str(command.space_id),
+                memory_scope_id=str(command.memory_scope_id),
+                thread_id=str(command.thread_id) if command.thread_id is not None else None,
+                source_refs=command.source_refs,
+            )
             now = self._clock.now()
             taxonomy = DefaultTaxonomyPolicy().normalize(
                 MemoryCandidate(

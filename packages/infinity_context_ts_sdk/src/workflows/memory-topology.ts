@@ -6,6 +6,7 @@ import type { JsonObject, MemoryScopeRecord, Space, SpaceMembership, UserRecord 
 import {
   optional,
   requiredWorkflowText,
+  safeWorkflowError,
   workflowConflict,
   workflowControls,
 } from "./workflow-helpers.js";
@@ -187,12 +188,12 @@ async function ensureWorkflowSpace(
     return { record: created.data, created: true };
   } catch (error) {
     if (!workflowConflict(error)) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     const afterConflict = await resources.spaces.listSpaces({ ...workflowControls(input), limit: input.listLimit });
     const created = afterConflict.data.find((space) => space.slug === input.slug);
     if (created === undefined) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     return { record: created, created: false };
   }
@@ -227,7 +228,7 @@ async function ensureWorkflowMemoryScope(
     return { record: created.data, created: true };
   } catch (error) {
     if (!workflowConflict(error)) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     const afterConflict = await resources.spaces.listMemoryScopes({
       ...workflowControls(input),
@@ -236,7 +237,7 @@ async function ensureWorkflowMemoryScope(
     });
     const created = afterConflict.data.find((scope) => scope.external_ref === input.externalRef);
     if (created === undefined) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     return { record: created, created: false };
   }
@@ -269,12 +270,12 @@ async function ensureWorkflowUser(
     return { record: created.data, created: true };
   } catch (error) {
     if (!workflowConflict(error)) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     const afterConflict = await resources.users.listUsers({ ...workflowControls(input), limit: input.listLimit });
     const created = afterConflict.data.find((user) => user.external_ref === input.externalRef);
     if (created === undefined) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     return { record: created, created: false };
   }
@@ -304,7 +305,7 @@ async function ensureWorkflowMembership(
     return { record: created.data, created: true };
   } catch (error) {
     if (!workflowConflict(error)) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     const afterConflict = await resources.users.listSpaceMemberships(input.spaceId, {
       ...workflowControls(input),
@@ -312,7 +313,7 @@ async function ensureWorkflowMembership(
     });
     const created = afterConflict.data.find((membership) => membership.user_id === input.userId);
     if (created === undefined) {
-      throw error;
+      throw safeWorkflowError(error);
     }
     return { record: created, created: false };
   }

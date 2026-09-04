@@ -13,22 +13,19 @@ from infinity_context_core.domain.entities import (
     MemorySuggestion,
 )
 from infinity_context_core.domain.errors import MemoryConflictError
-from infinity_context_core.domain.events import OutboxEvent
-from infinity_context_core.domain.idempotency import IdempotencyRecord
 from infinity_context_core.ports.captures import CaptureRepositoryPort
 from infinity_context_core.ports.repositories import (
     ActiveAnchorKey,
     AnchorRepositoryPort,
     AnchorScopeQuery,
+    CanonicalChunkVersion,
     ChunkKeywordSearch,
     ChunkRepositoryPort,
     DocumentRepositoryPort,
     EpisodeRepositoryPort,
-    IdempotencyRepositoryPort,
     SuggestionRepositoryPort,
     UpsertChunkResult,
 )
-from infinity_context_core.ports.unit_of_work import OutboxPort
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +35,11 @@ from infinity_context_adapters.postgres.canonical_retrieval_batching import (
     get_anchor_ids,
     keyword_search_many,
     list_anchor_scopes,
+)
+from infinity_context_adapters.postgres.document_source_ref_coordination import (
+    fence_exact_thread_writer,
+    lock_chunk_parent_for_write,
+    lock_document_deletion_evidence,
 )
 from infinity_context_adapters.postgres.mappers import (
     anchor_row_to_domain,
@@ -62,9 +64,13 @@ from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
     MemoryDocumentRow,
     MemoryEpisodeRow,
-    MemoryIdempotencyRecordRow,
-    MemoryOutboxRow,
     MemorySuggestionRow,
+)
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresIdempotencyRepository as PostgresIdempotencyRepository,
+)
+from infinity_context_adapters.postgres.record_repositories import (
+    PostgresOutbox as PostgresOutbox,
 )
 from infinity_context_adapters.postgres.repository_helpers import (
     _canonical_chunk_visibility_conditions,
@@ -106,9 +112,7 @@ def _keyword_search_statement(
             MemoryChunkRow.id.asc(),
         )
     else:
-        statement = statement.order_by(
-            MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc()
-        )
+        statement = statement.order_by(MemoryChunkRow.created_at.desc(), MemoryChunkRow.id.desc())
     return statement.limit(_retrieval_candidate_limit(limit)), terms
 
 
@@ -248,6 +252,13 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         self._session = session
 
     async def create(self, document: MemoryDocument) -> MemoryDocument:
+        if document.thread_id is not None:
+            await fence_exact_thread_writer(
+                self._session,
+                space_id=str(document.space_id),
+                memory_scope_id=str(document.memory_scope_id),
+                thread_id=str(document.thread_id),
+            )
         self._session.add(document_to_row(document))
         try:
             await self._session.flush()
@@ -273,6 +284,7 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
             MemoryDocumentRow.memory_scope_id == memory_scope_id,
             MemoryDocumentRow.content_hash == content_hash,
             MemoryDocumentRow.status == "active",
+            MemoryDocumentRow.retrieval_projected.is_(False),
         ]
         if thread_id is None:
             conditions.append(MemoryDocumentRow.thread_id.is_(None))
@@ -351,34 +363,75 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         ).scalars()
         return [document_row_to_domain(row) for row in rows]
 
+    async def list_exact_scope(
+        self,
+        *,
+        space_id: str,
+        memory_scope_id: str,
+        thread_id: str | None,
+        status: str,
+        limit: int,
+        source_external_id: str | None,
+        cursor_updated_at: datetime | None,
+        cursor_id: str | None,
+    ) -> list[MemoryDocument]:
+        conditions = [
+            MemoryDocumentRow.space_id == space_id,
+            MemoryDocumentRow.memory_scope_id == memory_scope_id,
+            MemoryDocumentRow.thread_id == thread_id
+            if thread_id is not None
+            else MemoryDocumentRow.thread_id.is_(None),
+            MemoryDocumentRow.status == status,
+        ]
+        if source_external_id is not None:
+            conditions.append(MemoryDocumentRow.source_external_id == source_external_id)
+        if cursor_updated_at is not None and cursor_id is not None:
+            conditions.append(
+                or_(
+                    MemoryDocumentRow.updated_at < cursor_updated_at,
+                    (MemoryDocumentRow.updated_at == cursor_updated_at)
+                    & (MemoryDocumentRow.id < cursor_id),
+                )
+            )
+        rows = (
+            await self._session.execute(
+                select(MemoryDocumentRow)
+                .where(*conditions)
+                .order_by(MemoryDocumentRow.updated_at.desc(), MemoryDocumentRow.id.desc())
+                .limit(limit)
+            )
+        ).scalars()
+        return [document_row_to_domain(row) for row in rows]
+
     async def soft_delete_with_chunks(
         self,
         *,
         document_id: str,
         now: datetime,
-    ) -> tuple[MemoryDocument, tuple[str, ...]] | None:
-        document = await self._session.get(MemoryDocumentRow, document_id)
-        if document is None:
-            return None
-
-        chunk_rows = list(
-            (
-                await self._session.execute(
-                    select(MemoryChunkRow).where(
-                        MemoryChunkRow.document_id == document_id,
-                        MemoryChunkRow.status == "active",
-                    )
-                )
-            ).scalars()
+    ) -> tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None:
+        locked = await lock_document_deletion_evidence(
+            self._session,
+            document_id=document_id,
         )
-        deleted_chunk_ids = tuple(row.id for row in chunk_rows)
+        if locked is None:
+            return None
+        document, locked_chunks = locked
+        chunk_rows = list(locked_chunks)
+        deleted_chunk_versions = tuple(
+            CanonicalChunkVersion(
+                chunk_id=row.id,
+                canonical_version=row.retrieval_version,
+            )
+            for row in chunk_rows
+        )
         for row in chunk_rows:
             row.status = "deleted"
+            row.retrieval_version += 1
             row.updated_at = now
         if document.status != "deleted":
             document.status = "deleted"
             document.updated_at = now
-        return document_row_to_domain(document), deleted_chunk_ids
+        return document_row_to_domain(document), deleted_chunk_versions
 
 
 class PostgresChunkRepository(ChunkRepositoryPort):
@@ -389,7 +442,23 @@ class PostgresChunkRepository(ChunkRepositoryPort):
         row = await self._session.get(MemoryChunkRow, chunk_id)
         return chunk_row_to_domain(row) if row is not None else None
 
+    async def get_for_update(self, chunk_id: str) -> MemoryChunk | None:
+        row = (
+            await self._session.execute(
+                select(MemoryChunkRow).where(MemoryChunkRow.id == chunk_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        return chunk_row_to_domain(row) if row is not None else None
+
     async def upsert(self, chunk: MemoryChunk) -> UpsertChunkResult:
+        if chunk.thread_id is not None:
+            await fence_exact_thread_writer(
+                self._session,
+                space_id=str(chunk.space_id),
+                memory_scope_id=str(chunk.memory_scope_id),
+                thread_id=str(chunk.thread_id),
+            )
+        await lock_chunk_parent_for_write(self._session, chunk)
         existing = (
             await self._session.execute(
                 select(MemoryChunkRow).where(
@@ -503,9 +572,7 @@ class PostgresChunkRepository(ChunkRepositoryPort):
     ) -> list[MemoryChunk]:
         groups = tuple(
             dict.fromkeys(
-                group.strip()
-                for group in source_external_id_groups
-                if group and group.strip()
+                group.strip() for group in source_external_id_groups if group and group.strip()
             )
         )
         if limit <= 0 or not groups:
@@ -563,9 +630,7 @@ class PostgresChunkRepository(ChunkRepositoryPort):
             query=query,
             limit=limit,
         )
-        rows = list(
-            (await self._session.execute(statement)).scalars()
-        )
+        rows = list((await self._session.execute(statement)).scalars())
         if terms:
             scored_rows = [
                 (score, index, row)
@@ -764,6 +829,7 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
         *,
         space_id: str,
         memory_scope_id: str,
+        thread_id: str | None,
         candidate_fingerprint: str,
         operation: str,
         target_fact_id: str | None,
@@ -775,6 +841,11 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
             MemorySuggestionRow.candidate_fingerprint == candidate_fingerprint,
             MemorySuggestionRow.operation == operation,
         ]
+        conditions.append(
+            MemorySuggestionRow.thread_id.is_(None)
+            if thread_id is None
+            else MemorySuggestionRow.thread_id == thread_id
+        )
         if target_fact_id:
             conditions.append(MemorySuggestionRow.target_fact_id == target_fact_id)
         else:
@@ -842,65 +913,4 @@ class PostgresSuggestionRepository(SuggestionRepositoryPort):
                     select(func.count()).select_from(MemorySuggestionRow).where(*conditions)
                 )
             ).scalar_one()
-        )
-
-
-class PostgresIdempotencyRepository(IdempotencyRepositoryPort):
-    def __init__(self, session: AsyncSession, now: datetime) -> None:
-        self._session = session
-        self._now = now
-
-    async def find(self, *, space_id: str, key: str) -> IdempotencyRecord | None:
-        row = (
-            await self._session.execute(
-                select(MemoryIdempotencyRecordRow).where(
-                    MemoryIdempotencyRecordRow.space_id == space_id,
-                    MemoryIdempotencyRecordRow.key == key,
-                )
-            )
-        ).scalar_one_or_none()
-        if row is None:
-            return None
-        return IdempotencyRecord(
-            space_id=row.space_id,
-            key=row.key,
-            fingerprint=row.fingerprint,
-            result_type=row.result_type,
-            result_id=row.result_id,
-        )
-
-    async def save(self, record: IdempotencyRecord) -> None:
-        self._session.add(
-            MemoryIdempotencyRecordRow(
-                space_id=record.space_id,
-                key=record.key,
-                fingerprint=record.fingerprint,
-                result_type=record.result_type,
-                result_id=record.result_id,
-                created_at=self._now,
-            )
-        )
-
-
-class PostgresOutbox(OutboxPort):
-    def __init__(self, session: AsyncSession, now: datetime) -> None:
-        self._session = session
-        self._now = now
-
-    async def enqueue(self, event: OutboxEvent) -> None:
-        self._session.add(
-            MemoryOutboxRow(
-                event_type=event.event_type,
-                aggregate_type=event.aggregate_type,
-                aggregate_id=event.aggregate_id,
-                aggregate_version=event.aggregate_version,
-                workload_class=event.workload_class,
-                fairness_key=event.fairness_key or f"{event.aggregate_type}:{event.aggregate_id}",
-                payload_json=event.payload,
-                status="pending",
-                attempt_count=0,
-                next_attempt_at=self._now,
-                created_at=self._now,
-                updated_at=self._now,
-            )
         )

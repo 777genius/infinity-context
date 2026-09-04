@@ -147,7 +147,11 @@ def remap_extraction_job(
         **item,
         "id": extraction_job_id_map.get(job_id, job_id),
         "asset_id": asset_id_map.get(asset_id, asset_id),
-        "thread_id": thread_id_map.get(str(thread_id)) if thread_id is not None else None,
+        "thread_id": (
+            thread_id_map.get(str(thread_id), str(thread_id))
+            if thread_id is not None
+            else None
+        ),
         "result_document_ids": [
             document_id_map.get(str(document_id), str(document_id))
             for document_id in item.get("result_document_ids") or []

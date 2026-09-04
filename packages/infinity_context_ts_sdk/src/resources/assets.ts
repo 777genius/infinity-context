@@ -1,5 +1,5 @@
 import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
-import { InfinityContextError } from "../errors.js";
+import { createInfinityContextError, InfinityContextError } from "../errors.js";
 import {
   normalizedPollingInterval,
   normalizedPollingMaxAttempts,
@@ -212,7 +212,7 @@ function assetExtractionTimeout(
   maxAttempts: number,
   last: AssetExtractionDetails | undefined,
 ): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: "memory.asset_extraction_timeout",
     message: `Asset extraction ${jobId} did not reach a terminal status after ${maxAttempts} attempt(s)`,
@@ -227,7 +227,7 @@ function assetExtractionTimeout(
 }
 
 function assetExtractionFailed(jobId: string, job: AssetExtractionDetails): InfinityContextError {
-  return new InfinityContextError({
+  return createInfinityContextError({
     statusCode: 0,
     code: job.safe_error_code ?? "memory.asset_extraction_failed",
     message: job.safe_error_message ?? `Asset extraction ${jobId} finished with status ${job.status}`,

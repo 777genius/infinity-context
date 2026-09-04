@@ -209,7 +209,7 @@ def test_memory_scope_snapshot_import_preview_reports_skip_and_supersede() -> No
     ]
     assert skip_preview["would_skip"] == {
         "threads": 1,
-        "facts": 1,
+        "facts": 2,
         "documents": 1,
         "episodes": 0,
         "chunks": 2,
@@ -221,11 +221,11 @@ def test_memory_scope_snapshot_import_preview_reports_skip_and_supersede() -> No
         "context_links": 3,
         "context_link_suggestions": 2,
         "relations": 1,
-        "source_refs": 2,
+        "source_refs": 3,
     }
     assert skip_preview["would_import"] == {
         "threads": 1,
-        "facts": 1,
+        "facts": 0,
         "documents": 0,
         "episodes": 1,
         "chunks": 1,
@@ -237,7 +237,7 @@ def test_memory_scope_snapshot_import_preview_reports_skip_and_supersede() -> No
         "context_links": 5,
         "context_link_suggestions": 2,
         "relations": 0,
-        "source_refs": 1,
+        "source_refs": 0,
     }
     assert "some_chunks_will_be_skipped" in skip_preview["warnings"]
     assert "some_assets_will_be_skipped" in skip_preview["warnings"]
@@ -252,6 +252,38 @@ def test_memory_scope_snapshot_import_preview_reports_skip_and_supersede() -> No
         "fact_ids": ["fact_conflict"],
     }
     assert supersede_preview["would_import"]["relations"] == 1
+
+
+def test_skip_existing_dependency_closes_fact_with_skipped_canonical_ref() -> None:
+    payload = {
+        "facts": [{"id": "fact_chunk"}, {"id": "fact_document"}],
+        "documents": [{"id": "document_conflict"}],
+        "chunks": [{"id": "chunk_child", "document_id": "document_conflict"}],
+        "source_refs": [
+            {
+                "fact_id": "fact_chunk",
+                "source_type": "document",
+                "source_id": "external-id",
+                "chunk_id": "chunk_child",
+            },
+            {
+                "fact_id": "fact_document",
+                "source_type": "document",
+                "source_id": "document_conflict",
+            },
+        ],
+    }
+
+    preview = build_memory_scope_snapshot_import_preview(
+        payload=payload,
+        merge_strategy="skip_existing",
+        conflict_ids={"document_conflict"},
+    )
+
+    assert preview["would_skip"]["facts"] == 2
+    assert preview["would_skip"]["chunks"] == 1
+    assert preview["would_skip"]["source_refs"] == 2
+    assert preview["would_import"]["facts"] == 0
 
 
 def test_memory_scope_snapshot_import_preview_reports_legacy_defaults() -> None:

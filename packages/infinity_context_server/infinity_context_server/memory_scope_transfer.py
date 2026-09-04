@@ -32,7 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from infinity_context_server import memory_scope_transfer_assets as _assets
 from infinity_context_server import memory_scope_transfer_context as _context
 from infinity_context_server import memory_scope_transfer_extractions as _extractions
+from infinity_context_server import memory_scope_transfer_fact_coordination as _fact_coordination
 from infinity_context_server import memory_scope_transfer_facts as _facts
+from infinity_context_server import memory_scope_transfer_lifecycle as _lifecycle
 from infinity_context_server import memory_scope_transfer_records as _records
 from infinity_context_server import memory_scope_transfer_remap as _remap
 from infinity_context_server import memory_scope_transfer_scope as _scope
@@ -397,6 +399,15 @@ async def import_memory_scope_payload(
     context_link_suggestions = list(payload.get("context_link_suggestions", []))
     relations = list(payload.get("relations", []))
     source_refs = list(payload.get("source_refs", []))
+    declared_thread_ids = _lifecycle.referenced_thread_ids(
+        facts=facts,
+        documents=documents,
+        episodes=episodes,
+        chunks=chunks,
+        assets=assets,
+        asset_extraction_jobs=asset_extraction_jobs,
+        captures=captures,
+    )
     if not dry_run and _records.contains_redacted_memory(
         payload,
         facts=facts,
@@ -503,6 +514,7 @@ async def import_memory_scope_payload(
                 episodes=episodes,
                 memory_scope_id=target_memory_scope_id,
                 import_batch_id=import_batch_id,
+                referenced_thread_ids=declared_thread_ids,
             )
         if episodes and not dry_run and not thread_id_map:
             thread_id_map = _support.build_thread_id_map(
@@ -566,6 +578,7 @@ async def import_memory_scope_payload(
                 context_links=context_links,
                 context_link_suggestions=context_link_suggestions,
                 relations=relations,
+                source_refs=source_refs,
             )
             result: dict[str, object] = {
                 "status": "ok",
@@ -614,7 +627,9 @@ async def import_memory_scope_payload(
             context_links=context_links,
             context_link_suggestions=context_link_suggestions,
             relations=relations,
+            source_refs=source_refs,
         )
+        superseded_fact_ids: set[str] = set()
         if merge_strategy == "supersede_matching_facts":
             superseded_fact_ids = _facts.fact_conflict_ids(
                 facts=facts,
@@ -629,31 +644,44 @@ async def import_memory_scope_payload(
                 )
                 for fact_id in superseded_fact_ids
             }
-            await _facts.supersede_facts(session, fact_ids=superseded_fact_ids, now=now)
-            for fact_id in superseded_fact_ids:
-                session.add(
-                    _support.outbox(
-                        event_type="graph.delete_fact",
-                        aggregate_type="fact",
-                        aggregate_id=fact_id,
-                        now=now,
-                        payload={"fact_id": fact_id},
-                    )
-                )
+
+        (
+            target_thread_ids,
+            creatable_thread_ids,
+            candidate_thread_id_map,
+        ) = _lifecycle.plan_snapshot_thread_fences(
+            threads=threads,
+            facts=facts,
+            documents=documents,
+            episodes=episodes,
+            chunks=chunks,
+            assets=assets,
+            asset_extraction_jobs=asset_extraction_jobs,
+            captures=captures,
+            skipped=skipped,
+            thread_id_map=thread_id_map,
+            create_new_memory_scope=merge_strategy == "create_new_memory_scope",
+        )
+        admitted_thread_ids = await _lifecycle.fence_snapshot_import_threads(
+            session,
+            space_id=space_id,
+            memory_scope_id=target_memory_scope_id,
+            thread_ids=target_thread_ids,
+            creatable_thread_ids=creatable_thread_ids,
+        )
+        thread_id_map = {
+            source_id: target_id
+            for source_id, target_id in candidate_thread_id_map.items()
+            if target_id in admitted_thread_ids
+        }
 
         imported_fact_versions: dict[str, int] = {}
+        mapped_facts: list[dict[str, Any]] = []
         for fact in facts:
             if str(fact["id"]) in skipped["facts"]:
                 continue
             mapped = _remap.remap_fact(fact, fact_id_map=fact_id_map, thread_id_map=thread_id_map)
-            session.add(
-                _records.fact_from_json(
-                    mapped,
-                    space_id=space_id,
-                    memory_scope_id=target_memory_scope_id,
-                    now=now,
-                )
-            )
+            mapped_facts.append(mapped)
             imported_fact_versions[str(mapped["id"])] = int(mapped.get("version", 1))
         for document in documents:
             if str(document["id"]) in skipped["documents"]:
@@ -682,7 +710,13 @@ async def import_memory_scope_payload(
             space_id=space_id,
             memory_scope_id=target_memory_scope_id,
             now=now,
+            referenced_thread_id_map=thread_id_map,
         )
+        # Document-backed chunks are guarded by a database trigger that resolves
+        # their canonical parent at INSERT time. Flush threads and documents
+        # first instead of relying on SQLAlchemy table ordering for unrelated
+        # mapped rows.
+        await session.flush()
         for episode in episodes:
             if str(episode["id"]) in skipped["episodes"]:
                 continue
@@ -728,6 +762,25 @@ async def import_memory_scope_payload(
                     payload={"chunk_id": str(mapped["id"])},
                 )
             )
+        # Canonical evidence must exist before it can be validated and locked, while
+        # fact rows must not be staged until the complete batch is coordinated.
+        await session.flush()
+        mapped_source_ref_rows = await _fact_coordination.coordinate_and_stage_imported_facts(
+            session,
+            space_id=space_id,
+            memory_scope_id=target_memory_scope_id,
+            now=now,
+            mapped_facts=mapped_facts,
+            imported_fact_versions=imported_fact_versions,
+            source_refs=source_refs,
+            skipped_fact_ids=skipped["facts"],
+            skipped_chunk_ids=skipped["chunks"],
+            fact_id_map=fact_id_map,
+            chunk_id_map=chunk_id_map,
+            document_id_map=document_id_map,
+            extraction_job_id_map=extraction_job_id_map,
+            superseded_fact_ids=superseded_fact_ids,
+        )
         for asset in assets:
             if str(asset["id"]) in skipped["assets"]:
                 continue
@@ -839,24 +892,8 @@ async def import_memory_scope_payload(
             memory_scope_id=target_memory_scope_id,
             now=now,
         )
-        imported_refs_by_fact: set[str] = set()
-        for ref in source_refs:
-            if str(ref["fact_id"]) in skipped["facts"]:
-                continue
-            if ref.get("chunk_id") is not None and str(ref["chunk_id"]) in skipped["chunks"]:
-                continue
-            mapped = _remap.remap_source_ref(
-                ref,
-                fact_id_map=fact_id_map,
-                chunk_id_map=chunk_id_map,
-                skipped_chunk_ids=skipped["chunks"],
-                extraction_job_id_map=extraction_job_id_map,
-            )
-            fact_id = str(mapped["fact_id"])
-            if fact_id not in imported_fact_versions:
-                continue
-            session.add(_records.source_ref_from_json(mapped))
-            imported_refs_by_fact.add(fact_id)
+        imported_refs_by_fact = {row.fact_id for row in mapped_source_ref_rows}
+        session.add_all(mapped_source_ref_rows)
         for relation in relations:
             if str(relation["id"]) in skipped["relations"]:
                 continue

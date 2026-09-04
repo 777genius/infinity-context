@@ -153,6 +153,9 @@ class BarrierUnitOfWork:
     async def lock_scope(self, scope) -> None:
         await self._inner.lock_scope(scope)
 
+    async def coordinate_source_refs(self, *, scope, source_refs) -> None:
+        await self._inner.coordinate_source_refs(scope=scope, source_refs=source_refs)
+
     async def commit(self) -> None:
         await self._inner.commit()
 

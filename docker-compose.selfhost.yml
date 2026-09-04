@@ -154,6 +154,16 @@ services:
       infinity_context_identity_bootstrap:
         condition: service_completed_successfully
 
+  infinity_context_locator_index_bootstrap:
+    <<: *infinity-context-image
+    restart: "no"
+    environment:
+      MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_migrator:${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
+    command: python -m infinity_context_server.db bootstrap-locator-indexes
+    depends_on:
+      infinity_context_migrate:
+        condition: service_completed_successfully
+
   infinity_context_runtime_acl:
     <<: *infinity-context-image
     restart: "no"
@@ -161,7 +171,7 @@ services:
       MEMORY_DATABASE_URL: postgresql+asyncpg://infinity_context_migrator:${INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD:?Set INFINITY_CONTEXT_SELFHOST_MIGRATOR_PASSWORD in .env.selfhost}@infinity_context_postgres:5432/infinity_context
     command: python -m infinity_context_server.selfhost_db reconcile-runtime-acl
     depends_on:
-      infinity_context_migrate:
+      infinity_context_locator_index_bootstrap:
         condition: service_completed_successfully
 
   infinity_context_seed:

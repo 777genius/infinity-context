@@ -36,6 +36,8 @@ plans, research notes, and integration references for Infinity Context.
 - [ADR-0007 - Feature-Owned Vertical Slices](adr/ADR-0007-feature-owned-vertical-slices.md)
 - [ADR-0008 - Monotonic File-Size Budgets](adr/ADR-0008-monotonic-file-size-budgets.md)
 - [ADR-0009 - Provider-Neutral Cognitive Foundation](adr/ADR-0009-provider-neutral-cognitive-foundation.md)
+- [ADR-0011 - Locator-Only Retrieval Boundary](adr/ADR-0011-locator-retrieval-boundary.md)
+- [ADR-0012 - Exact Document Reconciliation And Visibility](adr/ADR-0012-exact-document-reconciliation-visibility.md)
 
 ## Documentation Scope
 
@@ -497,6 +499,44 @@ usually mean the model skipped a required tool call or stopped after
 memory policy/orchestrator when correctness matters. Direct `memory_remember_fact`
 has a server-side duplicate/conflict preflight, but no server can fix a request
 where the agent never calls a memory tool.
+
+Retrieval abandoned reader/provider fences are never removed because a deadline
+elapsed. After externally quiescing the service and reconciling any ambiguous provider
+operation, strict operators may use `infinity-context-admin retrieval-profile-recover`
+or `POST /v1/internal/retrieval-profiles/recoveries` with the exact profile, operation,
+runtime instance/generation, lease or mutation epoch, stale deadline, reason and
+idempotency key. Begin a maintenance generation first; every durable live runtime must
+drain and acknowledge it or present a single-use Ed25519 death proof from the process
+supervisor key bound when that exact runtime generation first registered. The proof must
+repeat the supervisor-issued launch token, PID, `/proc` process-birth identity, executable
+path/digest, exit-observation id/code/time, key and unique proof id. At server startup set
+`MEMORY_RETRIEVAL_RUNTIME_LAUNCH_IDENTITY_JSON` to the external supervisor-issued identity;
+without it local composition is explicitly unrecoverable, and server+Qdrant startup refuses
+the configuration. Strict-admin authority/evidence text is not death proof, and a supervisor
+cannot issue proof while its observed OS process is live.
+All Retrieval admissions remain blocked until recovery closes maintenance. Provider
+mutation recovery also requires a provider-produced reconciliation receipt bound to the
+exact operation, owner instance/generation, mutation epoch/deadline, collection,
+profile/generation, maintenance/evidence epochs and observed state/count/digest. It is
+consumed once in the recovery CAS; a caller-supplied digest or reused receipt is not recovery authority. The command creates
+an auditable receipt and forces fresh attestation; it does not declare the abandoned
+provider operation successful. Use `retrieval-profile-maintenance` to begin, acknowledge,
+submit supervisor death proofs, reconcile provider state through the Qdrant observation
+capability, and explicitly complete a fully drained generation. See ADR-0011. Migrations
+0046-0047 require draining all older binaries and do
+not support downgrade to a pre-0046 runtime.
+
+Before upgrading a populated 0048 database, run
+`infinity-context-admin retrieval-profile-upgrade-preflight`. A `ready` result permits
+the normal transactional upgrade. `blocked_competing_generations` lists only the stable
+runtime instance id and its current generation ids; it performs no locks, DDL, retirement,
+death seal, or winner selection. Quiesce every listed process and drain its reader/writer
+fences. Because 0048 has no canonical `retired_at` column, clean process exit alone cannot
+resolve a pre-0049 conflict: use the 0048-compatible maintenance protocol to record a signed,
+supervisor-observed death seal for each generation proved no longer live. Re-run the preflight
+until `ready`; never delete rows or choose the newest timestamp as an implicit winner. After
+0049, normal clean shutdown records generation-aware retirement only after drain. Preserve the
+diagnostic output and death-proof receipts with the operator change record before upgrading.
 
 `MEMORY_AGENT_BENCH_OPENAI_API_KEY` may be used for the agent model key. The
 full stack still needs `MEMORY_OPENAI_API_KEY` or `OPENAI_API_KEY` for

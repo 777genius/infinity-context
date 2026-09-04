@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { evaluateApiParity } from "./api-parity-policy.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../..");
@@ -15,29 +16,59 @@ const allowedMissing = new Map([
     "GET /v1/healthz",
     "healthz is an include_in_schema=false liveness alias; SDK exposes system.health() for /v1/health.",
   ],
+  [
+    "POST /v1/internal/retrieval-profiles/operations",
+    "strict-admin include_in_schema=false operator lifecycle path is intentionally not public SDK surface.",
+  ],
+  [
+    "POST /v1/internal/retrieval-profiles/recoveries",
+    "strict-admin include_in_schema=false abandoned-fence recovery is intentionally not public SDK surface.",
+  ],
 ]);
+
+const reviewedServerOnlyEndpoints = new Map();
 
 const serverEndpoints = readServerEndpoints(serverApiDir);
 const sdkEndpoints = readSdkEndpoints(sdkSrcDir);
-const allowedExceptions = [...serverEndpoints].filter(
-  (endpoint) => allowedMissing.has(endpoint) && !sdkEndpoints.has(endpoint),
-);
-const requiredServerEndpoints = [...serverEndpoints].filter((endpoint) => !allowedMissing.has(endpoint));
-const missing = requiredServerEndpoints
-  .filter((endpoint) => !sdkEndpoints.has(endpoint))
-  .sort();
+const parity = evaluateApiParity({
+  allowedMissing,
+  reviewedServerOnlyEndpoints,
+  sdkEndpoints,
+  serverEndpoints,
+});
+const { missing, staleAllowedExceptions, staleReviewedGaps, unknownSdkEndpoints } = parity;
 
-if (missing.length > 0) {
+if (!parity.ok) {
   console.error("TypeScript SDK API parity check failed.");
-  console.error("Missing SDK endpoints:");
-  for (const endpoint of missing) {
-    console.error(`  - ${endpoint}`);
+  if (missing.length > 0) {
+    console.error("Missing SDK endpoints:");
+    for (const endpoint of missing) {
+      console.error(`  - ${endpoint}`);
+    }
+  }
+  if (unknownSdkEndpoints.length > 0) {
+    console.error("SDK endpoints missing from the server API:");
+    for (const endpoint of unknownSdkEndpoints) {
+      console.error(`  - ${endpoint}`);
+    }
+  }
+  if (staleAllowedExceptions.length > 0) {
+    console.error("Documented endpoint exceptions that are no longer active gaps:");
+    for (const [endpoint, reason] of staleAllowedExceptions) {
+      console.error(`  - ${endpoint} [reason=${reason}]`);
+    }
+  }
+  if (staleReviewedGaps.length > 0) {
+    console.error("Reviewed server-only endpoint entries that are no longer active gaps:");
+    for (const [endpoint, policy] of staleReviewedGaps) {
+      console.error(`  - ${endpoint} [owner=${policy.owner}; reason=${policy.reason}]`);
+    }
   }
   process.exitCode = 1;
 } else {
   console.log(
-    `API parity ok: ${sdkEndpoints.size} SDK endpoints cover ${requiredServerEndpoints.length} required server endpoints ` +
-      `(${allowedExceptions.length} active documented exception).`,
+    `Bidirectional API parity ok: ${sdkEndpoints.size} SDK endpoints match ${parity.requiredServerEndpoints.length} required server endpoints ` +
+      `(${parity.activeAllowedExceptions.length} schema exception, ${reviewedServerOnlyEndpoints.size} reviewed server-only gaps).`,
   );
 }
 

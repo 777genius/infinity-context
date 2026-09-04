@@ -34,7 +34,10 @@ class InMemoryDocumentChunkIndex(DocumentChunkIndexPort):
             accepted_chunk_ids.append(item.chunk_id)
         return DocumentIndexingResult(accepted_chunk_ids=tuple(accepted_chunk_ids))
 
-    async def delete_chunks(self, chunk_ids: tuple[str, ...]) -> DocumentIndexingResult:
+    async def delete_chunks_if_version(
+        self, chunk_ids: tuple[str, ...], *, canonical_version: int
+    ) -> DocumentIndexingResult:
+        del canonical_version
         for chunk_id in chunk_ids:
             self._items_by_chunk_id.pop(chunk_id, None)
         return DocumentIndexingResult(accepted_chunk_ids=chunk_ids)
@@ -48,8 +51,7 @@ class InMemoryDocumentChunkIndex(DocumentChunkIndexPort):
         """Return indexed items in deterministic chunk-id order."""
 
         return tuple(
-            self._items_by_chunk_id[chunk_id]
-            for chunk_id in sorted(self._items_by_chunk_id)
+            self._items_by_chunk_id[chunk_id] for chunk_id in sorted(self._items_by_chunk_id)
         )
 
 

@@ -74,5 +74,6 @@ function sleepWithSignal(ms: number, signal: AbortSignal | undefined): Promise<v
 }
 
 function abortError(reason: unknown): Error {
-  return reason instanceof Error ? reason : new DOMException("Operation aborted", "AbortError");
+  void reason;
+  return new DOMException("Operation aborted", "AbortError");
 }

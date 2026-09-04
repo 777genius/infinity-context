@@ -103,6 +103,7 @@ class CreateSuggestionUseCase:
             suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
             space_id=command.space_id,
             memory_scope_id=command.memory_scope_id,
+            thread_id=command.thread_id,
             candidate_text=command.candidate_text,
             kind=command.kind,
             source_refs=command.source_refs,
@@ -133,6 +134,7 @@ class CreateSuggestionUseCase:
                 duplicate = await uow.suggestions.find_pending_duplicate(
                     space_id=str(command.space_id),
                     memory_scope_id=str(command.memory_scope_id),
+                    thread_id=str(command.thread_id) if command.thread_id is not None else None,
                     candidate_fingerprint=candidate_fingerprint,
                     operation=operation.value,
                     target_fact_id=command.target_fact_id,
@@ -163,6 +165,7 @@ class CreateSuggestionUseCase:
             return await uow.suggestions.find_pending_duplicate(
                 space_id=str(command.space_id),
                 memory_scope_id=str(command.memory_scope_id),
+                thread_id=str(command.thread_id) if command.thread_id is not None else None,
                 candidate_fingerprint=candidate_fingerprint,
                 operation=operation.value,
                 target_fact_id=command.target_fact_id,
@@ -795,6 +798,7 @@ def _suggestion_fingerprint(
             operation.value,
             repository_id or "",
             code_scope_id or "",
+            str(command.thread_id or ""),
             command.target_fact_id or "",
             str(command.target_fact_version or ""),
             command.kind.value,
@@ -904,6 +908,7 @@ def _batch_candidate_key(command: CreateSuggestionCommand) -> tuple[object, ...]
     return (
         str(command.space_id),
         str(command.memory_scope_id),
+        str(command.thread_id or ""),
         command.operation,
         command.target_fact_id or "",
         command.target_fact_version or 0,

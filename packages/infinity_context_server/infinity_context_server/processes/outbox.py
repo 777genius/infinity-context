@@ -16,6 +16,7 @@ class ClaimedOutboxJob:
     workload_class: str
     fairness_key: str | None
     payload_json: dict[str, object]
+    aggregate_type: str | None = None
 
 
 OutboxEventHandler = Callable[[ClaimedOutboxJob], Awaitable[None]]

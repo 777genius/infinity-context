@@ -1478,15 +1478,18 @@ def test_engine_health_snapshot_uses_capability_descriptors() -> None:
     assert snapshot.capabilities[0].capability == MemoryCapability.RAG_RECALL
 
 
-def test_unexpected_exception_maps_to_safe_internal_error() -> None:
-    app = create_app(
-        Settings(
-            deploy_profile=DeployProfile.TEST,
-            qdrant_enabled=False,
-            graphiti_enabled=False,
-            embeddings_enabled=False,
-        )
+def build_error_mapping_test_settings() -> Settings:
+    return Settings(
+        deploy_profile=DeployProfile.TEST,
+        database_url="sqlite+aiosqlite://",
+        qdrant_enabled=False,
+        graphiti_enabled=False,
+        embeddings_enabled=False,
     )
+
+
+def test_unexpected_exception_maps_to_safe_internal_error() -> None:
+    app = create_app(build_error_mapping_test_settings())
 
     @app.get("/raise-raw-secret")
     async def raise_raw_secret() -> None:
@@ -1507,14 +1510,7 @@ def test_unexpected_exception_maps_to_safe_internal_error() -> None:
 
 
 def test_invariant_error_maps_to_safe_internal_error() -> None:
-    app = create_app(
-        Settings(
-            deploy_profile=DeployProfile.TEST,
-            qdrant_enabled=False,
-            graphiti_enabled=False,
-            embeddings_enabled=False,
-        )
-    )
+    app = create_app(build_error_mapping_test_settings())
 
     @app.get("/raise-invariant-secret")
     async def raise_invariant_secret() -> None:
@@ -1535,14 +1531,7 @@ def test_invariant_error_maps_to_safe_internal_error() -> None:
 
 
 def test_infrastructure_error_maps_to_safe_provider_unavailable() -> None:
-    app = create_app(
-        Settings(
-            deploy_profile=DeployProfile.TEST,
-            qdrant_enabled=False,
-            graphiti_enabled=False,
-            embeddings_enabled=False,
-        )
-    )
+    app = create_app(build_error_mapping_test_settings())
 
     @app.get("/raise-provider-secret")
     async def raise_provider_secret() -> None:

@@ -28,12 +28,14 @@ class CreateSuggestionRequest(BaseModel):
 
     space_id: str | None = Field(default=None, min_length=1, max_length=80)
     memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, min_length=1, max_length=80)
     space_slug: str | None = Field(default=None, min_length=1, max_length=160)
     memory_scope_external_ref: str | None = Field(
         default=None,
         min_length=1,
         max_length=200,
     )
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
     candidate_text: str = Field(min_length=1, max_length=4000)
     kind: str = "note"
     source_refs: list[SourceRefRequest] = Field(default_factory=list)
@@ -84,12 +86,14 @@ class CreateSuggestionsBatchRequest(BaseModel):
 
     space_id: str | None = Field(default=None, min_length=1, max_length=80)
     memory_scope_id: str | None = Field(default=None, min_length=1, max_length=80)
+    thread_id: str | None = Field(default=None, min_length=1, max_length=80)
     space_slug: str | None = Field(default=None, min_length=1, max_length=160)
     memory_scope_external_ref: str | None = Field(
         default=None,
         min_length=1,
         max_length=200,
     )
+    thread_external_ref: str | None = Field(default=None, min_length=1, max_length=200)
     items: list[CreateSuggestionBatchItemRequest] = Field(min_length=1, max_length=50)
     continue_on_error: bool = False
 
@@ -143,6 +147,7 @@ def create_suggestion_command_from_v1_request(
     *,
     space_id: Any,
     memory_scope_id: Any,
+    thread_id: Any = None,
     repository_id: str | None = None,
     code_scope_id: str | None = None,
 ) -> CreateSuggestionCommand:
@@ -153,6 +158,7 @@ def create_suggestion_command_from_v1_request(
     return CreateSuggestionCommand(
         space_id=space_id,
         memory_scope_id=memory_scope_id,
+        thread_id=thread_id,
         candidate_text=request.candidate_text,
         kind=memory_kind_from_v1_request(request.kind),
         source_refs=tuple(source_ref_from_v1_request(ref) for ref in request.source_refs),
@@ -184,6 +190,7 @@ def create_suggestions_batch_command_from_v1_request(
     *,
     space_id: Any,
     memory_scope_id: Any,
+    thread_id: Any = None,
     repository_id: str | None = None,
     code_scope_id: str | None = None,
 ) -> CreateSuggestionsBatchCommand:
@@ -193,6 +200,7 @@ def create_suggestions_batch_command_from_v1_request(
                 item,
                 space_id=space_id,
                 memory_scope_id=memory_scope_id,
+                thread_id=thread_id,
                 repository_id=repository_id,
                 code_scope_id=code_scope_id,
             )
@@ -268,6 +276,8 @@ def _review_suggestion_batch_item_command_from_v1_request(
 def _reject_client_owned_code_scope(review_payload: dict[str, Any] | None) -> None:
     if review_payload is None:
         return
+    if "canonical_source_thread_id" in review_payload:
+        raise MemoryValidationError("Suggestion review_payload cannot set canonical source thread")
     if "repository_id" in review_payload or "code_scope_id" in review_payload:
         raise MemoryValidationError("Suggestion review_payload cannot set repository or code scope")
 

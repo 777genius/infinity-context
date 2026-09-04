@@ -34,9 +34,11 @@ export class HangingTransport implements HttpTransport {
 }
 
 export function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): HttpResponse {
+  const responseHeaders = new Headers(headers);
+  if (!responseHeaders.has("content-type")) responseHeaders.set("content-type", "application/json");
   return {
     status,
-    headers: new Headers(headers),
+    headers: responseHeaders,
     body: JSON.stringify(body),
   };
 }
@@ -145,6 +147,8 @@ export function documentRecord(id: string) {
   return {
     id,
     title: `${id} title`,
+    source_type: "document",
+    source_external_id: `${id}.md`,
     status: "active",
   };
 }

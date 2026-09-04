@@ -263,6 +263,7 @@ class IngestEpisodeUseCase:
                         suggestion_id=MemorySuggestionId(self._ids.new_id("sug")),
                         space_id=command.space_id,
                         memory_scope_id=command.memory_scope_id,
+                        thread_id=command.thread_id,
                         candidate_text=candidate.text,
                         kind=candidate.kind,
                         source_refs=candidate.source_refs,

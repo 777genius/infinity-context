@@ -8,6 +8,7 @@ import importlib
 import importlib.metadata
 import json
 import re
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -16,7 +17,8 @@ from typing import Any, Protocol
 _GIT_SHA = re.compile(r"^[a-f0-9]{40}$")
 _DIGEST = re.compile(r"^sha256:[a-f0-9]{64}$")
 _SOURCE_SCHEMA = "infinity-context.source-build.v1"
-_INSTALLED_SCHEMA = "infinity-context.installed-build.v1"
+_INSTALLED_SCHEMA = "infinity-context.installed-build.v2"
+_LEGACY_INSTALLED_SCHEMA = "infinity-context.installed-build.v1"
 _MAX_BYTES = 16_384
 _RUNTIME_PACKAGES = (
     "infinity_context_adapters",
@@ -37,10 +39,31 @@ class BuildIdentity:
     service_revision: str
     source_tree_digest_sha256: str
     installed_distribution_digest_sha256: str
+    runtime_modules_digest_sha256: str
+
+    def installed_release(self):
+        from infinity_context_core.features.context_building.public import (
+            InstalledReleaseIdentity,
+        )
+
+        return InstalledReleaseIdentity(
+            self.service_revision,
+            self.source_tree_digest_sha256,
+            self.installed_distribution_digest_sha256,
+            self.runtime_modules_digest_sha256,
+        )
 
 
 def installed_distribution_digest(distribution: Distribution | None = None) -> str:
     """Hash every installed RECORD file and reject shadow imports or aliases."""
+
+    return installed_artifact_digests(distribution)[0]
+
+
+def installed_artifact_digests(
+    distribution: Distribution | None = None,
+) -> tuple[str, str]:
+    """Measure the complete distribution and repository-owned runtime modules."""
 
     try:
         installed = distribution or importlib.metadata.distribution("infinity-context")
@@ -86,8 +109,98 @@ def installed_distribution_digest(distribution: Distribution | None = None) -> s
     if not files or imported_recorded != set(imported):
         raise RuntimeError("imported runtime module is absent from installed RECORD")
     digest = hashlib.sha256()
+    runtime_digest = hashlib.sha256()
+    runtime_roots = tuple(path.parent for path in imported)
+    runtime_file_count = 0
     for name, path in sorted(files):
         digest.update(name.encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+        if any(path.is_relative_to(root) for root in runtime_roots):
+            runtime_digest.update(name.encode())
+            runtime_digest.update(b"\0")
+            runtime_digest.update(path.read_bytes())
+            runtime_digest.update(b"\0")
+            runtime_file_count += 1
+    if runtime_file_count < len(_RUNTIME_PACKAGES):
+        raise RuntimeError("installed runtime module set is incomplete")
+    return f"sha256:{digest.hexdigest()}", f"sha256:{runtime_digest.hexdigest()}"
+
+
+def repository_source_release_identity(root: Path, *, service_revision: str | None = None):
+    """Measure a repository-owned source runtime used only by isolated acceptance."""
+
+    from infinity_context_core.features.context_building.public import (
+        InstalledReleaseIdentity,
+    )
+
+    root = root.resolve(strict=True)
+    revision = service_revision
+    if revision is None:
+        try:
+            revision = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError("repository source revision is unavailable") from exc
+    if not _GIT_SHA.fullmatch(revision):
+        raise RuntimeError("repository source revision is invalid")
+    runtime_files: list[Path] = []
+    for package in _RUNTIME_PACKAGES:
+        package_root = root / "packages" / package
+        runtime_files.extend(
+            path
+            for path in package_root.rglob("*")
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and path.suffix in {".py", ".json", ".sql"}
+        )
+    runtime_digest = _paths_digest(root, runtime_files)
+    distribution_files = [*runtime_files, root / "pyproject.toml", root / "uv.lock"]
+    distribution_digest = _paths_digest(root, distribution_files)
+    source_files = [
+        path
+        for directory in ("packages", "tests", "scripts", "docs", ".github")
+        for path in (root / directory).rglob("*")
+        if path.is_file()
+        and not any(
+            part
+            in {
+                "__pycache__",
+                ".pytest_cache",
+                ".ruff_cache",
+                "build",
+                "dist",
+                "node_modules",
+            }
+            for part in path.parts
+        )
+        and path.suffix in {".py", ".pyi", ".ts", ".mjs", ".json", ".sql", ".md", ".yml", ".yaml"}
+    ]
+    source_files.extend(
+        path for path in (root / "pyproject.toml", root / "uv.lock") if path.is_file()
+    )
+    return InstalledReleaseIdentity(
+        revision,
+        _paths_digest(root, source_files),
+        distribution_digest,
+        runtime_digest,
+    )
+
+
+def _paths_digest(root: Path, paths: list[Path]) -> str:
+    digest = hashlib.sha256()
+    unique = sorted({path.resolve(strict=True) for path in paths})
+    if not unique or any(not path.is_relative_to(root) for path in unique):
+        raise RuntimeError("repository source artifact is invalid")
+    for path in unique:
+        digest.update(path.relative_to(root).as_posix().encode())
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
@@ -97,11 +210,13 @@ def installed_distribution_digest(distribution: Distribution | None = None) -> s
 def write_installed_build_identity(*, source_manifest: Path, output_path: Path) -> None:
     source = _read_json(source_manifest)
     revision, source_digest = _validate_source(source)
+    distribution_digest, runtime_digest = installed_artifact_digests()
     payload = {
         "schema_version": _INSTALLED_SCHEMA,
         "service_revision": revision,
         "source_tree_digest_sha256": source_digest,
-        "installed_distribution_digest_sha256": installed_distribution_digest(),
+        "installed_distribution_digest_sha256": distribution_digest,
+        "runtime_modules_digest_sha256": runtime_digest,
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = output_path.with_suffix(f"{output_path.suffix}.tmp")
@@ -125,19 +240,31 @@ def verify_installed_build_identity(path_text: str | None) -> BuildIdentity | No
         "source_tree_digest_sha256",
         "installed_distribution_digest_sha256",
     }
-    if set(payload) != required or payload.get("schema_version") != _INSTALLED_SCHEMA:
+    schema = payload.get("schema_version")
+    if schema == _INSTALLED_SCHEMA:
+        required.add("runtime_modules_digest_sha256")
+    if set(payload) != required or schema not in {_INSTALLED_SCHEMA, _LEGACY_INSTALLED_SCHEMA}:
         raise RuntimeError("service build identity has an unsupported contract")
     revision = payload["service_revision"]
     source_digest = payload["source_tree_digest_sha256"]
     installed_digest = payload["installed_distribution_digest_sha256"]
+    pinned_runtime_digest = payload.get("runtime_modules_digest_sha256")
     if not isinstance(revision, str) or not _GIT_SHA.fullmatch(revision):
         raise RuntimeError("service build revision is invalid")
-    if not _valid_digest(source_digest) or not _valid_digest(installed_digest):
+    if (
+        not _valid_digest(source_digest)
+        or not _valid_digest(installed_digest)
+        or (pinned_runtime_digest is not None and not _valid_digest(pinned_runtime_digest))
+    ):
         raise RuntimeError("service build digest is invalid")
-    observed = installed_distribution_digest()
+    observed, runtime_digest = installed_artifact_digests()
     if not hmac.compare_digest(installed_digest, observed):
         raise RuntimeError("service build does not match executing distribution")
-    return BuildIdentity(revision, source_digest, installed_digest)
+    if pinned_runtime_digest is not None and not hmac.compare_digest(
+        pinned_runtime_digest, runtime_digest
+    ):
+        raise RuntimeError("service build does not match executing runtime modules")
+    return BuildIdentity(revision, source_digest, installed_digest, runtime_digest)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
