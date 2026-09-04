@@ -40,6 +40,11 @@ const releaseCommit = required("release-commit");
 if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(releaseCommit)) throw new Error("release commit is malformed");
 const manifestBytes = await safeRead(resolve(assetDir, EXPECTED_MANIFEST), assetDir, "release manifest");
 const manifest = parseObject(manifestBytes, "release manifest");
+if (manifest.repository !== repository || manifest.release_tag !== tag ||
+    manifest.source_commit !== releaseCommit) {
+  throw new Error("release manifest source identity drift");
+}
+const tagObjectOid = requiredOid(manifest.tag_object_oid, "manifest tag object");
 const expectedNames = [manifest.artifact_name, EXPECTED_MANIFEST].sort();
 if (!expectedNames[0] || expectedNames.length !== 2) throw new Error("release manifest artifact identity is missing");
 const assets = Array.isArray(release.assets) ? release.assets : [];
@@ -49,7 +54,7 @@ const releaseAttestation = parseAttestation(
   await safeRead(releaseAttestationPath, outputRoot, "release attestation JSON"),
   "release attestation JSON",
 );
-validateReleaseAttestation(releaseAttestation, { assets, release, releaseCommit, repository, tag });
+validateReleaseAttestation(releaseAttestation, { assets, release, repository, tag, tagObjectOid });
 const receiptAssets = [];
 for (const name of expectedNames) {
   const asset = assets.find((item) => item.name === name);
@@ -145,20 +150,22 @@ function parseAttestation(bytes, label) {
 
 function validateReleaseAttestation(attestation, expected) {
   const { statement } = attestation;
-  if (statement.predicateType !== "https://in-toto.io/attestation/release/v0.1") {
+  if (statement.predicateType !== "https://in-toto.io/attestation/release/v0.2") {
     throw new Error("unexpected release attestation predicate type");
   }
   const predicate = statement.predicate;
   if (predicate === null || Array.isArray(predicate) || typeof predicate !== "object" ||
       predicate.tag !== expected.tag || predicate.repository !== expected.repository ||
-      String(predicate.releaseId) !== String(expected.release.id)) {
+      String(predicate.databaseId) !== String(expected.release.id) ||
+      predicate.purl !== `pkg:github/${expected.repository}@${expected.tag}`) {
     throw new Error("release attestation predicate identity drift");
   }
-  const commitAlgorithm = expected.releaseCommit.length === 40 ? "sha1" : "sha256";
-  const commitSubjects = statement.subject.filter((item) =>
+  const tagAlgorithm = expected.tagObjectOid.length === 40 ? "sha1" : "sha256";
+  const tagSubjects = statement.subject.filter((item) =>
     item !== null && !Array.isArray(item) && typeof item === "object" &&
-    item.name === undefined && canonicalJson(item.digest) === canonicalJson({ [commitAlgorithm]: expected.releaseCommit }));
-  if (commitSubjects.length !== 1) throw new Error("release attestation commit drift");
+    item.uri === predicate.purl &&
+    canonicalJson(item.digest) === canonicalJson({ [tagAlgorithm]: expected.tagObjectOid }));
+  if (tagSubjects.length !== 1) throw new Error("release attestation tag object drift");
   for (const asset of expected.assets) {
     const digest = asset.digest.slice("sha256:".length);
     const subjects = statement.subject.filter((item) =>
@@ -187,6 +194,12 @@ function requiredString(value, label) {
 function positiveInteger(value, label) {
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${label} must be a positive safe integer`);
   return value;
+}
+
+function requiredOid(value, label) {
+  const oid = requiredString(value, label);
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(oid)) throw new Error(`${label} is malformed`);
+  return oid;
 }
 
 function sha256(bytes) { return createHash("sha256").update(bytes).digest("hex"); }

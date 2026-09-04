@@ -532,11 +532,11 @@ describe("transport, retry and errors", () => {
   );
 
   it.each([
-    ["string", "cancel string", "memory.request_aborted", false],
-    ["generic Error", new Error("cancel error"), "memory.request_aborted", false],
-    ["AbortError", new DOMException("cancel abort", "AbortError"), "memory.request_aborted", false],
-    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_aborted", false],
-  ] as const)("classifies caller %s reasons from the operation signal", async (_name, reason, code, retryable) => {
+    ["string", "cancel string", "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["generic Error", new Error("cancel error"), "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["AbortError", new DOMException("cancel abort", "AbortError"), "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["TimeoutError", new DOMException("cancel timeout", "TimeoutError"), "memory.request_timeout", true, "Infinity Context request timed out"],
+  ] as const)("classifies caller %s reasons from the operation signal", async (_name, reason, code, retryable, message) => {
     const controller = new AbortController();
     const transport = new HangingTransport();
     const client = new HttpClient({ transport, timeoutMs: 0, retryPolicy: { maxAttempts: 2 } });
@@ -548,7 +548,7 @@ describe("transport, retry and errors", () => {
       await request;
       throw new Error("expected request to be cancelled");
     } catch (error) {
-      expect(error).toMatchObject({ code, retryable, message: "Infinity Context request aborted" });
+      expect(error).toMatchObject({ code, retryable, message });
       expect((error as Error).cause).toEqual(
         typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
       );
@@ -557,15 +557,16 @@ describe("transport, retry and errors", () => {
   });
 
   it.each([
-    ["string", "cancel transport string", "memory.request_aborted", false],
-    ["generic Error", new Error("cancel transport error"), "memory.request_aborted", false],
-    ["AbortError", new DOMException("cancel transport abort", "AbortError"), "memory.request_aborted", false],
-    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_aborted", false],
+    ["string", "cancel transport string", "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["generic Error", new Error("cancel transport error"), "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["AbortError", new DOMException("cancel transport abort", "AbortError"), "memory.request_aborted", false, "Infinity Context request aborted"],
+    ["TimeoutError", new DOMException("cancel transport timeout", "TimeoutError"), "memory.request_timeout", true, "Infinity Context request timed out"],
   ] as const)("classifies direct FetchTransport %s abort reasons from the request signal", async (
     _name,
     reason,
     code,
     retryable,
+    message,
   ) => {
     const controller = new AbortController();
     let fetchCalls = 0;
@@ -589,7 +590,7 @@ describe("transport, retry and errors", () => {
       expect(error).toMatchObject({
         code,
         retryable,
-        message: "Infinity Context request aborted",
+        message,
       });
       expect((error as Error).cause).toEqual(
         typeof reason === "string" ? reason : { name: "Error", message: "External error cause redacted" },
@@ -635,7 +636,7 @@ describe("transport, retry and errors", () => {
     await expect(transport.send({
       method: "GET", url: new URL("http://memory.test/capabilities"), headers: new Headers(),
       signal: AbortSignal.timeout(10), responseType: "bytes", maxResponseBytes: 32,
-    })).rejects.toMatchObject({ code: "memory.request_aborted" });
+    })).rejects.toMatchObject({ code: "memory.request_timeout", retryable: true });
   });
 
   it("aborts and cancels a stalled response stream", async () => {

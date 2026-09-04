@@ -196,6 +196,10 @@ def test_verification_cli_json_contract_is_preflighted_and_not_ignored() -> None
     assert helper.count("--format json") == 2
     assert "release-attestation.json" in helper
     assert RECEIPT_CLI.exists() and MANIFEST_CLI.exists()
+    create = re.search(r'GH_REPO=.*?gh release create.*?--verify-tag', helper, re.DOTALL)
+    assert create is not None
+    assert "--notes-from-tag" in create.group(0)
+    assert "--repo" not in create.group(0)
 
 
 def _release(state: str, artifact_bytes: bytes, manifest_bytes: bytes) -> dict[str, object]:
@@ -290,14 +294,18 @@ def _attestation(artifact_bytes: bytes, manifest_bytes: bytes) -> dict[str, obje
         "verificationResult": {
             "signature": {"certificate": {}},
             "statement": {
-                "predicateType": "https://in-toto.io/attestation/release/v0.1",
+                "predicateType": "https://in-toto.io/attestation/release/v0.2",
                 "predicate": {
-                    "releaseId": "41",
+                    "databaseId": "41",
+                    "purl": "pkg:github/777genius/infinity-context@sdk-v0.2.1",
                     "repository": "777genius/infinity-context",
                     "tag": "sdk-v0.2.1",
                 },
                 "subject": [
-                    {"uri": "pkg:github/repo@tag", "digest": {"sha1": COMMIT}},
+                    {
+                        "uri": "pkg:github/777genius/infinity-context@sdk-v0.2.1",
+                        "digest": {"sha1": TAG_OBJECT},
+                    },
                     {
                         "name": ARTIFACT,
                         "digest": {"sha256": hashlib.sha256(artifact_bytes).hexdigest()},
@@ -469,6 +477,10 @@ def _receipt_fixture(tmp_path: Path) -> tuple[list[str], Path, dict[str, object]
         "artifact_name": ARTIFACT,
         "build_workflow_run_attempt": 2,
         "build_workflow_run_id": 12345,
+        "release_tag": "sdk-v0.2.1",
+        "repository": "777genius/infinity-context",
+        "source_commit": COMMIT,
+        "tag_object_oid": TAG_OBJECT,
     }
     manifest_bytes = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
     (asset_dir / ARTIFACT).write_bytes(artifact_bytes)
@@ -520,11 +532,11 @@ def test_receipt_parses_attestations_and_binds_commit_assets_and_origin_run(tmp_
     assert retry_output.read_bytes() == output.read_bytes()
 
 
-@pytest.mark.parametrize("tamper", ["commit", "asset", "predicate"])
+@pytest.mark.parametrize("tamper", ["tag_object", "asset", "predicate"])
 def test_receipt_rejects_hostile_attestation_output(tmp_path: Path, tamper: str) -> None:
     args, output, attestation = _receipt_fixture(tmp_path)
     statement = attestation["verificationResult"]["statement"]
-    if tamper == "commit":
+    if tamper == "tag_object":
         statement["subject"][0]["digest"]["sha1"] = "d" * 40
     elif tamper == "asset":
         statement["subject"][1]["digest"]["sha256"] = "e" * 64
@@ -541,7 +553,10 @@ def test_receipt_rejects_hostile_attestation_output(tmp_path: Path, tamper: str)
 def test_runbook_and_retention_contract() -> None:
     runbook = (ROOT / "docs/typescript-sdk-release.md").read_text(encoding="utf-8")
     normalized = " ".join(runbook.split())
-    assert "--ref sdk-v0.2.3" in runbook
+    assert "--ref sdk-v0.2.4" in runbook
+    assert "Version 0.2.3 is already published and must remain immutable." in normalized
+    assert "memory.request_timeout" in runbook
+    assert "retryable=true" in runbook
     assert "--ref <DEFAULT_BRANCH>" not in runbook
     assert "sdk-release-policy" in runbook
     assert "Administration: read-only" in runbook
