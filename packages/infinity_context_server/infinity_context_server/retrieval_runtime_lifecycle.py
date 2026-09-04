@@ -12,6 +12,8 @@ from typing import Any, TypeVar
 from infinity_context_core.features.context_building.public import RuntimeFenceOwner
 
 _T = TypeVar("_T")
+# Reserve the final 10 ms inside the absolute deadline for cancellation drain.
+# At/past deadline, cleanup gets only one non-blocking event-loop handoff.
 _CANCEL_DRAIN_SECONDS = 0.01
 
 
@@ -28,35 +30,62 @@ async def complete_despite_cancellation(
     while not task.done():
         remaining = deadline_monotonic - loop.time()
         if remaining <= 0:
-            await _cancel_and_drain(task, deadline_monotonic=deadline_monotonic)
+            drain_cancellation = await _cancel_and_drain(
+                task, deadline_monotonic=deadline_monotonic
+            )
+            if cancellation is None:
+                cancellation = drain_cancellation
+            if cancellation is not None:
+                raise cancellation
             raise TimeoutError
         cancel_at = deadline_monotonic - min(_CANCEL_DRAIN_SECONDS, remaining / 10)
         try:
-            async with asyncio.timeout_at(cancel_at):
-                await asyncio.shield(task)
+            await asyncio.wait((task,), timeout=max(0.0, cancel_at - loop.time()))
         except asyncio.CancelledError as exc:
             cancellation = cancellation or exc
             current = asyncio.current_task()
             if current is not None:
                 current.uncancel()
-        except TimeoutError:
-            await _cancel_and_drain(task, deadline_monotonic=deadline_monotonic)
-            raise
+            continue
+        if not task.done():
+            drain_cancellation = await _cancel_and_drain(
+                task, deadline_monotonic=deadline_monotonic
+            )
+            if cancellation is None:
+                cancellation = drain_cancellation
+            if cancellation is not None:
+                raise cancellation
+            raise TimeoutError
     return task.result(), cancellation
 
 
-async def _cancel_and_drain(task: asyncio.Future[Any], *, deadline_monotonic: float) -> None:
+async def _cancel_and_drain(
+    task: asyncio.Future[Any], *, deadline_monotonic: float
+) -> asyncio.CancelledError | None:
     """Cancel and drain only while the absolute request deadline permits."""
 
     if not task.done():
         task.cancel()
-    try:
-        async with asyncio.timeout_at(deadline_monotonic):
-            await asyncio.shield(task)
-    except (asyncio.CancelledError, Exception):
-        pass
-    if not task.done():
+    loop = asyncio.get_running_loop()
+    cancellation: asyncio.CancelledError | None = None
+    first_wait = True
+    while not task.done():
+        remaining = deadline_monotonic - loop.time()
+        if remaining <= 0 and not first_wait:
+            break
+        first_wait = False
+        try:
+            await asyncio.wait((task,), timeout=max(0.0, remaining))
+        except asyncio.CancelledError as exc:
+            cancellation = cancellation or exc
+            current = asyncio.current_task()
+            if current is not None:
+                current.uncancel()
+    if task.done():
+        _consume_terminal_exception(task)
+    else:
         task.add_done_callback(_consume_terminal_exception)
+    return cancellation
 
 
 def _consume_terminal_exception(task: asyncio.Future[Any]) -> None:

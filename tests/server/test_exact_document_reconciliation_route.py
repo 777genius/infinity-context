@@ -215,9 +215,7 @@ def test_malformed_json_is_rejected_before_handler_execution() -> None:
 
     parsing_errors: list[RequestValidationError] = []
 
-    async def capture_parsing_error(
-        request: Request, exc: RequestValidationError
-    ) -> JSONResponse:
+    async def capture_parsing_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         parsing_errors.append(exc)
         return await request_validation_exception_handler(request, exc)
 
@@ -234,17 +232,21 @@ def test_malformed_json_is_rejected_before_handler_execution() -> None:
         headers={"content-type": "application/json"},
     )
     assert response.status_code == expected.status_code == 422
-    assert response.json() == expected.json() == {
-        "detail": [
-            {
-                "type": "json_invalid",
-                "loc": ["body", 1],
-                "msg": "JSON decode error",
-                "input": {},
-                "ctx": {"error": "Expecting property name enclosed in double quotes"},
-            }
-        ]
-    }
+    assert (
+        response.json()
+        == expected.json()
+        == {
+            "detail": [
+                {
+                    "type": "json_invalid",
+                    "loc": ["body", 1],
+                    "msg": "JSON decode error",
+                    "input": {},
+                    "ctx": {"error": "Expecting property name enclosed in double quotes"},
+                }
+            ]
+        }
+    )
     assert len(parsing_errors) == 2
     assert parsing_errors[1].errors() == parsing_errors[0].errors()
     assert parsing_errors[1].body == parsing_errors[0].body == "{"
@@ -278,9 +280,7 @@ def test_invalid_utf8_preserves_fastapi_body_parsing_response() -> None:
     )
 
     assert response.status_code == expected.status_code == 400
-    assert response.json() == expected.json() == {
-        "detail": "There was an error parsing the body"
-    }
+    assert response.json() == expected.json() == {"detail": "There was an error parsing the body"}
     assert handler.calls == 0
 
 
@@ -332,9 +332,7 @@ def test_deadline_uses_the_typed_field_coercion(deadline_ms) -> None:
     assert response.json()["data"]["state"] == "unavailable"
 
 
-@pytest.mark.parametrize(
-    "content_type", ["application/json", "application/vnd.infinity+json"]
-)
+@pytest.mark.parametrize("content_type", ["application/json", "application/vnd.infinity+json"])
 def test_fastapi_compatible_json_media_types_remain_accepted(content_type) -> None:
     class Handler:
         async def execute(self, query):
@@ -441,12 +439,45 @@ def test_openapi_preserves_typed_request_component_reference() -> None:
 
     schema = app.openapi()
 
-    assert schema["paths"]["/v1/documents/reconcile-exact"]["post"][
-        "requestBody"
-    ]["content"]["application/json"]["schema"] == {
-        "$ref": "#/components/schemas/ReconcileExactDocumentHttpRequest"
-    }
+    assert schema["paths"]["/v1/documents/reconcile-exact"]["post"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"] == {"$ref": "#/components/schemas/ReconcileExactDocumentHttpRequest"}
     assert "ReconcileExactDocumentHttpRequest" in schema["components"]["schemas"]
+
+
+def test_operation_failure_is_preserved_while_disconnect_task_is_drained() -> None:
+    class ExpectedFailure(RuntimeError):
+        pass
+
+    async def scenario() -> None:
+        receiver_started = asyncio.Event()
+        receiver_finished = asyncio.Event()
+
+        async def receive():
+            receiver_started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                receiver_finished.set()
+
+        async def fail():
+            await receiver_started.wait()
+            raise ExpectedFailure("primary operation failure")
+
+        current = asyncio.current_task()
+        assert current is not None
+        baseline = asyncio.all_tasks() - {current}
+        with pytest.raises(ExpectedFailure, match="primary operation failure"):
+            await body_boundary.execute_with_disconnect(
+                SimpleNamespace(receive=receive),
+                fail(),
+                deadline_monotonic=asyncio.get_running_loop().time() + 0.5,
+            )
+
+        assert receiver_finished.is_set()
+        assert asyncio.all_tasks() - {current} == baseline
+
+    asyncio.run(scenario())
 
 
 def test_disconnect_during_authorization_cancels_the_whole_route() -> None:
@@ -593,22 +624,31 @@ def test_external_cancellation_drains_route_and_receiver_tasks(cancellations) ->
     asyncio.run(scenario())
 
 
-def test_route_timeout_does_not_consume_repeated_external_cancellation() -> None:
+def test_route_deadline_bounds_cancellation_resistant_dependency_cleanup() -> None:
     async def scenario() -> None:
-        authorization_started = asyncio.Event()
-        authorization_cleanup_started = asyncio.Event()
-        authorization_finished = asyncio.Event()
+        operation_started = asyncio.Event()
+        operation_cleanup_started = asyncio.Event()
+        operation_finished = asyncio.Event()
         receiver_finished = asyncio.Event()
+        release_operation = asyncio.Event()
+        sent: list[dict] = []
         body_delivered = False
 
-        async def blocked_authorization() -> None:
-            authorization_started.set()
-            try:
-                await asyncio.Event().wait()
-            finally:
-                authorization_cleanup_started.set()
-                await asyncio.sleep(0.04)
-                authorization_finished.set()
+        class CancellationResistantHandler:
+            async def execute(self, _query):
+                operation_started.set()
+                try:
+                    await asyncio.Event().wait()
+                except asyncio.CancelledError:
+                    operation_cleanup_started.set()
+                    while not release_operation.is_set():
+                        try:
+                            await release_operation.wait()
+                        except asyncio.CancelledError:
+                            continue
+
+                operation_finished.set()
+                raise RuntimeError("released cancellation-resistant dependency")
 
         async def receive():
             nonlocal body_delivered
@@ -622,15 +662,20 @@ def test_route_timeout_does_not_consume_repeated_external_cancellation() -> None
             try:
                 await asyncio.Event().wait()
             finally:
-                await asyncio.sleep(0.04)
                 receiver_finished.set()
 
-        async def send(_message) -> None:
-            return None
+        async def send(message) -> None:
+            sent.append(message)
 
-        app = FastAPI()
-        app.include_router(router, prefix="/v1")
-        app.dependency_overrides[require_service_token] = blocked_authorization
+        app = _client(CancellationResistantHandler()).app
+        current = asyncio.current_task()
+        assert current is not None
+        baseline = asyncio.all_tasks() - {current}
+        loop = asyncio.get_running_loop()
+        loop_errors: list[dict] = []
+        previous_exception_handler = loop.get_exception_handler()
+        loop.set_exception_handler(lambda _loop, context: loop_errors.append(context))
+        started = loop.time()
         task = asyncio.create_task(
             app(
                 {
@@ -650,14 +695,25 @@ def test_route_timeout_does_not_consume_repeated_external_cancellation() -> None
                 send,
             )
         )
-        await asyncio.wait_for(authorization_started.wait(), timeout=1)
-        await asyncio.wait_for(authorization_cleanup_started.wait(), timeout=1)
-        task.cancel()
-        asyncio.get_running_loop().call_later(0.005, task.cancel)
+        try:
+            await asyncio.wait_for(operation_started.wait(), timeout=1)
+            await asyncio.wait_for(task, timeout=0.3)
+            elapsed = loop.time() - started
 
-        with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(task, timeout=1)
-        assert authorization_finished.is_set()
-        assert receiver_finished.is_set()
+            assert elapsed < 0.2
+            assert operation_cleanup_started.is_set()
+            assert receiver_finished.is_set()
+            assert not operation_finished.is_set()
+            assert sent[0]["status"] == 200
+
+            release_operation.set()
+            await asyncio.wait_for(operation_finished.wait(), timeout=1)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert asyncio.all_tasks() - {current} == baseline
+            assert loop_errors == []
+        finally:
+            release_operation.set()
+            loop.set_exception_handler(previous_exception_handler)
 
     asyncio.run(scenario())

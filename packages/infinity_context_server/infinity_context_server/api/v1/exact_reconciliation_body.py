@@ -23,16 +23,15 @@ from infinity_context_server.api.exact_reconciliation_cache import (
     cache_exact_reconciliation_json,
 )
 from infinity_context_server.features.document_ingestion import public as document_ingestion
+from infinity_context_server.retrieval_runtime_lifecycle import (
+    complete_despite_cancellation,
+)
 
 MAX_EXACT_RECONCILIATION_BODY_BYTES = 16_384
 MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS = 10.0
 _DTO_STATE_KEY = "exact_reconciliation_request"
-_DEADLINE_FIELD = document_ingestion.ReconcileExactDocumentHttpRequest.model_fields[
-    "deadline_ms"
-]
-_DEADLINE_ADAPTER = TypeAdapter(
-    Annotated[_DEADLINE_FIELD.annotation, *_DEADLINE_FIELD.metadata]
-)
+_DEADLINE_FIELD = document_ingestion.ReconcileExactDocumentHttpRequest.model_fields["deadline_ms"]
+_DEADLINE_ADAPTER = TypeAdapter(Annotated[_DEADLINE_FIELD.annotation, *_DEADLINE_FIELD.metadata])
 
 
 class ExactReconciliationRoute(APIRoute):
@@ -45,11 +44,10 @@ class ExactReconciliationRoute(APIRoute):
 
         async def bounded_handler(request: Request) -> Response:
             started = asyncio.get_running_loop().time()
+            deadline_monotonic = started + MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS
             deadline_scope: asyncio.Timeout | None = None
             try:
-                async with asyncio.timeout_at(
-                    started + MAX_EXACT_RECONCILIATION_DEADLINE_SECONDS
-                ) as deadline_scope:
+                async with asyncio.timeout_at(deadline_monotonic) as deadline_scope:
                     raw, body = await _decode_body(request)
                     # FastAPI must consume only the bounded bytes. Accepted JSON
                     # media also reuses this single decoded object in auth and
@@ -61,9 +59,14 @@ class ExactReconciliationRoute(APIRoute):
                         cache_exact_reconciliation_json(request, body)
                     deadline_ms = _valid_deadline_ms(body)
                     if deadline_ms is not None:
-                        deadline_scope.reschedule(started + deadline_ms / 1000)
+                        deadline_monotonic = started + deadline_ms / 1000
+                        deadline_scope.reschedule(deadline_monotonic)
                     await asyncio.sleep(0)
-                    return await execute_with_disconnect(request, original(request))
+                    return await execute_with_disconnect(
+                        request,
+                        original(request),
+                        deadline_monotonic=deadline_monotonic,
+                    )
             except (asyncio.CancelledError, ClientDisconnect):
                 raise
             except TimeoutError as exc:
@@ -96,25 +99,38 @@ def cached_exact_reconciliation_request(
     return None
 
 
-async def execute_with_disconnect(request: Request, awaitable: Awaitable[Any]) -> Any:
+async def execute_with_disconnect(
+    request: Request,
+    awaitable: Awaitable[Any],
+    *,
+    deadline_monotonic: float,
+) -> Any:
     operation = asyncio.create_task(awaitable)
     disconnected = asyncio.create_task(_wait_for_disconnect(request))
+    primary_error: BaseException | None = None
     try:
-        done, _ = await asyncio.wait(
-            {operation, disconnected}, return_when=asyncio.FIRST_COMPLETED
-        )
+        done, _ = await asyncio.wait({operation, disconnected}, return_when=asyncio.FIRST_COMPLETED)
         if disconnected in done and disconnected.result():
             raise asyncio.CancelledError
         return await operation
+    except BaseException as exc:
+        primary_error = exc
+        raise
     finally:
         for task in (operation, disconnected):
             if not task.done():
                 task.cancel()
-        cleanup_cancellation = await _complete_cleanup_preserving_cancellation(
-            asyncio.gather(operation, disconnected, return_exceptions=True)
-        )
-        if cleanup_cancellation is not None:
-            raise cleanup_cancellation
+        try:
+            _, cleanup_cancellation = await complete_despite_cancellation(
+                asyncio.gather(operation, disconnected, return_exceptions=True),
+                deadline_monotonic=deadline_monotonic,
+            )
+        except (asyncio.CancelledError, TimeoutError):
+            if primary_error is None:
+                raise
+        else:
+            if primary_error is None and cleanup_cancellation is not None:
+                raise cleanup_cancellation
 
 
 async def _decode_body(request: Request) -> tuple[bytes, Any]:
@@ -187,25 +203,7 @@ def _is_json_content_type(content_type: str | None) -> bool:
     message["content-type"] = content_type
     maintype = message.get_content_maintype()
     subtype = message.get_content_subtype()
-    return maintype == "application" and (
-        subtype == "json" or subtype.endswith("+json")
-    )
-
-
-async def _complete_cleanup_preserving_cancellation(
-    awaitable: Awaitable[Any],
-) -> asyncio.CancelledError | None:
-    """Drain cleanup without consuming cancellations received during it."""
-
-    task = asyncio.ensure_future(awaitable)
-    cancellation: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as exc:
-            cancellation = cancellation or exc
-    task.result()
-    return cancellation
+    return maintype == "application" and (subtype == "json" or subtype.endswith("+json"))
 
 
 def exact_reconciliation_unavailable_response(
