@@ -80,6 +80,7 @@ def test_server_qdrant_runtime_requires_external_supervisor_launch_identity() ->
 def test_canary_qdrant_runtime_has_the_same_recoverable_provider_policy() -> None:
     settings = Settings(
         deploy_profile=DeployProfile.CANARY,
+        service_token="unit-token",
         qdrant_enabled=True,
         embeddings_enabled=True,
         embeddings_provider="openai",

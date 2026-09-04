@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -65,10 +66,15 @@ def test_exact_annotated_tag_workflow_sha_pack_once_and_two_assets_remain_bound(
     assert "sha256sum .github/workflows/typescript-sdk-release.yml" in source
     assert workflow.count("npm pack --json") == 1
     assert "expected exactly one pack result" in workflow
-    assert (
-        "node scripts/check-consumer-install.mjs --artifact "
-        '"${{ steps.pack.outputs.artifact_name }}"'
-    ) in workflow
+    consumer = _step_run("build", "Test the same packed tarball and its local attestation")
+    assert shlex.split(consumer) == [
+        "node",
+        "scripts/check-consumer-install.mjs",
+        "--artifact",
+        "${{ steps.pack.outputs.artifact_name }}",
+        "--manifest",
+        "${GITHUB_WORKSPACE}/release-bundle/infinity-context-sdk-release-manifest.json",
+    ]
     assert workflow.count("find release-bundle -maxdepth 1 -type f") == 2
     assert "--clobber" not in workflow
     assert "npm publish" not in workflow
