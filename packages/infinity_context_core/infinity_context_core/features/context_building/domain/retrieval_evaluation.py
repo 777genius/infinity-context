@@ -327,16 +327,9 @@ class RetrievalObservation:
             raise ValueError("ranked_locators must be a collection") from error
         if len({item.locator for item in ranked}) != len(ranked):
             raise ValueError("ranked_locators must not contain duplicate locators")
-        groups: dict[int, int] = {}
-        for item in ranked:
-            groups[item.rank] = groups.get(item.rank, 0) + 1
-        occupied_until = 0
-        for rank, count in sorted(groups.items()):
-            if rank <= occupied_until:
-                raise ValueError("rank ties must use non-overlapping competition ranks")
-            occupied_until = rank + count - 1
-            if occupied_until > MAX_EVALUATED_RANK:
-                raise ValueError("rank tie extends beyond rank 10")
+        ranks = tuple(item.rank for item in ranked)
+        if len(set(ranks)) != len(ranks):
+            raise ValueError("ranked_locators must use a deterministic total order")
         if self.status != "success" and ranked:
             raise ValueError("failed or timed-out observations cannot contain ranked locators")
         object.__setattr__(

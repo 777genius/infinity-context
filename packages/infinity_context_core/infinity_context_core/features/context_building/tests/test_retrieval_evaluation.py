@@ -212,17 +212,9 @@ def test_failures_and_timeouts_remain_zero_scored_in_ranking_denominators() -> N
     assert metrics.latency.p95_us == 3_000_000
 
 
-def test_ties_are_order_independent_and_use_competition_rank_discount() -> None:
-    dataset = _dataset(_case("tie", gold=(GoldLocator("loc:a", 2),)))
-    first = _observation("tie", ("loc:a", 1), ("loc:b", 1), ("loc:c", 3))
-    second = _observation("tie", ("loc:c", 3), ("loc:b", 1), ("loc:a", 1))
-
-    assert (
-        evaluate_retrieval(dataset, (first,)).ndcg_at_10
-        == evaluate_retrieval(dataset, (second,)).ndcg_at_10
-    )
-    with pytest.raises(ValueError, match="non-overlapping competition ranks"):
-        _observation("tie", ("loc:a", 1), ("loc:b", 1), ("loc:c", 2))
+def test_rank_ties_fail_closed_instead_of_inflating_qualification_metrics() -> None:
+    with pytest.raises(ValueError, match="deterministic total order"):
+        _observation("tie", ("loc:a", 1), ("loc:b", 1), ("loc:c", 3))
 
 
 def test_duplicate_ranked_or_gold_locators_fail_closed() -> None:
