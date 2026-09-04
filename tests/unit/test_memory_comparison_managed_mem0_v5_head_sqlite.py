@@ -101,6 +101,34 @@ def test_concurrent_threads_have_one_cas_winner(tmp_path: Path) -> None:
     assert winners.count(True) == 1
 
 
+def test_disappearing_journal_is_one_optional_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _path(tmp_path)
+    _store(tmp_path)
+    journal = Path(f"{path}-journal")
+    journal.write_bytes(b"ephemeral")
+    os.chmod(journal, 0o600)
+    original_lstat = os.lstat
+    observed_present = 0
+
+    def lstat_then_remove(observed_path, *args, **kwargs):
+        nonlocal observed_present
+        info = original_lstat(observed_path, *args, **kwargs)
+        if Path(observed_path) == journal and observed_present == 0:
+            observed_present += 1
+            journal.unlink()
+        return info
+
+    monkeypatch.setattr(os, "lstat", lstat_then_remove)
+
+    restarted = SQLiteManagedMem0V5CheckpointHead(path, hmac_key=_KEY)
+
+    assert observed_present == 1
+    assert _load(restarted) is None
+
+
 def _process_cas(
     path: str,
     key: bytes,
@@ -225,14 +253,42 @@ def test_unsafe_permissions_are_rejected(tmp_path: Path) -> None:
         _store(tmp_path)
 
 
-def test_unsafe_lock_surface_permissions_are_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize("suffix", ("-journal", "-wal", "-shm", "-lock"))
+def test_unsafe_sidecar_permissions_are_rejected(tmp_path: Path, suffix: str) -> None:
     path = _path(tmp_path)
     _store(tmp_path)
-    lock = Path(f"{path}-lock")
-    lock.write_bytes(b"lock")
-    os.chmod(lock, 0o640)
+    sidecar = Path(f"{path}{suffix}")
+    sidecar.write_bytes(b"sidecar")
+    os.chmod(sidecar, 0o640)
     with pytest.raises(ManagedRunError, match="storage is unavailable"):
         SQLiteManagedMem0V5CheckpointHead(path, hmac_key=_KEY)
+
+
+def test_sidecar_permission_error_is_not_treated_as_absence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _path(tmp_path)
+    _store(tmp_path)
+    journal = Path(f"{path}-journal")
+    original_lstat = os.lstat
+
+    def inaccessible_journal(observed_path, *args, **kwargs):
+        if Path(observed_path) == journal:
+            raise PermissionError("denied")
+        return original_lstat(observed_path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "lstat", inaccessible_journal)
+    with pytest.raises(ManagedRunError, match="storage is unavailable"):
+        SQLiteManagedMem0V5CheckpointHead(path, hmac_key=_KEY)
+
+
+def test_missing_database_remains_unavailable(tmp_path: Path) -> None:
+    path = _path(tmp_path)
+    path.parent.mkdir(mode=0o700)
+
+    with pytest.raises(ManagedRunError, match="storage is unavailable"):
+        SQLiteManagedMem0V5CheckpointHead(path, hmac_key=_KEY, require_existing=True)
 
 
 def test_truncated_database_fails_closed(tmp_path: Path) -> None:

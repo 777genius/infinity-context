@@ -386,7 +386,7 @@ class SQLiteManagedMem0V5CheckpointHead:
                 raise ManagedRunError(_UNAVAILABLE)
             directory.mkdir(mode=0o700, parents=True)
         _require_private_directory(directory)
-        self._assert_surfaces()
+        self._assert_sidecar_surfaces()
         newly_created = not os.path.lexists(self._path)
         if newly_created:
             if require_existing:
@@ -477,13 +477,15 @@ class SQLiteManagedMem0V5CheckpointHead:
             raise ManagedRunError(_UNAVAILABLE)
 
     def _assert_surfaces(self) -> None:
-        for surface in self._surfaces():
-            if os.path.lexists(surface):
-                _require_private_file(surface)
+        _require_private_file(self._path)
+        self._assert_sidecar_surfaces()
 
-    def _surfaces(self) -> tuple[Path, ...]:
+    def _assert_sidecar_surfaces(self) -> None:
+        for surface in self._sidecar_surfaces():
+            _require_optional_private_file(surface)
+
+    def _sidecar_surfaces(self) -> tuple[Path, ...]:
         return (
-            self._path,
             Path(f"{self._path}-journal"),
             Path(f"{self._path}-wal"),
             Path(f"{self._path}-shm"),
@@ -528,6 +530,20 @@ def _require_private_file(path: Path) -> None:
         info = os.lstat(path)
     except OSError:
         raise ManagedRunError(_UNAVAILABLE) from None
+    _require_private_file_info(info)
+
+
+def _require_optional_private_file(path: Path) -> None:
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        return
+    except OSError:
+        raise ManagedRunError(_UNAVAILABLE) from None
+    _require_private_file_info(info)
+
+
+def _require_private_file_info(info: os.stat_result) -> None:
     if (
         stat.S_ISLNK(info.st_mode)
         or not stat.S_ISREG(info.st_mode)
