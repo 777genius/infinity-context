@@ -18,6 +18,7 @@ const capability = {
   endpoint: "/v1/documents/reconcile-exact",
   max_deadline_ms: 10_000,
   max_response_bytes: 65_536,
+  visibility_evidence: ["accepted", "processing", "indexed"],
   read_only: true,
 } as const;
 const input = {
@@ -99,6 +100,9 @@ describe("exact document reconciliation", () => {
       { ...capability, max_deadline_ms: Number.NaN },
       { ...capability, max_deadline_ms: Number.POSITIVE_INFINITY },
       { ...capability, max_response_bytes: "65536" },
+      { ...capability, visibility_evidence: ["accepted", "processing"] },
+      { ...capability, visibility_evidence: ["accepted", "indexed", "processing"] },
+      { ...capability, visibility_evidence: ["accepted", "processing", "indexed", "unavailable"] },
     ]) {
       const client = new InfinityContextClient({ transport: new RecordingTransport([]) });
       await expect(client.documents.reconcileExactDocument({
@@ -118,6 +122,17 @@ describe("exact document reconciliation", () => {
       });
       await expect(client.documents.reconcileExactDocument(input)).rejects.toBeInstanceOf(ValueError);
     }
+  });
+
+  it.each([201, 202])("rejects HTTP %s before reconciliation decoding", async (status) => {
+    const client = new InfinityContextClient({
+      transport: new RecordingTransport([jsonResponse(result(), status)]),
+      retryPolicy: { maxAttempts: 1 },
+    });
+
+    await expect(client.documents.reconcileExactDocument(input)).rejects.toMatchObject({
+      code: "memory.unexpected_response_status", statusCode: status, retryable: false,
+    });
   });
 
   it("rejects hostile response bytes before accepting a decoded shape", async () => {

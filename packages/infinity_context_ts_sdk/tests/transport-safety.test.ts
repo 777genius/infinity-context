@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { describe, expect, it } from "vitest";
 import { FetchTransport, HttpClient, InfinityContextClient } from "../src/index.js";
 import { RecordingTransport, jsonResponse } from "./fixtures.js";
@@ -26,11 +27,86 @@ describe("HTTP transport safety", () => {
       })).rejects.toMatchObject({ code: "memory.redirect_rejected", statusCode: status, retryable: false });
       expect(calls).toHaveLength(1);
       expect(calls[0]?.url).toBe("https://memory.test/v1/facts");
-      expect(calls[0]?.init?.redirect).toBe("error");
+      expect(calls[0]?.init?.redirect).toBe("manual");
       expect(new Headers(calls[0]?.init?.headers).get("authorization")).toBe("Bearer credential-sentinel");
       expect(JSON.stringify(calls)).not.toContain("hostile.example");
     },
   );
+
+  it.each(["opaque", "opaqueredirect"] as const)(
+    "rejects a deterministic %s redirect response before body handling",
+    async (type) => {
+      let bodyAccessed = false;
+      const response = {
+        type,
+        status: 0,
+        get headers() { throw new Error("opaque headers must not be inspected"); },
+        get body() { bodyAccessed = true; throw new Error("opaque body must not be inspected"); },
+      } as unknown as Response;
+      const calls: RequestInit[] = [];
+      const transport = new FetchTransport((async (_input, init) => {
+        calls.push(init ?? {});
+        return response;
+      }) as typeof fetch);
+
+      await expect(transport.send({
+        method: "POST", url: new URL("https://memory.test/write"), headers: new Headers(),
+        body: { kind: "json", value: { once: true } },
+      })).rejects.toMatchObject({ code: "memory.redirect_rejected", statusCode: 0, retryable: false });
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.redirect).toBe("manual");
+      expect(bodyAccessed).toBe(false);
+    },
+  );
+
+  it("rejects a real loopback Fetch redirect without following or replaying the POST", async () => {
+    let sourceCalls = 0;
+    let targetCalls = 0;
+    const server = createServer((request, response) => {
+      if (request.url === "/redirect") {
+        sourceCalls += 1;
+        response.writeHead(307, { location: "/target" });
+      } else {
+        targetCalls += 1;
+        response.writeHead(200, { "content-type": "application/json" });
+      }
+      response.end("{}");
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", resolve);
+      });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM") {
+        console.warn(`Skipping real loopback redirect proof: listen denied with ${code}`);
+        return;
+      }
+      throw error;
+    }
+    try {
+      const address = server.address();
+      if (address === null || typeof address === "string") throw new Error("loopback server address unavailable");
+      const client = new HttpClient({
+        baseUrl: `http://127.0.0.1:${address.port}`,
+        token: "credential-sentinel",
+        retryPolicy: { maxAttempts: 2 },
+      });
+
+      const outcome = await client.request({
+        method: "POST", path: "/redirect", json: { submit: "once" }, expectedStatuses: [200],
+      }).catch((error: unknown) => error);
+      expect(outcome).toMatchObject({
+        code: "memory.redirect_rejected", statusCode: 307, retryable: false,
+      });
+      expect(sourceCalls).toBe(1);
+      expect(targetCalls).toBe(0);
+    } finally {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
 
   it("requires an operation's exact declared success status before decoding", async () => {
     const client = new HttpClient({

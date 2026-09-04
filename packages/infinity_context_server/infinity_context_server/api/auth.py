@@ -60,8 +60,10 @@ async def require_service_token(
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
-    token = authorization.removeprefix(prefix).strip()
-    if hmac.compare_digest(token, expected):
+    token = _canonical_presented_token(authorization.removeprefix(prefix))
+    if token is None:
+        raise MemoryUnauthorizedError("Missing or invalid service token")
+    if _constant_time_token_matches(token, expected):
         request.state.authenticated_actor_id = "root-service-token"
         return
     db_token = await get_active_db_token(container, token)
@@ -97,12 +99,12 @@ async def require_strict_admin_service_token(
     prefix = "Bearer "
     if not authorization or not authorization.startswith(prefix):
         raise MemoryUnauthorizedError("Missing or invalid service token")
-    token = authorization.removeprefix(prefix).strip()
-    if not token:
+    token = _canonical_presented_token(authorization.removeprefix(prefix))
+    if token is None:
         raise MemoryUnauthorizedError("Missing or invalid service token")
 
     expected = container.settings.service_token
-    if expected and hmac.compare_digest(token, expected):
+    if expected and _constant_time_token_matches(token, expected):
         return
     db_token = await get_active_db_token(container, token)
     if db_token is None:
@@ -113,6 +115,19 @@ async def require_strict_admin_service_token(
         raise MemoryForbiddenError("Service token lacks required permission")
     if db_token.space_id is not None or db_token.memory_scope_ids is not None:
         raise MemoryForbiddenError("Scoped service token cannot access unscoped endpoint")
+
+
+def _canonical_presented_token(value: str) -> str | None:
+    token = value.strip()
+    if not token or not token.isascii() or not token.isprintable():
+        return None
+    return token
+
+
+def _constant_time_token_matches(presented: str, expected: str) -> bool:
+    return expected.isascii() and expected.isprintable() and hmac.compare_digest(
+        presented, expected
+    )
 
 
 def _ensure_permission(request: Request, token: ActiveServiceToken) -> None:

@@ -123,6 +123,29 @@ describe("Contract C locator Retrieval", () => {
     expect(result.candidates[0]?.neighbors[0]?.document_key).toBe("doc-008");
   });
 
+  it.each([201, 202])("rejects valid Retrieval payloads returned with non-canonical status %i", async (status) => {
+    const capability = await fixture("capability.json") as RetrievalCapability;
+    const success = await fixture("success.json");
+    const transport = new RecordingTransport([jsonResponse(success, status)]);
+    const client = new InfinityContextClient({
+      baseUrl: "http://memory.test",
+      transport,
+      retryPolicy: { maxAttempts: 3 },
+    });
+
+    await expect(client.context.retrieve(input(), capability, {
+      capabilityFingerprint: capability.capability_fingerprint,
+      profileId: capability.profile_id,
+      requiredProviderLanes: capability.required_provider_lanes,
+    })).rejects.toMatchObject({
+      code: "memory.unexpected_response_status",
+      statusCode: status,
+      retryable: false,
+    });
+    expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0]?.expectedStatuses).toEqual([200]);
+  });
+
   it("clamps the transport timeout to the attested request deadline", async () => {
     const capability = await fixture("capability.json") as RetrievalCapability;
     const transport = new HangingTransport();

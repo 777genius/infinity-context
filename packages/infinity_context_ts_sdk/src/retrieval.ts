@@ -1,4 +1,5 @@
 import { copyInfinityContextError, type InfinityContextError } from "./errors.js";
+import { assertExactDocumentReconciliationCapabilityV1 } from "./document-reconciliation.js";
 import { retrievalContributionScorePicos, retrievalPreferenceScores } from "./retrieval-numeric.js";
 import { requestedPreferenceEvidence, validatePreferenceEvidence } from "./retrieval-preferences.js";
 import { decodeRetrievalJson } from "./retrieval-json.js";
@@ -379,6 +380,12 @@ export function decodeContextRetrievalCapabilitiesResponseBytes(body: Uint8Array
   if (root.context !== undefined) {
     const context = exactObject(root.context, undefined, "capabilities.context");
     if (context.retrieval !== undefined) decodeCapability(context.retrieval, "capabilities.context.retrieval");
+  }
+  if (root.documents !== undefined) {
+    const documents = exactObject(root.documents, undefined, "capabilities.documents");
+    if (documents.exact_reconciliation !== undefined) {
+      assertExactDocumentReconciliationCapabilityV1(documents.exact_reconciliation);
+    }
   }
   return root as unknown as JsonObject;
 }

@@ -71,10 +71,9 @@ export class FetchTransport implements HttpTransport {
       const init: RequestInit = {
         method: request.method,
         headers,
-        // Fetch follows redirects by default, including replaying 307/308
-        // request bodies. Redirects are protocol failures for this endpoint-
-        // and credential-bound transport and must never create hidden sends.
-        redirect: "error",
+        // Manual mode exposes redirects without following or replaying request
+        // bodies, so they can be classified as non-retryable protocol failures.
+        redirect: "manual",
       };
       if (body !== undefined) {
         init.body = body;
@@ -83,6 +82,15 @@ export class FetchTransport implements HttpTransport {
         init.signal = request.signal;
       }
       const response = await abortable(this.#fetch(request.url, init), request.signal);
+      if (response.type === "opaque" || response.type === "opaqueredirect") {
+        throw redirectRejectedError(response.status);
+      }
+      if (response.status >= 300 && response.status <= 399) {
+        throw redirectRejectedError(
+          response.status,
+          response.headers.get("x-request-id") ?? undefined,
+        );
+      }
       const responseMaximum = response.status >= 300
         ? errorResponseMaximum(request)
         : request.maxResponseBytes;
@@ -110,6 +118,16 @@ export class FetchTransport implements HttpTransport {
       throw networkError(error);
     }
   }
+}
+
+function redirectRejectedError(statusCode: number, requestId?: string) {
+  return createInfinityContextError({
+    statusCode,
+    code: "memory.redirect_rejected",
+    message: "Infinity Context redirect response rejected",
+    retryable: false,
+    ...(requestId !== undefined ? { requestId } : {}),
+  });
 }
 
 export function hasExactJsonContentType(headers: Headers): boolean {

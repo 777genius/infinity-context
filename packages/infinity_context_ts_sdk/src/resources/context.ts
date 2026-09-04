@@ -123,6 +123,7 @@ export class ContextClient {
         }),
         json: payload,
         responseType: "bytes",
+        expectedStatuses: [200],
         maxResponseBytes: input.bounds.responseByteLimit,
         maxErrorResponseBytes: input.bounds.responseByteLimit,
         errorDecoder: retrievalErrorDecoder(input.bounds.responseByteLimit),

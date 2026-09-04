@@ -298,7 +298,8 @@ const presenceInput: ObserveDerivedPresenceInput = {
 const runInput: RegisterMemoryComparisonRunInput | undefined = undefined;
 const reconciliationCapability: ExactDocumentReconciliationCapabilityV1 = {
   contract_version: "document-reconciliation.v1", endpoint: "/v1/documents/reconcile-exact",
-  max_deadline_ms: 10000, max_response_bytes: 65536, read_only: true,
+  max_deadline_ms: 10000, max_response_bytes: 65536,
+  visibility_evidence: ["accepted", "processing", "indexed"], read_only: true,
 };
 const reconciliationInput: ReconcileExactDocumentInput = {
   capability: reconciliationCapability, spaceId: "space", memoryScopeId: "scope",
@@ -444,13 +445,45 @@ if (typeof client.context.benchmarkSearch !== "function" || typeof client.codeRe
 for (const specifier of ${JSON.stringify(fixtureSpecifiers())}) {
   if (!import.meta.resolve(specifier).endsWith(".json")) throw new Error("Missing ESM fixture export: " + specifier);
 }
-const retrievalTransport = { send: async () => ({ status: 200, headers: new Headers(), body: JSON.stringify(${JSON.stringify(success)}) }) };
+let retrievalRequest;
+const retrievalTransport = { send: async (request) => {
+  retrievalRequest = request;
+  return { status: 200, headers: new Headers({ "content-type": "application/json" }), body: JSON.stringify(${JSON.stringify(success)}) };
+} };
 const retrievalClient = new InfinityContextClient({ transport: retrievalTransport });
 const retrievalResult = await retrievalClient.context.retrieve(
   ${JSON.stringify(retrievalInputFixture(request))}, ${JSON.stringify(capability)},
   ${JSON.stringify(retrievalPins(capability))},
 );
 if (retrievalResult.candidates.length !== 1) throw new Error("ESM context.retrieve execution failed");
+if (retrievalRequest?.method !== "POST" || retrievalRequest?.url.pathname !== "/v1/context/retrieve" ||
+    retrievalRequest?.responseType !== "bytes" || retrievalRequest?.requireJsonResponse !== true ||
+    JSON.stringify(retrievalRequest?.expectedStatuses) !== "[200]" ||
+    retrievalRequest?.body?.kind !== "json" ||
+    retrievalRequest.body.value.contract_version !== CONTEXT_RETRIEVAL_CONTRACT) {
+  throw new Error("ESM packed retrieval mock transport contract failed");
+}
+for (const status of [201, 202]) {
+  const unexpectedStatusClient = new InfinityContextClient({
+    retryPolicy: { maxAttempts: 3 },
+    transport: { send: async () => ({
+      status, headers: new Headers({ "content-type": "application/json" }),
+      body: JSON.stringify(${JSON.stringify(success)}),
+    }) },
+  });
+  let rejected = false;
+  try {
+    await unexpectedStatusClient.context.retrieve(
+      ${JSON.stringify(retrievalInputFixture(request))}, ${JSON.stringify(capability)},
+      ${JSON.stringify(retrievalPins(capability))},
+    );
+  } catch (error) {
+    if (error?.code !== "memory.unexpected_response_status" || error?.statusCode !== status ||
+        error?.retryable !== false) throw error;
+    rejected = true;
+  }
+  if (!rejected) throw new Error("ESM packed retrieval accepted unexpected status " + status);
+}
 ${reconciliationConsumerSource("ESM")}
 `;
 }
@@ -497,13 +530,45 @@ for (const specifier of ${JSON.stringify(fixtureSpecifiers())}) {
   if (!require.resolve(specifier).endsWith(".json")) throw new Error("Missing CJS fixture export: " + specifier);
 }
 (async () => {
-  const retrievalTransport = { send: async () => ({ status: 200, headers: new Headers(), body: JSON.stringify(${JSON.stringify(success)}) }) };
+  let retrievalRequest;
+  const retrievalTransport = { send: async (request) => {
+    retrievalRequest = request;
+    return { status: 200, headers: new Headers({ "content-type": "application/json" }), body: JSON.stringify(${JSON.stringify(success)}) };
+  } };
   const retrievalClient = new InfinityContextClient({ transport: retrievalTransport });
   const retrievalResult = await retrievalClient.context.retrieve(
     ${JSON.stringify(retrievalInputFixture(request))}, ${JSON.stringify(capability)},
     ${JSON.stringify(retrievalPins(capability))},
   );
   if (retrievalResult.candidates.length !== 1) throw new Error("CJS context.retrieve execution failed");
+  if (retrievalRequest?.method !== "POST" || retrievalRequest?.url.pathname !== "/v1/context/retrieve" ||
+      retrievalRequest?.responseType !== "bytes" || retrievalRequest?.requireJsonResponse !== true ||
+      JSON.stringify(retrievalRequest?.expectedStatuses) !== "[200]" ||
+      retrievalRequest?.body?.kind !== "json" ||
+      retrievalRequest.body.value.contract_version !== CONTEXT_RETRIEVAL_CONTRACT) {
+    throw new Error("CJS packed retrieval mock transport contract failed");
+  }
+  for (const status of [201, 202]) {
+    const unexpectedStatusClient = new InfinityContextClient({
+      retryPolicy: { maxAttempts: 3 },
+      transport: { send: async () => ({
+        status, headers: new Headers({ "content-type": "application/json" }),
+        body: JSON.stringify(${JSON.stringify(success)}),
+      }) },
+    });
+    let rejected = false;
+    try {
+      await unexpectedStatusClient.context.retrieve(
+        ${JSON.stringify(retrievalInputFixture(request))}, ${JSON.stringify(capability)},
+        ${JSON.stringify(retrievalPins(capability))},
+      );
+    } catch (error) {
+      if (error?.code !== "memory.unexpected_response_status" || error?.statusCode !== status ||
+          error?.retryable !== false) throw error;
+      rejected = true;
+    }
+    if (!rejected) throw new Error("CJS packed retrieval accepted unexpected status " + status);
+  }
   ${reconciliationConsumerSource("CJS")}
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 `;
@@ -515,7 +580,7 @@ function reconciliationConsumerSource(format) {
     reconciliationRequest = request;
     return {
       status: 200,
-      headers: new Headers({ "x-request-id": "packed-reconciliation" }),
+      headers: new Headers({ "content-type": "application/json", "x-request-id": "packed-reconciliation" }),
       body: new TextEncoder().encode(JSON.stringify({ data: {
         contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
         state: "indexed",
@@ -533,7 +598,8 @@ function reconciliationConsumerSource(format) {
     capability: {
       contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
       endpoint: "/v1/documents/reconcile-exact", max_deadline_ms: 1000,
-      max_response_bytes: EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES, read_only: true,
+      max_response_bytes: EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
+      visibility_evidence: ["accepted", "processing", "indexed"], read_only: true,
     },
     spaceId: "space", memoryScopeId: "scope", sourceType: "document", sourceExternalId: "external",
     projectionGeneration: "projection-v1", profileGeneration: "profile-v1",
@@ -543,7 +609,9 @@ function reconciliationConsumerSource(format) {
     throw new Error("Packed documents.reconcileExactDocument execution failed");
   }
   if (reconciliationRequest?.url.pathname !== "/v1/documents/reconcile-exact" ||
+      reconciliationRequest?.method !== "POST" ||
       reconciliationRequest?.responseType !== "bytes" ||
+      reconciliationRequest?.requireJsonResponse !== true ||
       reconciliationRequest?.maxResponseBytes !== EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES ||
       reconciliationRequest?.body?.kind !== "json" ||
       reconciliationRequest.body.value.idempotency_key !== "packed-reconciliation-key") {

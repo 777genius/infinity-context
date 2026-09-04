@@ -66,6 +66,29 @@ def test_canary_missing_or_blank_token_fails_while_app_is_being_built(
         )
 
 
+@pytest.mark.parametrize(
+    "service_token",
+    (" surrounded", "surrounded ", "line\nbreak", "non-ascii-\N{LATIN SMALL LETTER E WITH ACUTE}"),
+)
+def test_configured_token_must_be_canonical_printable_ascii(service_token: str) -> None:
+    settings = Settings(
+        deploy_profile=DeployProfile.LOCAL,
+        database_url=_POSTGRES_URL,
+        service_token=service_token,
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "MEMORY_SERVICE_TOKEN must be nonblank printable ASCII "
+            "without surrounding whitespace"
+        ),
+    ) as error:
+        settings.validate_for_startup()
+
+    assert service_token not in str(error.value)
+
+
 def test_authenticated_canary_request_sets_root_actor_without_exposing_token() -> None:
     request = _request()
     container = SimpleNamespace(
@@ -104,6 +127,28 @@ def test_authenticated_canary_rejects_missing_header_with_generic_error() -> Non
 
     assert str(error.value) == "Missing or invalid service token"
     assert "private-canary-token" not in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "presented",
+    ("Bearer ", "Bearer \N{LATIN SMALL LETTER E WITH ACUTE}", "Bearer invalid\ttoken"),
+)
+def test_authenticated_canary_rejects_malformed_presented_token_generically(
+    presented: str,
+) -> None:
+    container = SimpleNamespace(
+        settings=Settings(
+            deploy_profile=DeployProfile.CANARY,
+            database_url=_POSTGRES_URL,
+            service_token="private-canary-token",
+        )
+    )
+
+    with pytest.raises(MemoryUnauthorizedError) as error:
+        asyncio.run(require_service_token(container, _request(), authorization=presented))
+
+    assert str(error.value) == "Missing or invalid service token"
+    assert presented not in str(error.value)
 
 
 def _request() -> Request:

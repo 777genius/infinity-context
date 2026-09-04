@@ -31,6 +31,10 @@ class CaptureMode(StrEnum):
     AUTO_APPLY_SAFE = "auto_apply_safe"
 
 
+def _is_canonical_service_token(value: str) -> bool:
+    return bool(value) and value == value.strip() and value.isascii() and value.isprintable()
+
+
 class Settings(BaseSettings):
     service_name: str = "infinity-context"
     service_build_identity_path: str | None = "/opt/infinity-context/build-identity.json"
@@ -213,6 +217,13 @@ class Settings(BaseSettings):
             not self.service_token or not self.service_token.strip()
         ):
             raise RuntimeError("MEMORY_SERVICE_TOKEN is required for canary/server deploy profiles")
+        if self.service_token is not None and not _is_canonical_service_token(
+            self.service_token
+        ):
+            raise RuntimeError(
+                "MEMORY_SERVICE_TOKEN must be nonblank printable ASCII "
+                "without surrounding whitespace"
+            )
         if self.deploy_profile == DeployProfile.SERVER and self.auto_create_schema:
             raise RuntimeError("MEMORY_AUTO_CREATE_SCHEMA is not allowed for server deploy profile")
         if self.deploy_profile == DeployProfile.TEST and (

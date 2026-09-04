@@ -24,6 +24,7 @@ export interface ExactDocumentReconciliationCapabilityV1 extends JsonObject {
   readonly endpoint: "/v1/documents/reconcile-exact";
   readonly max_deadline_ms: number;
   readonly max_response_bytes: number;
+  readonly visibility_evidence: readonly ["accepted", "processing", "indexed"];
   readonly read_only: true;
 }
 
@@ -53,6 +54,10 @@ export function assertExactDocumentReconciliationCapabilityV1(
   if (item.endpoint !== "/v1/documents/reconcile-exact") fail("capability endpoint mismatch");
   integer(item.max_deadline_ms, 50, 10_000, "capability max_deadline_ms");
   if (item.max_response_bytes !== EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES) fail("capability response byte limit mismatch");
+  const visibilityEvidence = item.visibility_evidence;
+  if (!Array.isArray(visibilityEvidence) || visibilityEvidence.length !== 3 ||
+      visibilityEvidence[0] !== "accepted" || visibilityEvidence[1] !== "processing" ||
+      visibilityEvidence[2] !== "indexed") fail("capability visibility evidence mismatch");
   if (item.read_only !== true) fail("capability must attest a read-only operation");
 }
 
@@ -120,7 +125,8 @@ export function decodeExactDocumentReconciliationResponseV1(
 const STATES = new Set<ExactDocumentReconciliationState>(["present", "processing", "indexed", "deleted_or_proven_absent", "conflict", "unavailable"]);
 const VISIBILITY = new Set<ExactDocumentVisibilityEvidence>(["accepted", "processing", "indexed", "not_queryable", "unavailable"]);
 const CAPABILITY_KEYS = [
-  "contract_version", "endpoint", "max_deadline_ms", "max_response_bytes", "read_only",
+  "contract_version", "endpoint", "max_deadline_ms", "max_response_bytes", "visibility_evidence",
+  "read_only",
 ] as const;
 const RESPONSE_KEYS = ["data"] as const;
 const RESULT_KEYS = [

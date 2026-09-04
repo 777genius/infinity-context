@@ -105,6 +105,7 @@ export class DocumentsClient {
         timeoutMs: transportTimeoutMs,
       }),
       responseType: "bytes",
+      expectedStatuses: [200],
       maxResponseBytes: EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES,
       json: withoutUndefined({
         contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,

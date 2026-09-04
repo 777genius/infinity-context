@@ -78,6 +78,8 @@ export async function runRetrievalRuntimeCanary({
     headers,
     timeoutMs: 10_000,
     responseType: "bytes",
+    requireJsonResponse: true,
+    expectedStatuses: [200],
     maxResponseBytes: capabilityResponseByteLimit,
     maxErrorResponseBytes: capabilityResponseByteLimit,
   });
@@ -116,6 +118,7 @@ export async function runRetrievalRuntimeCanary({
     json: request,
     timeoutMs: request.bounds.deadline_ms,
     responseType: "bytes",
+    expectedStatuses: [200],
     maxResponseBytes: request.bounds.response_byte_limit,
     maxErrorResponseBytes: request.bounds.response_byte_limit,
   });
