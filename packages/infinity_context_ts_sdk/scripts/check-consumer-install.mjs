@@ -175,6 +175,7 @@ async function checkInstalledRetrievalCanary({ artifactPath, capability, install
   const canarySuccess = structuredClone(success);
   canarySuccess.capability_fingerprint = canaryCapability.capability_fingerprint;
   for (const candidate of canarySuccess.candidates) {
+    candidate.matched_query_ids = ["runtime-canary"];
     for (const contribution of candidate.contributions) contribution.query_id = "runtime-canary";
   }
   const server = createServer((request, response) => {
