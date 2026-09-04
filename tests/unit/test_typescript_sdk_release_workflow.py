@@ -20,6 +20,8 @@ ARTIFACT = "infinity-context-sdk-0.2.1.tgz"
 MANIFEST = "infinity-context-sdk-release-manifest.json"
 COMMIT = "a" * 40
 TAG_OBJECT = "b" * 40
+RELEASE_URL = "https://github.com/777genius/infinity-context/releases/tag/"
+DRAFT_URL = RELEASE_URL + "untagged-508032fad322484e94d1"
 
 
 def _workflow() -> str:
@@ -196,7 +198,7 @@ def test_verification_cli_json_contract_is_preflighted_and_not_ignored() -> None
     assert helper.count("--format json") == 2
     assert "release-attestation.json" in helper
     assert RECEIPT_CLI.exists() and MANIFEST_CLI.exists()
-    create = re.search(r'GH_REPO=.*?gh release create.*?--verify-tag', helper, re.DOTALL)
+    create = re.search(r"GH_REPO=.*?gh release create.*?--verify-tag", helper, re.DOTALL)
     assert create is not None
     assert "--notes-from-tag" in create.group(0)
     assert "--repo" not in create.group(0)
@@ -245,6 +247,9 @@ def release_for(name):
     value = json.loads(os.environ["FAKE_RELEASE_JSON"])
     value["draft"] = name == "draft"
     value["immutable"] = name == "published"
+    if name == "draft":
+        value["html_url"] = os.environ["FAKE_DRAFT_URL"]
+    value.update(json.loads(os.environ["FAKE_RELEASE_OVERRIDES"]).get(name, {}))
     return value
 
 if args[0] == "api":
@@ -265,6 +270,8 @@ if args[0] == "api":
     elif "/releases?" in endpoint:
         state = load()
         if state == "absent": print("[]")
+        elif state == "duplicate-draft":
+            print(json.dumps([release_for("draft"), release_for("draft")]))
         elif state == "malformed":
             print(json.dumps([release_for("published"), release_for("published")]))
         else: print(json.dumps([release_for(state)]))
@@ -328,6 +335,8 @@ def _run_helper(
     reconcile_only: bool = False,
     tag_kind: str = "tag",
     verify_fail: bool = False,
+    draft_url: str = DRAFT_URL,
+    release_overrides: dict[str, dict[str, object]] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], Path]:
     artifact_bytes = b"exact pack-once bytes\n"
     manifest_bytes = b'{"build_workflow_run_attempt":2,"build_workflow_run_id":12345}\n'
@@ -361,6 +370,8 @@ def _run_helper(
     env.update(
         {
             "FAKE_ATTESTATION_JSON": json.dumps(_attestation(artifact_bytes, manifest_bytes)),
+            "FAKE_DRAFT_URL": draft_url,
+            "FAKE_RELEASE_OVERRIDES": json.dumps(release_overrides or {}),
             "FAKE_EDIT_AMBIGUOUS": str(ambiguous).lower(),
             "FAKE_GH_LOG": str(log_path),
             "FAKE_GH_REMOTE": str(remote),
@@ -408,8 +419,13 @@ def _effects(calls: list[list[str]]) -> list[list[str]]:
     ]
 
 
-def test_publish_executes_hostile_preconditions_before_each_effect(tmp_path: Path) -> None:
-    result, calls, state = _run_helper(tmp_path, "absent")
+@pytest.mark.parametrize(
+    "draft_url", [DRAFT_URL, RELEASE_URL + "untagged-" + "a" * 20, RELEASE_URL + "sdk-v0.2.1"]
+)
+def test_publish_executes_hostile_preconditions_before_each_effect(
+    tmp_path: Path, draft_url: str
+) -> None:
+    result, calls, state = _run_helper(tmp_path, "absent", draft_url=draft_url)
     assert result.returncode == 0, result.stderr
     assert json.loads(state.read_text()) == "published"
     create_index = calls.index(next(call for call in calls if call[:2] == ["release", "create"]))
@@ -422,6 +438,116 @@ def test_publish_executes_hostile_preconditions_before_each_effect(tmp_path: Pat
     assert any("rulesets?targets=tag" in call[-1] for call in between)
     assert len([call for call in calls if call[:2] == ["release", "upload"]]) == 2
     assert all("--clobber" not in call for call in calls)
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload", "edit"]
+    assert len([call for call in calls[:edit_index] if call[:2] == ["release", "download"]]) == 2
+    assert len([call for call in calls if call[:2] == ["release", "verify-asset"]]) == 2
+    assert (tmp_path / "github-output").read_text() == f"url={RELEASE_URL}sdk-v0.2.1\n"
+
+
+@pytest.mark.parametrize("state", ["absent", "published"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        DRAFT_URL.replace("777genius/", "other/"),
+        DRAFT_URL.replace("infinity-context/", "infinity-context-extra/"),
+        DRAFT_URL.replace("github.com/", "github.com.evil/"),
+        DRAFT_URL.replace("https://", "http://"),
+        DRAFT_URL[:-1],
+        DRAFT_URL + "0",
+        DRAFT_URL[:-1] + "g",
+        RELEASE_URL + "untagged-" + "A" * 20,
+        RELEASE_URL + "untagged-",
+        RELEASE_URL + "sdk-v9.9.9",
+        DRAFT_URL + "/",
+        DRAFT_URL + "?x=1",
+        DRAFT_URL + "#fragment",
+        DRAFT_URL + "\n",
+        "prefix" + DRAFT_URL,
+        None,
+        42,
+    ],
+)
+def test_invalid_release_urls_fail_closed(tmp_path: Path, state: str, url: object) -> None:
+    observed_state = "draft" if state == "absent" else "published"
+    result, calls, _ = _run_helper(
+        tmp_path, state, release_overrides={observed_state: {"html_url": url}}
+    )
+    assert result.returncode != 0
+    assert "Release identity or asset set is malformed" in result.stderr
+    assert [call[1] for call in _effects(calls)] == (
+        ["create", "upload", "upload"] if state == "absent" else []
+    )
+    assert not (tmp_path / "github-output").exists()
+
+
+def test_created_draft_with_other_tag_is_not_published(tmp_path: Path) -> None:
+    result, calls, _ = _run_helper(
+        tmp_path, "absent", release_overrides={"draft": {"tag_name": "sdk-v9.9.9"}}
+    )
+    assert result.returncode != 0
+    assert "Created release did not remain one exact draft" in result.stderr
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not (tmp_path / "github-output").exists()
+
+
+@pytest.mark.parametrize("state", ["absent", "published"])
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"name": "Wrong title"},
+        {"draft": "true"},
+        {"prerelease": True},
+        {"id": 0},
+        {"assets": [{"id": 51, "name": ARTIFACT}]},
+        {"assets": [{"id": 51, "name": ARTIFACT}, {"id": 52, "name": "wrong"}]},
+        {"assets": [{"id": 51, "name": ARTIFACT}, {"id": 52, "name": ARTIFACT}]},
+        {"assets": [{"id": 0, "name": ARTIFACT}, {"id": 52, "name": MANIFEST}]},
+        {"assets": [{"id": "51", "name": ARTIFACT}, {"id": 52, "name": MANIFEST}]},
+        {
+            "assets": [
+                {"id": 51, "name": ARTIFACT},
+                {"id": 52, "name": MANIFEST},
+                {"id": 53, "name": "extra"},
+            ]
+        },
+    ],
+)
+def test_release_identity_and_assets_remain_exact(
+    tmp_path: Path, state: str, override: dict[str, object]
+) -> None:
+    observed_state = "draft" if state == "absent" else "published"
+    result, calls, _ = _run_helper(tmp_path, state, release_overrides={observed_state: override})
+    assert result.returncode != 0
+    assert [call[1] for call in _effects(calls)] == (
+        ["create", "upload", "upload"] if state == "absent" else []
+    )
+    assert not (tmp_path / "github-output").exists()
+
+
+@pytest.mark.parametrize("state", ["absent", "published"])
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"html_url": DRAFT_URL},
+        {"immutable": False},
+        {"assets": [{"id": 51, "name": ARTIFACT}, {"id": 52, "name": MANIFEST}]},
+        {
+            "assets": [
+                {"id": 51, "name": ARTIFACT, "digest": "sha256:bad"},
+                {"id": 52, "name": MANIFEST, "digest": "sha256:" + "a" * 64},
+            ]
+        },
+    ],
+)
+def test_published_release_still_requires_final_url_and_immutable_digests(
+    tmp_path: Path, state: str, override: dict[str, object]
+) -> None:
+    result, calls, _ = _run_helper(tmp_path, state, release_overrides={"published": override})
+    assert result.returncode != 0
+    assert [call[1] for call in _effects(calls)] == (
+        ["create", "upload", "upload", "edit"] if state == "absent" else []
+    )
+    assert not (tmp_path / "github-output").exists()
 
 
 def test_uncertain_publish_outcome_is_reconciled_and_evidenced(tmp_path: Path) -> None:
@@ -442,7 +568,7 @@ def test_exact_published_release_reconciles_without_any_effect(tmp_path: Path) -
     assert any(call[:2] == ["release", "verify"] for call in calls)
 
 
-@pytest.mark.parametrize("state", ["draft", "malformed"])
+@pytest.mark.parametrize("state", ["draft", "malformed", "duplicate-draft"])
 def test_non_resumable_release_states_fail_without_effects(tmp_path: Path, state: str) -> None:
     result, calls, _ = _run_helper(tmp_path, state)
     assert result.returncode != 0
