@@ -386,7 +386,7 @@ class SQLiteManagedMem0V5CheckpointHead:
                 raise ManagedRunError(_UNAVAILABLE)
             directory.mkdir(mode=0o700, parents=True)
         _require_private_directory(directory)
-        self._assert_sidecar_surfaces()
+        self._assert_surfaces(allow_missing_database=True)
         newly_created = not os.path.lexists(self._path)
         if newly_created:
             if require_existing:
@@ -476,20 +476,14 @@ class SQLiteManagedMem0V5CheckpointHead:
         ):
             raise ManagedRunError(_UNAVAILABLE)
 
-    def _assert_surfaces(self) -> None:
-        _require_private_file(self._path)
-        self._assert_sidecar_surfaces()
-
-    def _assert_sidecar_surfaces(self) -> None:
+    def _assert_surfaces(self, *, allow_missing_database: bool = False) -> None:
+        _require_private_file(self._path, optional=allow_missing_database)
         for surface in self._sidecar_surfaces():
-            _require_optional_private_file(surface)
+            _require_private_file(surface, optional=True)
 
     def _sidecar_surfaces(self) -> tuple[Path, ...]:
-        return (
-            Path(f"{self._path}-journal"),
-            Path(f"{self._path}-wal"),
-            Path(f"{self._path}-shm"),
-            Path(f"{self._path}-lock"),
+        return tuple(
+            Path(f"{self._path}{suffix}") for suffix in ("-journal", "-wal", "-shm", "-lock")
         )
 
 
@@ -525,25 +519,15 @@ def _require_private_directory(path: Path) -> None:
         raise ManagedRunError(_UNAVAILABLE)
 
 
-def _require_private_file(path: Path) -> None:
-    try:
-        info = os.lstat(path)
-    except OSError:
-        raise ManagedRunError(_UNAVAILABLE) from None
-    _require_private_file_info(info)
-
-
-def _require_optional_private_file(path: Path) -> None:
+def _require_private_file(path: Path, *, optional: bool = False) -> None:
     try:
         info = os.lstat(path)
     except FileNotFoundError:
-        return
+        if optional:
+            return
+        raise ManagedRunError(_UNAVAILABLE) from None
     except OSError:
         raise ManagedRunError(_UNAVAILABLE) from None
-    _require_private_file_info(info)
-
-
-def _require_private_file_info(info: os.stat_result) -> None:
     if (
         stat.S_ISLNK(info.st_mode)
         or not stat.S_ISREG(info.st_mode)
