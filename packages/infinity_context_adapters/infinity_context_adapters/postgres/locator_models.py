@@ -34,6 +34,10 @@ class MemoryChunkRow(Base):
             name="ck_memory_chunks_retrieval_version_positive",
         ),
         CheckConstraint(
+            "retrieval_parent_version BETWEEN 1 AND 9007199254740991",
+            name="ck_memory_chunks_retrieval_parent_version_positive",
+        ),
+        CheckConstraint(
             "retrieval_sequence_ordinal IS NULL OR "
             "retrieval_sequence_ordinal BETWEEN 0 AND 2147483647",
             name="ck_memory_chunks_retrieval_ordinal_range",
@@ -150,6 +154,7 @@ class MemoryChunkRow(Base):
         json_type(), nullable=False, default=list
     )
     retrieval_commit_watermark: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    retrieval_parent_version: Mapped[int] = mapped_column(BigInteger, nullable=False, default=1)
 
 
 class MemoryDocumentProjectionReceiptRow(Base):
@@ -382,11 +387,20 @@ class MemoryLocatorRuntimeIncarnationRow(Base):
     """Durable identity and drain acknowledgement for one runtime incarnation."""
 
     __tablename__ = "memory_locator_runtime_incarnations"
+    __table_args__ = (
+        CheckConstraint(
+            "locator_parent_capability IN (0, 1)",
+            name="ck_locator_runtime_parent_capability",
+        ),
+    )
     instance_id: Mapped[str] = mapped_column(String(120), primary_key=True)
     generation: Mapped[str] = mapped_column(String(120), primary_key=True)
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     acknowledged_generation: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    locator_parent_capability: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=1
+    )
     supervisor_key_id: Mapped[str] = mapped_column(String(120), nullable=False)
     supervisor_public_key: Mapped[str] = mapped_column(String(64), nullable=False)
     trust_root_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

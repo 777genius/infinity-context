@@ -21,6 +21,7 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
 )
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
+    MemoryDocumentRow,
     MemoryLocatorProfileMaintenanceFenceRow,
     MemoryLocatorProfileOperatorOperationRow,
     MemoryLocatorProfileOperatorRebuildRow,
@@ -275,7 +276,12 @@ class PostgresRetrievalProfileOperatorReceiptMixin:
             canonical = await session.get(
                 MemoryChunkRow, item.canonical_identity, with_for_update=True
             )
-            if canonical is None or not all(_eligible_value(canonical)):
+            parent = (
+                await session.get(MemoryDocumentRow, canonical.document_id)
+                if canonical is not None and canonical.document_id is not None
+                else None
+            )
+            if canonical is None or not all(_eligible_value(canonical, parent)):
                 raise RuntimeError("retrieval_profile_stale_projection_write")
             current = _projection_item(canonical)
             if (

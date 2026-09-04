@@ -273,6 +273,7 @@ infinity_context_adapters/postgres/locator_models.py                         can
 infinity_context_adapters/postgres/retrieval_projection_mapping.py           fail-closed projection mapper
 infinity_context_adapters/postgres/locator_index_maintenance.py              derived-index repair state
 infinity_context_adapters/postgres/migrations/0039_locator_retrieval_attributes.sql canonical schema migration
+infinity_context_adapters/postgres/migrations/0059_locator_parent_lifecycle.sql parent-authority lifecycle repair
 infinity_context_adapters/qdrant/locator_profile.py                          derived payload/schema adapter
 infinity_context_adapters/qdrant/locator_runtime.py                          derived runtime adapter
 ```
@@ -280,6 +281,22 @@ infinity_context_adapters/qdrant/locator_runtime.py                          der
 `RetrieveLocators` remains the sole generic fusion, ranking, hydration and neighbor
 orchestrator. PostgreSQL remains lifecycle authority; Qdrant exposes candidate signals
 only.
+
+Migration `0059_locator_parent_lifecycle` makes the exact owning document part of
+canonical locator eligibility. A document-owned chunk is eligible only while its
+parent exists, is active, is retrieval-projected, and exactly matches the child's
+space, memory scope, thread, source identity, and classification. Parent lifecycle or
+binding changes invalidate active profile admission and rotate affected child
+projection versions, producing profile-owned exact-version cleanup or reprojection
+work. Child admission and parent lifecycle changes take the same transaction-scoped
+document identity lock, including when the parent row is absent or currently
+mismatched, after taking profile evidence locks in one global order. Existing divergent
+rows are repaired through deterministic, timeout-bounded chunk pages;
+the transactional schema/function/trigger cutover performs no chunk/profile scan and
+never restores the retired default projection lane. The cutover refuses every unsealed
+pre-0059 runtime incarnation. A catalog trigger requires the `0059` protocol capability
+on each new/current runtime registration, including the staged-repair crash window, and
+the migration ledger independently rejects binary rollback after commit.
 
 ## Profile lifecycle vertical slice
 

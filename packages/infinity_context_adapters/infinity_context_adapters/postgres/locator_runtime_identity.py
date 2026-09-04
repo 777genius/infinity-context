@@ -15,6 +15,13 @@ async def register_runtime(
     session, owner: RuntimeFenceOwner, *, now: datetime, supervisor_trust
 ) -> None:
     owner.assert_current_process()
+    if session.get_bind().dialect.name == "postgresql":
+        await session.execute(
+            text(
+                "SELECT set_config("
+                "'infinity_context.locator_parent_capability', '0059', true)"
+            )
+        )
     unrecoverable = owner.supervisor_public_key == "0" * 64
     if unrecoverable:
         if (
@@ -164,6 +171,7 @@ def _runtime_row(
         registered_at=now,
         last_seen_at=now,
         acknowledged_generation=0,
+        locator_parent_capability=1,
         supervisor_key_id=owner.supervisor_key_id,
         supervisor_public_key=owner.supervisor_public_key,
         trust_root_sha256=owner.trust_root_sha256,
@@ -186,6 +194,7 @@ def _runtime_identity_matches(row, owner: RuntimeFenceOwner, *, launch_digest: s
     release = owner.installed_release
     return bool(
         row.supervisor_key_id == owner.supervisor_key_id
+        and row.locator_parent_capability == 1
         and row.supervisor_public_key == owner.supervisor_public_key
         and row.trust_root_sha256 == owner.trust_root_sha256
         and row.trust_registry_generation == owner.trust_registry_generation
@@ -208,6 +217,7 @@ def _runtime_release_matches(row, owner: RuntimeFenceOwner) -> bool:
     release = owner.installed_release
     return bool(
         row.release_revision == release.service_revision
+        and row.locator_parent_capability == 1
         and row.release_source_tree_sha256 == release.source_tree_digest_sha256
         and row.release_installed_distribution_sha256
         == release.installed_distribution_digest_sha256

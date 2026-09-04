@@ -28,7 +28,6 @@ from infinity_context_adapters.postgres.repositories import PostgresChunkReposit
 from infinity_context_core.domain.entities import MemoryChunkKind
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import select, text
-from test_locator_retrieval_upgrade_postgres import _install_staged_watermark
 from test_postgres_schema_upgrade_e2e import _install_versioned_schema_through
 
 MAX_SAFE_JSON_INTEGER = 9_007_199_254_740_991
@@ -68,7 +67,6 @@ async def _scenario(database_url: str) -> None:
         try:
             upgraded = await upgrade_schema(engine)
             assert upgraded.applied[-21:] == (
-                "0039_locator_retrieval_attributes",
                 "0040_locator_profile_lifecycle",
                 "0041_locator_profile_attestation_fence",
                 "0042_locator_profile_retirement",
@@ -89,6 +87,7 @@ async def _scenario(database_url: str) -> None:
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
                 "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
             )
             await _assert_transit_column_types(engine)
 
@@ -289,11 +288,6 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
     await database.recreate()
     try:
         await _install_versioned_schema_through(database, "0053_")
-        raw = await database.connect()
-        try:
-            await _install_staged_watermark(raw)
-        finally:
-            await raw.close()
         engine = build_async_engine(database.app_url)
         try:
             sessions = build_session_factory(engine)
@@ -303,8 +297,7 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                 chunk.id = "chunk-repair"
                 chunk.source_hash = "d" * 64
                 chunk.retrieval_version = 1
-                session.add(chunk)
-                await session.flush()
+                await _insert_pre_0059_chunk(session, chunk)
                 await session.execute(
                     text(
                         "INSERT INTO memory_locator_profile_projection_receipts "
@@ -350,6 +343,7 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
                 "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
             )
             async with engine.connect() as connection:
                 tombstone = (
@@ -371,12 +365,16 @@ async def _upgrade_repair_scenario(database_url: str) -> None:
                         text(
                             "SELECT aggregate_version, payload_json "
                             "FROM memory_outbox WHERE event_type='vector.delete_locator_profile' "
+                            "AND aggregate_id='chunk-repair' AND aggregate_version=4 "
                             "AND message_key LIKE 'locator-profile-delete-observe:%'"
                         )
                     )
                 ).one()
-            assert tuple(tombstone) == (3, None, None, None, None, None, 0)
-            assert repair.aggregate_version == 3
+            # 0054 reopens the stale completion at version 3; 0059 then rotates
+            # the mismatched-parent child once more. Earlier pending generations
+            # are legitimate, but exactly one repair must bind the current one.
+            assert tuple(tombstone) == (4, None, None, None, None, None, 0)
+            assert repair.aggregate_version == 4
             assert "delete_canonical_version" not in repair.payload_json
         finally:
             await engine.dispose()
@@ -453,7 +451,7 @@ async def _seed_authority(session) -> None:
                 memory_scope_id="scope-max",
                 thread_id=None,
                 title="Maximum Version Document",
-                source_type="file",
+                source_type="document",
                 source_external_id="maximum-version.txt",
                 content_hash="a" * 64,
                 classification="internal",
@@ -481,6 +479,76 @@ async def _seed_authority(session) -> None:
         )
     )
     await session.flush()
+
+
+async def _insert_pre_0059_chunk(session, chunk: MemoryChunkRow) -> None:
+    """Seed a 0053 chunk without columns introduced by later migrations."""
+
+    await session.execute(
+        text(
+            """
+            INSERT INTO memory_chunks (
+                id, space_id, memory_scope_id, thread_id, document_id, episode_id,
+                source_type, source_external_id, source_hash, kind, text,
+                normalized_text, status, sequence, char_start, char_end,
+                token_estimate, classification, created_at, updated_at, metadata_json,
+                retrieval_locator, retrieval_source_key,
+                retrieval_projection_generation, retrieval_sequence_ordinal,
+                retrieval_kind, retrieval_version, retrieval_actor_keys_json,
+                retrieval_start_at, retrieval_end_at, retrieval_relative_start_ms,
+                retrieval_relative_end_ms, retrieval_category, retrieval_tags_json
+            ) VALUES (
+                :id, :space_id, :memory_scope_id, :thread_id, :document_id, :episode_id,
+                :source_type, :source_external_id, :source_hash, :kind, :text,
+                :normalized_text, :status, :sequence, :char_start, :char_end,
+                :token_estimate, :classification, :created_at, :updated_at,
+                CAST(:metadata_json AS JSONB), :retrieval_locator, :retrieval_source_key,
+                :retrieval_projection_generation, :retrieval_sequence_ordinal,
+                :retrieval_kind, :retrieval_version,
+                CAST(:retrieval_actor_keys_json AS JSONB), :retrieval_start_at,
+                :retrieval_end_at, :retrieval_relative_start_ms,
+                :retrieval_relative_end_ms, :retrieval_category,
+                CAST(:retrieval_tags_json AS JSONB)
+            )
+            """
+        ),
+        {
+            "id": chunk.id,
+            "space_id": chunk.space_id,
+            "memory_scope_id": chunk.memory_scope_id,
+            "thread_id": chunk.thread_id,
+            "document_id": chunk.document_id,
+            "episode_id": chunk.episode_id,
+            "source_type": chunk.source_type,
+            "source_external_id": chunk.source_external_id,
+            "source_hash": chunk.source_hash,
+            "kind": chunk.kind,
+            "text": chunk.text,
+            "normalized_text": chunk.normalized_text,
+            "status": chunk.status,
+            "sequence": chunk.sequence,
+            "char_start": chunk.char_start,
+            "char_end": chunk.char_end,
+            "token_estimate": chunk.token_estimate,
+            "classification": chunk.classification,
+            "created_at": chunk.created_at,
+            "updated_at": chunk.updated_at,
+            "metadata_json": "{}",
+            "retrieval_locator": chunk.retrieval_locator,
+            "retrieval_source_key": chunk.retrieval_source_key,
+            "retrieval_projection_generation": chunk.retrieval_projection_generation,
+            "retrieval_sequence_ordinal": chunk.retrieval_sequence_ordinal,
+            "retrieval_kind": chunk.retrieval_kind,
+            "retrieval_version": chunk.retrieval_version,
+            "retrieval_actor_keys_json": "[]",
+            "retrieval_start_at": chunk.retrieval_start_at,
+            "retrieval_end_at": chunk.retrieval_end_at,
+            "retrieval_relative_start_ms": chunk.retrieval_relative_start_ms,
+            "retrieval_relative_end_ms": chunk.retrieval_relative_end_ms,
+            "retrieval_category": chunk.retrieval_category,
+            "retrieval_tags_json": "[]",
+        },
+    )
 
 
 def _maximum_deleted_chunk() -> MemoryChunkRow:

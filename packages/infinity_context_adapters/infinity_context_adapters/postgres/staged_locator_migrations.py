@@ -1,13 +1,19 @@
-"""Online expand/backfill/cutover support for locator migrations 0039 and 0040."""
+"""Online expand/backfill/cutover support for staged locator migrations."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 _BATCH_SIZE = 2000
 STAGED_MIGRATION_IDS = frozenset(
-    {"0039_locator_retrieval_attributes", "0040_locator_profile_lifecycle"}
+    {
+        "0039_locator_retrieval_attributes",
+        "0040_locator_profile_lifecycle",
+        "0059_locator_parent_lifecycle",
+    }
 )
 _OUTBOX_GUARD_TRIGGERS = (
     (
@@ -77,8 +83,89 @@ async def apply_staged_locator_migration(
         )
     elif migration_id == "0040_locator_profile_lifecycle":
         await _stage_locator_watermark(connection)
+    elif migration_id == "0059_locator_parent_lifecycle":
+        await _stage_locator_parent_lifecycle(connection)
     else:  # pragma: no cover - caller fences the dispatch
         raise ValueError(f"Unsupported staged migration: {migration_id}")
+
+
+async def _stage_locator_parent_lifecycle(connection: AsyncConnection) -> None:
+    """Install the short fence/cutover, then repair divergent chunks in pages."""
+
+    migration = (
+        Path(__file__).with_name("migrations") / "0059_locator_parent_lifecycle.sql"
+    ).read_text(encoding="utf-8")
+    async with connection.begin():
+        # AsyncConnection.begin() is lazy. Start the physical transaction before
+        # the driver executes the multi-statement cutover so a failed drain check
+        # cannot leave a partially committed catalog.
+        await connection.execute(text("SET LOCAL search_path = public, pg_catalog, pg_temp"))
+        await connection.execute(text("SELECT 1"))
+        await _execute_script(connection, migration)
+
+    cursor = ""
+    while True:
+        async with connection.begin():
+            await connection.execute(text("SET LOCAL lock_timeout = '1s'"))
+            await connection.execute(text("SET LOCAL statement_timeout = '30s'"))
+            page = (
+                await connection.execute(
+                    text(
+                        f"""
+                    WITH batch AS MATERIALIZED (
+                        SELECT chunk.ctid, chunk.id
+                        FROM public.memory_chunks AS chunk
+                        WHERE chunk.id > :cursor
+                        ORDER BY chunk.id
+                        LIMIT {_BATCH_SIZE}
+                        FOR UPDATE OF chunk
+                    ), updated AS (
+                        UPDATE public.memory_chunks AS target
+                        SET retrieval_parent_version = target.retrieval_parent_version + 1
+                        FROM batch
+                        WHERE target.ctid = batch.ctid
+                          AND target.retrieval_parent_version = 1
+                          AND target.retrieval_locator IS NOT NULL
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM public.memory_documents AS document
+                              WHERE document.id = target.document_id
+                                AND document.space_id = target.space_id
+                                AND document.memory_scope_id = target.memory_scope_id
+                                AND document.thread_id IS NOT DISTINCT FROM target.thread_id
+                                AND document.source_type = target.source_type
+                                AND document.source_external_id = target.source_external_id
+                                AND document.classification = target.classification
+                                AND document.status = 'active'
+                                AND document.retrieval_projected = TRUE
+                          )
+                        RETURNING 1
+                    )
+                    SELECT (SELECT max(id) FROM batch),
+                           (SELECT count(*) FROM batch),
+                           (SELECT count(*) FROM updated)
+                    """
+                    ),
+                    {"cursor": cursor},
+                )
+            ).one()
+        next_cursor, selected, _changed = page
+        if int(selected) == 0:
+            break
+        cursor = str(next_cursor)
+
+    async with connection.begin():
+        await connection.execute(text("SET LOCAL lock_timeout = '1s'"))
+        await connection.execute(text("SET LOCAL statement_timeout = '5min'"))
+        await _execute_script(
+            connection,
+            """
+                ALTER TABLE public.memory_chunks VALIDATE CONSTRAINT
+                    ck_memory_chunks_retrieval_parent_version_positive;
+                ALTER TABLE public.memory_locator_runtime_incarnations
+                    VALIDATE CONSTRAINT ck_locator_runtime_parent_capability
+            """,
+        )
 
 
 async def _stage_integer_to_bigint(

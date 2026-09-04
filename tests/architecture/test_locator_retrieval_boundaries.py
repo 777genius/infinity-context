@@ -217,6 +217,9 @@ INTEGRATION_SOURCE_CLASSIFICATION = {
     POSTGRES_ADAPTER
     / "migrations"
     / "0039_locator_retrieval_attributes.sql": "canonical_schema_migration",
+    POSTGRES_ADAPTER
+    / "migrations"
+    / "0059_locator_parent_lifecycle.sql": "parent_lifecycle_schema_migration",
     QDRANT_ADAPTER / "locator_profile.py": "derived_schema_adapter",
     QDRANT_ADAPTER / "locator_runtime.py": "derived_runtime_adapter",
 }

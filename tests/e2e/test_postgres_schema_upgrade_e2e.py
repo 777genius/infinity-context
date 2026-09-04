@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -16,6 +15,9 @@ from postgres_schema_upgrade_receipt_fixtures import (
     seed_mismatched_suggestion_receipt_snapshot,
 )
 from postgres_test_database import PostgresTestDatabase
+from postgres_versioned_schema_fixtures import (
+    install_versioned_schema_through as _install_versioned_schema_through,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -65,7 +67,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             clean_results = await _run_concurrent_schema_upgrades(engine)
             clean = next(result for result in clean_results if result.applied)
             assert clean.legacy_baseline is False
-            assert clean.current == "0058_suggestion_server_thread_scope"
+            assert clean.current == "0059_locator_parent_lifecycle"
             assert clean.applied[0] == "0001_core_facts"
             canonical_migration_count = len(_load_migrations())
             assert sorted(len(result.applied) for result in clean_results) == [
@@ -107,7 +109,7 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             legacy = await upgrade_schema(engine)
             assert legacy.legacy_baseline is True
             assert legacy.applied[0].startswith("0023_")
-            assert legacy.current == "0058_suggestion_server_thread_scope"
+            assert legacy.current == "0059_locator_parent_lifecycle"
             await _assert_head_schema(engine)
             await _assert_cross_scope_audit_reference_rejected(engine)
         finally:
@@ -234,42 +236,6 @@ async def _assert_clean_and_legacy_upgrade(database_url: str) -> None:
             await engine.dispose()
     finally:
         await database.drop()
-
-
-async def _install_versioned_schema_through(
-    database: PostgresTestDatabase,
-    migration_prefix: str,
-) -> None:
-    paths = tuple(
-        path for path in sorted(_MIGRATIONS.glob("*.sql")) if path.name[:5] <= migration_prefix
-    )
-    raw = await database.connect()
-    try:
-        for path in paths:
-            for statement in _raw_migration_statements(path):
-                await raw.execute(statement)
-        await raw.execute(
-            """
-            CREATE TABLE infinity_context_schema_migrations (
-              migration_id VARCHAR(160) PRIMARY KEY,
-              checksum VARCHAR(64) NOT NULL,
-              execution_kind VARCHAR(32) NOT NULL,
-              applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-              CONSTRAINT ck_infinity_context_schema_migration_kind
-                CHECK (execution_kind IN ('applied', 'legacy_baseline'))
-            )
-            """
-        )
-        await raw.executemany(
-            """
-            INSERT INTO infinity_context_schema_migrations (
-              migration_id, checksum, execution_kind
-            ) VALUES ($1, $2, 'applied')
-            """,
-            [(path.stem, sha256(path.read_bytes()).hexdigest()) for path in paths],
-        )
-    finally:
-        await raw.close()
 
 
 async def _install_legacy_schema(database: PostgresTestDatabase) -> None:

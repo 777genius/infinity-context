@@ -34,14 +34,9 @@ async def _scenario(database_url: str) -> None:
         await _install_versioned_schema_through(database, "0050_")
         raw = await database.connect()
         try:
-            # Reproduce the staged 0040 objects omitted by the direct-prefix fixture,
-            # then poison every runtime ACL as an old deployment could have done.
+            # Poison every runtime ACL as an old deployment could have done.
             await raw.execute(
                 """
-                CREATE SEQUENCE public.memory_locator_commit_watermark_seq START 100;
-                ALTER TABLE public.memory_chunks
-                  ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL
-                  DEFAULT pg_catalog.nextval('public.memory_locator_commit_watermark_seq');
                 SELECT pg_catalog.setval(
                   'public.memory_locator_commit_watermark_seq', 100, true);
                 GRANT ALL PRIVILEGES ON SEQUENCE

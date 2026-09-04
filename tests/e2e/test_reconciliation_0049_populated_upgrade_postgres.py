@@ -80,20 +80,20 @@ async def _assert_populated_upgrade(database_url: str) -> None:
             preflight = await preflight_reconciliation_0049(engine)
             assert preflight.status == "ready"
             assert preflight.upgrade_safe is True
+            with pytest.raises(Exception, match="every prior runtime incarnation"):
+                await upgrade_schema(engine)
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE memory_locator_runtime_incarnations SET "
+                        "sealed_dead_generation=1,sealed_dead_proof_id='0059-upgrade-drain',"
+                        "sealed_dead_proof_sha256=repeat('1',64),"
+                        "sealed_dead_authority='0059-upgrade-supervisor',"
+                        "sealed_dead_at=now() WHERE instance_id='legacy-runtime'"
+                    )
+                )
             result = await upgrade_schema(engine)
-            assert result.applied == (
-                "0049_reconciliation_runtime_generation",
-                "0050_locator_profile_outbox_transaction_coalescing",
-                "0051_locator_profile_acl_search_path_hardening",
-                "0052_document_scope_listing_indexes",
-                "0052_reconciliation_outbox_binding_index",
-                "0053_retrieval_default_lifecycle",
-                "0054_locator_profile_exact_delete_generation",
-                "0055_generic_vector_rebuild_operations",
-                "0056_fact_outbox_receipt_trigger_scope",
-                "0057_unmanaged_document_trigger_scope",
-                "0058_suggestion_server_thread_scope",
-            )
+            assert result.applied == ("0059_locator_parent_lifecycle",)
             async with engine.connect() as connection:
                 legacy_operation = (
                     await connection.execute(
@@ -117,7 +117,9 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                     )
                 ).one()
                 assert tuple(audit) == ("activation", None, None, None, None, None)
-            with pytest.raises(Exception, match="uq_locator_runtime_current_instance"):
+            with pytest.raises(
+                Exception, match="lacks locator parent lifecycle capability 0059"
+            ):
                 async with engine.begin() as connection:
                     await connection.execute(
                         text(

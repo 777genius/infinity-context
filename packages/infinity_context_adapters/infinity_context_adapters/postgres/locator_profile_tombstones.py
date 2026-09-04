@@ -19,6 +19,7 @@ from infinity_context_adapters.postgres.locator_profile_tombstone_replay import 
 )
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
+    MemoryDocumentRow,
     MemoryLocatorProfileMaintenanceFenceRow,
     MemoryLocatorProfileProjectionReceiptRow,
     MemoryLocatorProfileProviderMutationRow,
@@ -115,8 +116,13 @@ class PostgresRetrievalProfileTombstoneMixin:
             ):
                 return False
             chunk = await session.get(MemoryChunkRow, chunk_id)
+            parent = (
+                await session.get(MemoryDocumentRow, chunk.document_id)
+                if chunk is not None and chunk.document_id is not None
+                else None
+            )
             if chunk is not None and (
-                chunk.retrieval_version != canonical_version or all(eligible_value(chunk))
+                chunk.retrieval_version != canonical_version or all(eligible_value(chunk, parent))
             ):
                 return False
             active_writers = int(
@@ -164,8 +170,13 @@ class PostgresRetrievalProfileTombstoneMixin:
             ):
                 return None
             chunk = await session.get(MemoryChunkRow, chunk_id)
+            parent = (
+                await session.get(MemoryDocumentRow, chunk.document_id)
+                if chunk is not None and chunk.document_id is not None
+                else None
+            )
             if chunk is not None and (
-                chunk.retrieval_version != canonical_version or all(eligible_value(chunk))
+                chunk.retrieval_version != canonical_version or all(eligible_value(chunk, parent))
             ):
                 return None
             active_writers = int(

@@ -45,7 +45,6 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
         raw = await database.connect()
         try:
             if starting_migration == "0040_":
-                await _install_staged_watermark(raw)
                 await _seed_profile(raw)
             await _seed_chunk_and_queued_events(raw)
         finally:
@@ -76,11 +75,12 @@ async def _assert_cutover_upgrade(database_url: str, starting_migration: str) ->
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
                 "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
             )
             installed_count = 1 if starting_migration == "0039_" else 2
             assert upgraded.applied == expected[installed_count:]
-            assert upgraded.current == "0058_suggestion_server_thread_scope"
-            assert upgraded.applied[-1] == "0058_suggestion_server_thread_scope"
+            assert upgraded.current == "0059_locator_parent_lifecycle"
+            assert upgraded.applied[-1] == "0059_locator_parent_lifecycle"
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             assert len(await build_locator_retrieval_indexes(engine)) == 3
             async with engine.begin() as connection:
@@ -246,17 +246,6 @@ async def _seed_profile(connection) -> None:
         """,
         "a" * 64,
         empty,
-    )
-
-
-async def _install_staged_watermark(connection) -> None:
-    await connection.execute(
-        """
-        CREATE SEQUENCE memory_locator_commit_watermark_seq START 1;
-        ALTER TABLE memory_chunks
-          ADD COLUMN retrieval_commit_watermark BIGINT NOT NULL
-          DEFAULT nextval('memory_locator_commit_watermark_seq');
-        """
     )
 
 

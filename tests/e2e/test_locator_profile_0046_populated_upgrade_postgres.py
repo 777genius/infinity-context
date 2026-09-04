@@ -120,6 +120,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
                 "0056_fact_outbox_receipt_trigger_scope",
                 "0057_unmanaged_document_trigger_scope",
                 "0058_suggestion_server_thread_scope",
+                "0059_locator_parent_lifecycle",
             )
             registry = PostgresRetrievalProfileRegistry(build_session_factory(engine))
             blocker = await engine.connect()

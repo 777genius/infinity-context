@@ -17,6 +17,9 @@ from sqlalchemy import case, cast, func, not_, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from infinity_context_adapters.postgres.locator_profile_mapping import (
+    parent_eligible_condition,
+)
 from infinity_context_adapters.postgres.models import MemoryChunkRow
 
 
@@ -136,6 +139,7 @@ def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]
         MemoryChunkRow.retrieval_sequence_ordinal.is_not(None),
         MemoryChunkRow.retrieval_kind.is_not(None),
         MemoryChunkRow.retrieval_category.is_not(None),
+        parent_eligible_condition(),
     ]
     conditions.append(
         MemoryChunkRow.thread_id.is_(None)

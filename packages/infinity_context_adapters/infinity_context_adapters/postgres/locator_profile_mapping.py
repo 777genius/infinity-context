@@ -12,9 +12,11 @@ from infinity_context_core.features.context_building.public import (
     ProfileCoverageAttestation,
     RetrievalProfileIdentity,
 )
+from sqlalchemy import exists, select
 
 from infinity_context_adapters.postgres.models import (
     MemoryChunkRow,
+    MemoryDocumentRow,
     MemoryLocatorProfileCleanupRow,
     MemoryLocatorProfileRow,
 )
@@ -59,14 +61,43 @@ def eligible_conditions() -> tuple[object, ...]:
         MemoryChunkRow.retrieval_locator.is_not(None),
         MemoryChunkRow.status == "active",
         MemoryChunkRow.classification.in_(("public", "internal")),
+        parent_eligible_condition(),
     )
 
 
-def eligible_value(row: MemoryChunkRow) -> tuple[bool, bool, bool]:
+def parent_eligible_condition() -> object:
+    """Require the exact canonical document binding, not merely a live chunk."""
+
+    return exists(
+        select(MemoryDocumentRow.id).where(
+            MemoryDocumentRow.id == MemoryChunkRow.document_id,
+            MemoryDocumentRow.space_id == MemoryChunkRow.space_id,
+            MemoryDocumentRow.memory_scope_id == MemoryChunkRow.memory_scope_id,
+            MemoryDocumentRow.thread_id.is_not_distinct_from(MemoryChunkRow.thread_id),
+            MemoryDocumentRow.source_type == MemoryChunkRow.source_type,
+            MemoryDocumentRow.source_external_id == MemoryChunkRow.source_external_id,
+            MemoryDocumentRow.classification == MemoryChunkRow.classification,
+            MemoryDocumentRow.status == "active",
+            MemoryDocumentRow.retrieval_projected.is_(True),
+        )
+    )
+
+
+def eligible_value(row: MemoryChunkRow, parent: MemoryDocumentRow | None) -> tuple[bool, ...]:
     return (
         row.retrieval_locator is not None,
         row.status == "active",
         row.classification in ("public", "internal"),
+        parent is not None,
+        parent is not None and parent.id == row.document_id,
+        parent is not None and parent.space_id == row.space_id,
+        parent is not None and parent.memory_scope_id == row.memory_scope_id,
+        parent is not None and parent.thread_id == row.thread_id,
+        parent is not None and parent.source_type == row.source_type,
+        parent is not None and parent.source_external_id == row.source_external_id,
+        parent is not None and parent.classification == row.classification,
+        parent is not None and parent.status == "active",
+        parent is not None and bool(parent.retrieval_projected),
     )
 
 
