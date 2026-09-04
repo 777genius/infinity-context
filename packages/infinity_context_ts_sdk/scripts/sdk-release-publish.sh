@@ -143,8 +143,7 @@ case "${RELEASE_STATE}" in
     [ "${RECONCILE_ONLY:-false}" = false ] || \
       die "Reconcile-only mode requires an existing published release"
     revalidate_tag_and_ruleset
-    gh release create "${RELEASE_TAG}" \
-      --repo "${GITHUB_REPOSITORY}" \
+    GH_REPO="${GITHUB_REPOSITORY}" gh release create "${RELEASE_TAG}" \
       --draft --latest=false --notes-from-tag \
       --title "Infinity Context TypeScript SDK ${SDK_VERSION}" --verify-tag
     for asset in "${assets[@]}"; do
