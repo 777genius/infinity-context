@@ -84,9 +84,27 @@ requires its source identity to equal Git. This avoids a self-referential tarbal
 while letting the installed Retrieval canary hash its loaded files and join them to
 the separately pinned immutable tarball and release manifest before network access.
 
-## Executable release runbook for 0.2.3
+## Caller deadlines and cancellation
 
-Version 0.2.3 is prepared but not yet published, and no consumer is pinned to its
+A caller signal aborted with a native DOMException named `TimeoutError` (including
+`AbortSignal.timeout()`) reports `memory.request_timeout`, `retryable=true`, just
+like the SDK deadline. `AbortError`, ordinary errors, strings and name-shaped
+objects remain `memory.request_aborted`, `retryable=false`. External error objects
+are redacted. Classification uses the native DOMException name, ignoring overrides.
+
+An exhausted operation signal stops all SDK attempts, even when the error is
+retryable. To retry a deadline failure, start a new operation with a fresh signal
+and preserve the operation's idempotency requirements, especially for writes.
+
+## Executable release runbook for 0.2.4
+
+Version 0.2.3 is already published and must remain immutable. Version 0.2.4
+is the next runtime-changing release: a caller signal aborted with a standard
+DOMException `TimeoutError` now reports `memory.request_timeout` with
+`retryable=true`. Ordinary cancellation remains non-retryable. Never replace
+the 0.2.3 assets or move its tag to distribute this fix.
+
+Version 0.2.4 is prepared but not yet published, and no consumer is pinned to its
 release asset. The commands below apply only after the reviewed source is committed
 and the release operator is ready to create the new immutable release.
 
@@ -95,9 +113,9 @@ tag; the workflow never creates or moves it:
 
 ```bash
 git status --short
-test "$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")" = 0.2.3
-git tag -a sdk-v0.2.3 -m "Infinity Context TypeScript SDK 0.2.3" <REVIEWED_COMMIT_SHA>
-git push origin refs/tags/sdk-v0.2.3
+test "$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")" = 0.2.4
+git tag -a sdk-v0.2.4 -m "Infinity Context TypeScript SDK 0.2.4" <REVIEWED_COMMIT_SHA>
+git push origin refs/tags/sdk-v0.2.4
 ```
 
 Dispatch only that exact tag and record the run URL:
@@ -105,8 +123,8 @@ Dispatch only that exact tag and record the run URL:
 ```bash
 gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
-  --ref sdk-v0.2.3 \
-  -f sdk_tag=sdk-v0.2.3 \
+  --ref sdk-v0.2.4 \
+  -f sdk_tag=sdk-v0.2.4 \
   -f reconcile_only=false
 gh run list --repo 777genius/infinity-context \
   --workflow .github/workflows/typescript-sdk-release.yml --limit 1
@@ -152,8 +170,8 @@ exact tag with:
 ```bash
 gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
-  --ref sdk-v0.2.3 \
-  -f sdk_tag=sdk-v0.2.3 \
+  --ref sdk-v0.2.4 \
+  -f sdk_tag=sdk-v0.2.4 \
   -f reconcile_only=true
 ```
 
@@ -169,16 +187,16 @@ The immutable release URL is a dependency: do not use a branch archive or Action
 artifact as distribution. Download and verify the exact two assets:
 
 ```bash
-mkdir -p .verify/infinity-sdk-0.2.3
-gh release download sdk-v0.2.3 --repo 777genius/infinity-context \
-  --dir .verify/infinity-sdk-0.2.3
-test "$(find .verify/infinity-sdk-0.2.3 -maxdepth 1 -type f | wc -l)" -eq 2
-gh release verify sdk-v0.2.3 --repo 777genius/infinity-context
-gh release verify-asset sdk-v0.2.3 \
-  .verify/infinity-sdk-0.2.3/infinity-context-sdk-0.2.3.tgz \
+mkdir -p .verify/infinity-sdk-0.2.4
+gh release download sdk-v0.2.4 --repo 777genius/infinity-context \
+  --dir .verify/infinity-sdk-0.2.4
+test "$(find .verify/infinity-sdk-0.2.4 -maxdepth 1 -type f | wc -l)" -eq 2
+gh release verify sdk-v0.2.4 --repo 777genius/infinity-context
+gh release verify-asset sdk-v0.2.4 \
+  .verify/infinity-sdk-0.2.4/infinity-context-sdk-0.2.4.tgz \
   --repo 777genius/infinity-context
-gh release verify-asset sdk-v0.2.3 \
-  .verify/infinity-sdk-0.2.3/infinity-context-sdk-release-manifest.json \
+gh release verify-asset sdk-v0.2.4 \
+  .verify/infinity-sdk-0.2.4/infinity-context-sdk-release-manifest.json \
   --repo 777genius/infinity-context
 ```
 
@@ -187,7 +205,7 @@ Pin the immutable release URL in the consumer:
 ```json
 {
   "dependencies": {
-    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.3/infinity-context-sdk-0.2.3.tgz"
+    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz"
   }
 }
 ```
@@ -196,9 +214,9 @@ Then prove a cold, lockfile-driven install:
 
 ```bash
 test "$(jq -r '.packages["node_modules/@infinity-context/sdk"].resolved' package-lock.json)" = \
-  "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.3/infinity-context-sdk-0.2.3.tgz"
+  "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz"
 npm ci --ignore-scripts --no-audit --no-fund
-node -e 'import("@infinity-context/sdk").then(() => console.log("SDK 0.2.3 import ok"))'
+node -e 'import("@infinity-context/sdk").then(() => console.log("SDK 0.2.4 import ok"))'
 ```
 
 Compare the consumer lock integrity and downloaded bytes to the manifest before
@@ -225,11 +243,11 @@ Export the 90-day receipt from the completed run into durable operations custody
 before artifact expiry:
 
 ```bash
-mkdir -p .verify/infinity-sdk-0.2.3/receipt
+mkdir -p .verify/infinity-sdk-0.2.4/receipt
 gh run download <RUN_ID> --repo 777genius/infinity-context \
-  --name typescript-sdk-release-verification-sdk-v0.2.3 \
-  --dir .verify/infinity-sdk-0.2.3/receipt
-test -f .verify/infinity-sdk-0.2.3/receipt/infinity-context-sdk-release-verification-receipt.json
+  --name typescript-sdk-release-verification-sdk-v0.2.4 \
+  --dir .verify/infinity-sdk-0.2.4/receipt
+test -f .verify/infinity-sdk-0.2.4/receipt/infinity-context-sdk-release-verification-receipt.json
 ```
 
 Downstream Discord release quality is a separate decision. It binds this immutable

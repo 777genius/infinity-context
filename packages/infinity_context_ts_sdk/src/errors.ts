@@ -98,7 +98,7 @@ export function timeoutAbortReason(): unknown {
 }
 
 export function operationAbortError(cause: unknown): InfinityContextError {
-  if (cause === TIMEOUT_REASON) {
+  if (isTimeoutAbortReason(cause)) {
     return createInfinityContextError({
       statusCode: 0,
       code: "memory.request_timeout",
@@ -114,6 +114,21 @@ export function operationAbortError(cause: unknown): InfinityContextError {
     retryable: false,
     cause,
   });
+}
+
+function isTimeoutAbortReason(cause: unknown): boolean {
+  if (cause === TIMEOUT_REASON) return true;
+  try {
+    if (typeof DOMException === "undefined") return false;
+    // The native getter checks the DOMException brand, including across browser
+    // realms, without reading caller properties or traversing a Proxy prototype.
+    // Name-shaped objects, Error instances and wrapped/spoofed exceptions are
+    // cancellation; only a genuine DOMException's internal name is authoritative.
+    const getName = Object.getOwnPropertyDescriptor(DOMException.prototype, "name")?.get;
+    return getName?.call(cause) === "TimeoutError";
+  } catch {
+    return false;
+  }
 }
 
 export function networkError(cause: unknown): InfinityContextError {
