@@ -120,7 +120,7 @@ class ReconcileExactDocumentHttpRequest(BaseModel):
     projection_generation: str | None = Field(default=None, min_length=1, max_length=256)
     profile_generation: str | None = Field(default=None, min_length=1, max_length=160)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=200)
-    deadline_ms: int = Field(default=5_000, ge=50, le=10_000)
+    deadline_ms: int = Field(default=5_000, ge=50, le=10_000, strict=True)
 
 
 __all__ = (

@@ -59,9 +59,16 @@ describe("exact document reconciliation", () => {
     expect(observed.visibility).toBe("indexed");
     expect(transport.requests).toHaveLength(1);
     expect(transport.requests[0]?.url.pathname).toBe("/v1/documents/reconcile-exact");
-    expect(transport.bodies[0]).toMatchObject({
+    expect(transport.bodies[0]).toEqual({
       contract_version: EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
+      space_id: "space-1",
+      memory_scope_id: "scope-1",
+      thread_id: "thread-1",
+      source_type: "opaque-kind",
       source_external_id: "opaque-id",
+      projection_generation: "projection-2",
+      profile_generation: "profile-4",
+      idempotency_key: "mutation-9",
       deadline_ms: 500,
     });
   });
@@ -80,6 +87,54 @@ describe("exact document reconciliation", () => {
       ...input,
       capability: { ...capability, contract_version: "wrong" as typeof capability.contract_version },
     })).rejects.toBeInstanceOf(ValueError);
+  });
+
+  it("requires exact capability and response object keys", async () => {
+    for (const invalidCapability of [
+      { ...capability, extra: true },
+      { contract_version: capability.contract_version },
+      { ...capability, max_deadline_ms: 50.5 },
+      { ...capability, max_deadline_ms: "50" },
+      { ...capability, max_deadline_ms: Number.NaN },
+      { ...capability, max_deadline_ms: Number.POSITIVE_INFINITY },
+      { ...capability, max_response_bytes: "65536" },
+    ]) {
+      const client = new InfinityContextClient({ transport: new RecordingTransport([]) });
+      await expect(client.documents.reconcileExactDocument({
+        ...input,
+        capability: invalidCapability as typeof capability,
+      })).rejects.toBeInstanceOf(ValueError);
+    }
+
+    for (const response of [
+      { ...result(), extra: true },
+      { data: { ...result().data, extra: true } },
+      { data: { ...result().data, scope: { ...result().data.scope, extra: true } } },
+    ]) {
+      const client = new InfinityContextClient({
+        transport: new RecordingTransport([jsonResponse(response)]),
+        retryPolicy: { maxAttempts: 1 },
+      });
+      await expect(client.documents.reconcileExactDocument(input)).rejects.toBeInstanceOf(ValueError);
+    }
+  });
+
+  it("rejects hostile response bytes before accepting a decoded shape", async () => {
+    const encoded = JSON.stringify(result());
+    const hostileBodies: Array<string | Uint8Array> = [
+      encoded.replace('"state":"indexed"', '"state":"present","state":"indexed"'),
+      encoded.replace('"space_id":"space-1"', '"space_id":"wrong","\\u0073pace_id":"space-1"'),
+      new Uint8Array([0x7b, 0x22, 0x64, 0x61, 0x74, 0x61, 0x22, 0x3a, 0xff, 0x7d]),
+      `\ufeff${encoded}`,
+      "x".repeat(65_537),
+    ];
+    for (const body of hostileBodies) {
+      const client = new InfinityContextClient({
+        transport: new RecordingTransport([{ status: 200, headers: new Headers(), body }]),
+        retryPolicy: { maxAttempts: 1 },
+      });
+      await expect(client.documents.reconcileExactDocument(input)).rejects.toBeInstanceOf(ValueError);
+    }
   });
 
   it("enforces byte limits and propagates timeout/cancellation", async () => {
@@ -106,6 +161,18 @@ describe("exact document reconciliation", () => {
     const client = new InfinityContextClient({ transport: new RecordingTransport([]) });
     await expect(client.documents.reconcileExactDocument({ ...input, sourceExternalId: `${secret}\u0000` }))
       .rejects.not.toThrow(secret);
+  });
+
+  it("rejects coercible and non-finite request deadlines before transport", async () => {
+    for (const deadlineMs of ["50", true, 50.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const transport = new RecordingTransport([]);
+      const client = new InfinityContextClient({ transport });
+      await expect(client.documents.reconcileExactDocument({
+        ...input,
+        deadlineMs: deadlineMs as unknown as number,
+      })).rejects.toBeInstanceOf(ValueError);
+      expect(transport.requests).toHaveLength(0);
+    }
   });
 
   it("rejects every shared hostile decoder fixture", async () => {

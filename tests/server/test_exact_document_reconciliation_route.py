@@ -135,9 +135,13 @@ def test_route_rejects_malformed_and_unsupported_contracts() -> None:
             raise AssertionError("must not execute")
 
     client = _client(Handler())
-    assert (
-        client.post("/v1/documents/reconcile-exact", json=_body(deadline_ms=49)).status_code == 422
-    )
+    for deadline_ms in (49, 10_001):
+        assert (
+            client.post(
+                "/v1/documents/reconcile-exact", json=_body(deadline_ms=deadline_ms)
+            ).status_code
+            == 422
+        )
     response = client.post("/v1/documents/reconcile-exact", json=_body(contract_version="wrong"))
     assert response.status_code == 409
 
@@ -317,19 +321,58 @@ def test_auth_runs_before_non_object_contract_validation(body) -> None:
     assert response.status_code == 401
 
 
-@pytest.mark.parametrize("deadline_ms", [50.0, "50"])
-def test_deadline_uses_the_typed_field_coercion(deadline_ms) -> None:
+@pytest.mark.parametrize("deadline_ms", ["50", True, 50.0, 50.5])
+def test_deadline_rejects_noncanonical_json_integers(deadline_ms) -> None:
     class Handler:
-        async def execute(self, _query):
-            await asyncio.sleep(0.2)
+        calls = 0
 
-    response = _client(Handler()).post(
+        async def execute(self, _query):
+            self.calls += 1
+
+    handler = Handler()
+    response = _client(handler).post(
+        "/v1/documents/reconcile-exact",
+        json=_body(deadline_ms=deadline_ms),
+    )
+
+    assert response.status_code == 422
+    assert handler.calls == 0
+
+
+@pytest.mark.parametrize("deadline_ms", [50, 10_000])
+def test_deadline_accepts_documented_canonical_integer_bounds(deadline_ms) -> None:
+    class Handler:
+        calls = 0
+
+        async def execute(self, query):
+            self.calls += 1
+            return ingestion.ExactDocumentReconciliation("absent", query.identity)
+
+    handler = Handler()
+    response = _client(handler).post(
         "/v1/documents/reconcile-exact",
         json=_body(deadline_ms=deadline_ms),
     )
 
     assert response.status_code == 200
-    assert response.json()["data"]["state"] == "unavailable"
+    assert handler.calls == 1
+
+
+def test_route_rejects_unknown_request_keys_before_execution() -> None:
+    class Handler:
+        calls = 0
+
+        async def execute(self, _query):
+            self.calls += 1
+
+    handler = Handler()
+    response = _client(handler).post(
+        "/v1/documents/reconcile-exact",
+        json=_body(extra="unsupported"),
+    )
+
+    assert response.status_code == 422
+    assert handler.calls == 0
 
 
 @pytest.mark.parametrize("content_type", ["application/json", "application/vnd.infinity+json"])

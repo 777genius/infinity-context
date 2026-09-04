@@ -1,4 +1,5 @@
 import { ValueError } from "./payload.js";
+import { decodeRetrievalJson } from "./retrieval-json.js";
 import type { JsonObject } from "./types.js";
 
 export const EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1 = "document-reconciliation.v1" as const;
@@ -47,7 +48,7 @@ export interface ExactDocumentReconciliationResultV1 {
 export function assertExactDocumentReconciliationCapabilityV1(
   value: unknown,
 ): asserts value is ExactDocumentReconciliationCapabilityV1 {
-  const item = object(value, "exact reconciliation capability");
+  const item = exactObject(value, CAPABILITY_KEYS, "exact reconciliation capability");
   if (item.contract_version !== EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1) fail("capability version mismatch");
   if (item.endpoint !== "/v1/documents/reconcile-exact") fail("capability endpoint mismatch");
   integer(item.max_deadline_ms, 50, 10_000, "capability max_deadline_ms");
@@ -71,16 +72,16 @@ export function decodeExactDocumentReconciliationResponseV1(
   if (bytes.byteLength > EXACT_DOCUMENT_RECONCILIATION_MAX_RESPONSE_BYTES) fail("response exceeds byte limit");
   let parsed: unknown;
   try {
-    parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    parsed = decodeRetrievalJson(bytes);
   } catch {
     fail("response is malformed JSON");
   }
-  const root = object(parsed, "response");
-  const data = object(root.data, "response.data");
+  const root = exactObject(parsed, RESPONSE_KEYS, "response");
+  const data = exactObject(root.data, RESULT_KEYS, "response.data");
   if (data.contract_version !== EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1) fail("response version mismatch");
   const state = member(data.state, STATES, "response state");
   const visibility = member(data.visibility, VISIBILITY, "response visibility");
-  const scope = object(data.scope, "response scope");
+  const scope = exactObject(data.scope, SCOPE_KEYS, "response scope");
   const spaceId = text(scope.space_id, 80, "response scope.space_id");
   const memoryScopeId = text(scope.memory_scope_id, 80, "response scope.memory_scope_id");
   const threadId = nullableText(scope.thread_id, 80, "response scope.thread_id");
@@ -118,10 +119,28 @@ export function decodeExactDocumentReconciliationResponseV1(
 
 const STATES = new Set<ExactDocumentReconciliationState>(["present", "processing", "indexed", "deleted_or_proven_absent", "conflict", "unavailable"]);
 const VISIBILITY = new Set<ExactDocumentVisibilityEvidence>(["accepted", "processing", "indexed", "not_queryable", "unavailable"]);
+const CAPABILITY_KEYS = [
+  "contract_version", "endpoint", "max_deadline_ms", "max_response_bytes", "read_only",
+] as const;
+const RESPONSE_KEYS = ["data"] as const;
+const RESULT_KEYS = [
+  "contract_version", "state", "scope", "source_type", "source_external_id", "document_id",
+  "canonical_status", "projection_generation", "profile_generation", "visibility",
+  "idempotency_key_matches",
+] as const;
+const SCOPE_KEYS = ["space_id", "memory_scope_id", "thread_id"] as const;
 
 function object(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object`);
   return value as Record<string, unknown>;
+}
+function exactObject(value: unknown, keys: readonly string[], label: string): Record<string, unknown> {
+  const item = object(value, label);
+  const actual = Object.keys(item);
+  if (actual.length !== keys.length || actual.some((key) => !keys.includes(key))) {
+    fail(`${label} keys are invalid`);
+  }
+  return item;
 }
 function text(value: unknown, maxBytes: number, label: string): string {
   if (typeof value !== "string" || value.length === 0 || new TextEncoder().encode(value).byteLength > maxBytes || /[\u0000-\u001f\u007f-\u009f]/u.test(value)) fail(`${label} is invalid`);
