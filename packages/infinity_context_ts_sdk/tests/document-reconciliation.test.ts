@@ -3,6 +3,7 @@ import hostileFixture from "../fixtures/document_reconciliation/hostile_response
 import {
   EXACT_DOCUMENT_RECONCILIATION_CONTRACT_V1,
   InfinityContextClient,
+  InfinityContextError,
   ValueError,
 } from "../src/index.js";
 import {
@@ -126,22 +127,47 @@ describe("exact document reconciliation", () => {
       encoded.replace('"space_id":"space-1"', '"space_id":"wrong","\\u0073pace_id":"space-1"'),
       new Uint8Array([0x7b, 0x22, 0x64, 0x61, 0x74, 0x61, 0x22, 0x3a, 0xff, 0x7d]),
       `\ufeff${encoded}`,
-      "x".repeat(65_537),
     ];
     for (const body of hostileBodies) {
       const client = new InfinityContextClient({
-        transport: new RecordingTransport([{ status: 200, headers: new Headers(), body }]),
+        transport: new RecordingTransport([{
+          status: 200,
+          headers: new Headers({ "content-type": "application/json" }),
+          body,
+        }]),
         retryPolicy: { maxAttempts: 1 },
       });
-      await expect(client.documents.reconcileExactDocument(input)).rejects.toBeInstanceOf(ValueError);
+      const error = await client.documents.reconcileExactDocument(input).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(ValueError);
+      expect((error as Error).message).not.toContain(input.sourceExternalId);
+    }
+  });
+
+  it("rejects missing or wrong response media types before reconciliation decoding", async () => {
+    const hidden = "opaque-wrong-media-response";
+    for (const headers of [new Headers(), new Headers({ "content-type": "text/plain" })]) {
+      const client = new InfinityContextClient({
+        transport: new RecordingTransport([{ status: 200, headers, body: hidden }]),
+        retryPolicy: { maxAttempts: 1 },
+      });
+      const error = await client.documents.reconcileExactDocument(input).catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InfinityContextError);
+      expect(error).toMatchObject({ code: "memory.invalid_response_content_type", retryable: false });
+      expect(`${(error as Error).message}\n${JSON.stringify((error as InfinityContextError).details)}`)
+        .not.toContain(hidden);
     }
   });
 
   it("enforces byte limits and propagates timeout/cancellation", async () => {
-    const tooLarge = "x".repeat(65_537);
+    const hidden = "must-not-leak-from-oversized-reconciliation-body";
+    const tooLarge = `${hidden}${"x".repeat(65_537)}`;
     const malformed = new RecordingTransport([jsonResponse({ data: tooLarge })]);
-    await expect(new InfinityContextClient({ transport: malformed, retryPolicy: { maxAttempts: 1 } })
-      .documents.reconcileExactDocument(input)).rejects.toBeInstanceOf(ValueError);
+    const error = await new InfinityContextClient({ transport: malformed, retryPolicy: { maxAttempts: 1 } })
+      .documents.reconcileExactDocument(input).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(InfinityContextError);
+    expect(error).toMatchObject({ code: "memory.response_byte_limit_exceeded", retryable: false });
+    expect(`${(error as Error).message}\n${JSON.stringify((error as InfinityContextError).details)}`)
+      .not.toContain(hidden);
 
     const hanging = new HangingTransport();
     await expect(new InfinityContextClient({ transport: hanging, retryPolicy: { maxAttempts: 1 } })
