@@ -809,6 +809,19 @@ class PostgresRetrievalProfileRegistry(
                     )
                 )
             else:
+                # Compare under the existing evidence/profile locks and runtime fence.
+                # Even a timestamp-only UPDATE fires the statement trigger in 0046,
+                # invalidating every profile lease. checked_at records the observation
+                # of the last stored evidence change; lease renewal/audit owns freshness.
+                if (
+                    row.required == required
+                    and row.healthy == healthy
+                    and row.profile_qualified == profile_qualified
+                    and row.failure_code == failure_code
+                    and row.observed_count == observed_count
+                    and row.observed_digest == observed_digest
+                ):
+                    return
                 row.required = required
                 row.healthy = healthy
                 row.profile_qualified = profile_qualified

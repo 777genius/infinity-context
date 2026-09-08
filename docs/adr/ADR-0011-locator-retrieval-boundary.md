@@ -348,6 +348,13 @@ maintenance/evidence/profile lock order, reject every active mutation row, and u
 PostgreSQL time for expiry. An evidence ABA, stale caller clock, or mutation begun after
 the physical scan therefore makes promotion fail closed.
 
+Repeated identical lane observations perform no SQL write, after the same maintenance,
+evidence/profile locks and reconciliation identity checks. Lane `checked_at` records the
+observation of the last stored evidence change, not a heartbeat. Renewal lease timestamps
+and reconciliation transition audit record freshness; query admission still uses database
+time and canonical fences. Any change to required/healthy/qualified status, failure code,
+observed count or digest still fires the existing global evidence invalidation trigger.
+
 Qdrant attestation checkpoints are provisional until a complete incremental validation
 pass authenticates their content-addressed per-page manifest. Scan and validation work
 both enforce explicit page, encoded-byte and monotonic-deadline bounds, so profiles above
