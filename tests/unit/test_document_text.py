@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from infinity_context_core.application.document_text import document_chunk_retrieval_text
+import pytest
+from infinity_context_core.application.document_text import (
+    document_chunk_retrieval_text,
+    projected_document_retrieval_text,
+)
 
 
 def test_document_chunk_retrieval_text_includes_bounded_multimodal_hints() -> None:
@@ -79,3 +83,18 @@ def test_document_chunk_retrieval_text_drops_sensitive_hint_keys_and_values() ->
     assert "[redacted]" not in text
     assert "api key" not in text.lower()
     assert "authorization" not in text.lower()
+
+
+@pytest.mark.parametrize(
+    ("title", "body", "expected"),
+    [
+        ("  Project TITLE  ", "  Body\n with\tspaces  ", "project title body with spaces"),
+        ("Title", "TITLE repeated in body", "title repeated in body"),
+        ("Title", "", "title"),
+        ("", "Body", "body"),
+    ],
+)
+def test_projected_document_text_is_normalized_explicit_title_and_body(
+    title: str, body: str, expected: str
+) -> None:
+    assert projected_document_retrieval_text(text=body, title=title) == expected
