@@ -49,6 +49,38 @@ def dotted(node: ast.AST | None, bindings: dict[str, str]) -> str:
     return ""
 
 
+def annotation_symbol(node: ast.AST | None, bindings: dict[str, str]) -> str:
+    """Parse forward references only in type positions, never ordinary strings."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return annotation_symbol(ast.parse(node.value, mode="eval").body, bindings)
+    if isinstance(node, ast.Subscript):
+        items = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        wrapper = dotted(node.value, bindings).rsplit(".", 1)[-1]
+        if wrapper == "Annotated":
+            return annotation_symbol(items[0], bindings)
+        symbols = {annotation_symbol(item, bindings) for item in items}
+        symbols.discard("")
+        symbols.discard("None")
+        if len(symbols) > 1:
+            assert not any(
+                name == CONTAINER or legacy_owner(name) or name.startswith(tuple(DORMANT_MODULES))
+                for name in symbols
+            ), "Unresolved ownership-relevant union annotation"
+            return dotted(node, bindings)
+        return next(iter(symbols), "")
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        symbols = {annotation_symbol(node.left, bindings), annotation_symbol(node.right, bindings)}
+        symbols -= {"", "None"}
+        if len(symbols) > 1:
+            assert not any(
+                name == CONTAINER or legacy_owner(name) or name.startswith(tuple(DORMANT_MODULES))
+                for name in symbols
+            ), "Unresolved ownership-relevant union annotation"
+            return dotted(node, bindings)
+        return next(iter(symbols), "")
+    return dotted(node, bindings)
+
+
 class SourceIndex:
     """Resolve static Python symbols including lazy factories and public reexports."""
 
@@ -60,9 +92,7 @@ class SourceIndex:
             module = module_name(path)
             bindings = {}
             for node in tree.body:
-                if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                    bindings[node.name] = f"{module}.{node.name}"
-                self.import_binding(path, node, bindings)
+                self.top_binding(path, node, bindings)
             self.bindings[module] = bindings
         # Composition's existing explicit export shim uses a star import. Expand
         # only statically indexed names, never evaluate __all__ or import code.
@@ -87,6 +117,20 @@ class SourceIndex:
                     if alias.name != "*":
                         bindings[alias.asname or alias.name] = f"{module}.{alias.name}"
 
+    def top_binding(self, path: Path, node: ast.AST, bindings: dict[str, str]) -> None:
+        """Shared extraction for repository scans and in-memory counterexamples."""
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            bindings[node.name] = f"{module_name(path)}.{node.name}"
+        self.import_binding(path, node, bindings)
+        if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    value = dotted(node.value, bindings)
+                    if isinstance(node.value, ast.Call) and value.endswith(".APIRouter"):
+                        value = f"{module_name(path)}.{target.id}"
+                    bindings[target.id] = value or target.id
+
     def resolve(self, symbol: str) -> str:
         seen = set()
         while symbol not in seen:
@@ -110,12 +154,14 @@ class SourceIndex:
             n for n in self.trees[path].body if isinstance(n, ast.ClassDef) and n.name == class_name
         )
         return {
-            node.target.id: self.resolve(dotted(node.annotation, bindings))
+            node.target.id: self.resolve(annotation_symbol(node.annotation, bindings))
             for node in cls.body
             if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
         }
 
-    def calls(self, path: Path) -> list[tuple[str, str, tuple[str, ...]]]:
+    def calls(
+        self, path: Path, *, eager_only: bool = False
+    ) -> list[tuple[str, str, tuple[str, ...]]]:
         """Return lexical caller, call target, and statically named arguments.
 
         Function scopes get independent bindings. A conservative union of calls
@@ -124,11 +170,21 @@ class SourceIndex:
         result = []
         module = module_name(path)
         index = self
+        postponed = any(
+            isinstance(node, ast.ImportFrom)
+            and node.module == "__future__"
+            and any(alias.name == "annotations" for alias in node.names)
+            for node in self.trees[path].body
+        )
+        self.parameters = getattr(self, "parameters", {})
+        self.named_calls = getattr(self, "named_calls", {})
 
         class Visitor(ast.NodeVisitor):
             def __init__(self) -> None:
                 self.bindings = dict(index.bindings[module])
                 self.scope = module
+                self.eager = True
+                self.class_outer = None
 
             def visit_Import(self, node: ast.Import) -> None:
                 index.import_binding(path, node, self.bindings)
@@ -146,11 +202,27 @@ class SourceIndex:
                     *(v for v in node.args.kw_defaults if v is not None),
                 ):
                     self.visit(value)
+                if not postponed:
+                    for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                        if arg.annotation:
+                            self.visit(arg.annotation)
+                    if node.returns:
+                        self.visit(node.returns)
                 previous, scope = self.bindings, self.scope
-                self.bindings = dict(previous)
+                previous[node.name] = f"{scope}.{node.name}"
+                self.bindings = dict(self.class_outer or previous)
                 self.scope = f"{scope}.{node.name}"
+                eager, outer = self.eager, self.class_outer
+                self.eager, self.class_outer = False, None
+                params = (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
+                index.parameters[self.scope] = [arg.arg for arg in params]
+                # Python determines function locals for the whole block. Do not
+                # let a local definition resolve to a same-named module import.
+                for item in node.body:
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        self.bindings[item.name] = f"{self.scope}.{item.name}"
                 for arg in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
-                    annotation = self.symbol(arg.annotation)
+                    annotation = index.resolve(annotation_symbol(arg.annotation, previous))
                     if annotation == CONTAINER:
                         self.bindings[arg.arg] = "$container"
                     elif legacy_owner(annotation) or any(
@@ -158,12 +230,25 @@ class SourceIndex:
                     ):
                         self.bindings[arg.arg] = annotation
                     else:
-                        self.bindings[arg.arg] = arg.arg
+                        self.bindings[arg.arg] = (
+                            arg.arg
+                            if arg.arg in {"self", "cls"}
+                            else f"$param:{self.scope}:{arg.arg}"
+                        )
                 for item in node.body:
                     self.visit(item)
                 self.bindings, self.scope = previous, scope
+                self.eager, self.class_outer = eager, outer
 
             visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Lambda(self, node: ast.Lambda) -> None:
+                for value in (*node.args.defaults, *filter(None, node.args.kw_defaults)):
+                    self.visit(value)
+                eager = self.eager
+                self.eager = False
+                self.visit(node.body)
+                self.eager = eager
 
             def visit_ClassDef(self, node: ast.ClassDef) -> None:
                 for value in (
@@ -172,11 +257,14 @@ class SourceIndex:
                     *(kw.value for kw in node.keywords),
                 ):
                     self.visit(value)
-                scope = self.scope
+                previous, scope, outer = self.bindings, self.scope, self.class_outer
+                previous[node.name] = f"{scope}.{node.name}"
+                self.bindings = dict(previous)
+                self.class_outer = outer or previous
                 self.scope = f"{scope}.{node.name}"
                 for item in node.body:
                     self.visit(item)
-                self.scope = scope
+                self.bindings, self.scope, self.class_outer = previous, scope, outer
 
             def visit_Assign(self, node: ast.Assign) -> None:
                 self.visit(node.value)
@@ -186,16 +274,39 @@ class SourceIndex:
                         self.bindings[target.id] = value or target.id
 
             def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+                if not postponed and (self.scope == module or self.class_outer is not None):
+                    self.visit(node.annotation)
                 if node.value:
                     self.visit(node.value)
                 if isinstance(node.target, ast.Name) and node.value:
                     self.bindings[node.target.id] = self.symbol(node.value) or node.target.id
 
             def visit_Call(self, node: ast.Call) -> None:
+                target = self.symbol(node.func)
+
+                def argument(arg: ast.AST) -> str:
+                    if isinstance(arg, (ast.Starred, ast.Dict, ast.List, ast.Tuple)):
+                        assert not any(
+                            self.symbol(item) == "$container" for item in ast.walk(arg)
+                        ), f"Unresolved Container forwarding: {self.scope} -> {target}"
+                    if target.endswith((".add_api_route", ".include_router")):
+                        # Keep imported router provenance, even though its value
+                        # is an APIRouter instance rather than a Python function.
+                        value = arg.func if isinstance(arg, ast.Call) else arg
+                        return dotted(value, self.bindings)
+                    return self.symbol(arg)
+
                 arguments = tuple(
-                    self.symbol(arg) for arg in (*node.args, *(kw.value for kw in node.keywords))
+                    argument(arg) for arg in (*node.args, *(kw.value for kw in node.keywords))
                 )
-                result.append((self.scope, self.symbol(node.func), arguments))
+                if not eager_only or self.eager:
+                    result.append((self.scope, target, arguments))
+                    index.named_calls.setdefault((self.scope, target, arguments), set()).add(
+                        (
+                            tuple(argument(arg) for arg in node.args),
+                            tuple((kw.arg, argument(kw.value)) for kw in node.keywords),
+                        )
+                    )
                 self.generic_visit(node)
 
         Visitor().visit(self.trees[path])
@@ -225,7 +336,7 @@ def route_edges(
     _execute_fact_command(use_case, command) seam without counting DTO imports.
     """
     edges: set[tuple[str, str]] = set()
-    calls = [call for path in paths for call in index.calls(path)]
+    calls = ownership_calls(index, paths)
     for caller, target, arguments in calls:
         for symbol in (target, *arguments):
             if not symbol.startswith("$container."):
@@ -238,7 +349,7 @@ def route_edges(
                 continue
             # Retain method identity; forwarded owner is explicitly labelled.
             edges.add((caller, owner))
-    # Attribute owner edges to actual decorated entry points through local calls.
+    # Attribute owner edges to entry points through resolved helper calls.
     for _ in range(len(calls) + 1):
         previous = set(edges)
         for caller, target, _ in calls:
@@ -246,6 +357,101 @@ def route_edges(
         if previous == edges:
             break
     return edges
+
+
+def ownership_calls(
+    index: SourceIndex, paths: list[Path]
+) -> list[tuple[str, str, tuple[str, ...]]]:
+    """Bounded Container parameter substitution and imported route reachability.
+
+    Only whole Container forwarding is specialized; member forwarding is already
+    an explicit execution edge. Unknown whole-Container recipients fail closed.
+    Imported registration targets must have indexed source. Benchmark surfaces
+    are explicitly outside this inventory, even when a route imports them.
+    """
+    pending = [(path, None) for path in paths]
+    visited = set()
+    calls = []
+    while pending:
+        path, selected = pending.pop()
+        if (path, selected) in visited or benchmark_path(path):
+            continue
+        visited.add((path, selected))
+        if path not in index.trees:
+            index.trees[path] = ast.parse(path.read_text(encoding="utf-8"))
+        current = [
+            call
+            for call in index.calls(path)
+            if selected is None or call[0] == selected or call[0].startswith(selected + ".")
+        ]
+        calls.extend(current)
+        for caller, target, arguments in current:
+            registration = target.endswith((".add_api_route", ".include_router"))
+            candidates = [target]
+            for positional, keywords in index.named_calls[(caller, target, arguments)]:
+                if registration:
+                    name, offset = (
+                        ("endpoint", 1) if target.endswith(".add_api_route") else ("router", 0)
+                    )
+                    candidate = dict(keywords).get(name)
+                    if candidate is None and len(positional) > offset:
+                        candidate = positional[offset]
+                    assert candidate, f"Unresolved route registration: {caller}"
+                    resolved = index.resolve(candidate)
+                    if any(resolved.startswith(module + ".") for module in index.paths):
+                        candidate = resolved
+                    candidates.append(candidate)
+            for candidate in candidates:
+                modules = [m for m in index.paths if candidate.startswith(m + ".")]
+                module = max(modules, key=len) if modules else None
+                if registration and candidate != target:
+                    assert module, f"Unresolved route registration target: {candidate}"
+                    name = candidate.removeprefix(module + ".").split(".")[0]
+                    assert (
+                        name in index.bindings[module] and index.resolve(candidate) == candidate
+                    ), f"Unresolved route registration binding: {candidate}"
+                if module:
+                    dependency = index.paths[module]
+                    # Follow imported functions/handlers, not all composition
+                    # constructors simply because get_container is a dependency.
+                    if module != f"{SERVER}.composition" and dependency != path:
+                        pending.append((dependency, None if registration else candidate))
+    original = list(calls)
+    substitutions = set()
+    for _ in range(len(original) + 1):
+        before = set(substitutions)
+        for caller, target, arguments in original:
+            for positional, keywords in index.named_calls[(caller, target, arguments)]:
+                params = index.parameters.get(target, [])
+                supplied = [*zip(params, positional, strict=False), *keywords]
+                for name, value in supplied:
+                    values = {value}
+                    values.update(value.replace(old, new) for old, new in before if old in value)
+                    if "$container" in values:
+                        assert name in params, (
+                            f"Unresolved Container forwarding: {caller} -> {target}"
+                        )
+                        substitutions.add((f"$param:{target}:{name}", "$container"))
+                if "$container" in arguments:
+                    assert params, f"Unresolved Container forwarding: {caller} -> {target}"
+                    assert not any(
+                        name is None and value == "$container" for name, value in keywords
+                    ), f"Unresolved Container keyword forwarding: {caller}"
+        if before == substitutions:
+            break
+    else:
+        raise AssertionError("Container propagation did not converge")
+    for caller, target, arguments in original:
+        for old, new in substitutions:
+            if old in target or any(old in arg for arg in arguments):
+                calls.append(
+                    (
+                        caller,
+                        target.replace(old, new),
+                        tuple(arg.replace(old, new) for arg in arguments),
+                    )
+                )
+    return calls
 
 
 FEATURE_OWNERS = frozenset(
@@ -292,8 +498,7 @@ def legacy_execution_edges(index: SourceIndex, paths: list[Path]) -> set[tuple[s
     """Direct legacy construction/invocation, distinct from error and DTO use."""
     return {
         (caller, symbol)
-        for path in paths
-        for caller, target, arguments in index.calls(path)
+        for caller, target, arguments in ownership_calls(index, paths)
         for symbol in (target, *arguments)
         if legacy_owner(symbol)
     }
@@ -331,8 +536,9 @@ def dormant_edges(index: SourceIndex, paths: list[Path]) -> set[tuple[str, str]]
     return {
         (caller, symbol)
         for path in paths
-        for caller, target, arguments in index.calls(path)
-        if module_name(path) not in DORMANT_MODULES or caller == module_name(path)
+        for caller, target, arguments in index.calls(
+            path, eager_only=module_name(path) in DORMANT_MODULES
+        )
         for symbol in (target, *arguments)
         if any(symbol.startswith(f"{module}.") for module in DORMANT_MODULES)
     }
@@ -353,13 +559,7 @@ def index_repository() -> SourceIndex:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         bindings = {}
         for node in tree.body:
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                bindings[node.name] = f"{module}.{node.name}"
-            index.import_binding(path, node, bindings)
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        bindings[target.id] = dotted(node.value, bindings) or target.id
+            index.top_binding(path, node, bindings)
         index.bindings[module] = bindings
     # Reuse the existing, explicit composition export shim only.
     shim = f"{SERVER}.composition_use_cases"
@@ -374,7 +574,8 @@ def load_trees(index: SourceIndex, paths: list[Path]) -> None:
 
 # The thirteen audited hybrid surfaces, plus their shared scope helper and client
 # compatibility entry points. This is scope selection, not thirteen duplicate
-# owners. Benchmark-only routes and unrelated feature lanes are not frozen here.
+# owners. Feature modules are additionally scanned regardless of filename or
+# mounting style; benchmark-only routes remain explicitly excluded.
 TARGET_ROUTE_MODULES = frozenset(
     {
         "assets",
@@ -396,5 +597,17 @@ TARGET_ROUTE_MODULES = frozenset(
 )
 
 
+def benchmark_path(path: Path) -> bool:
+    return any("benchmark" in part or "memory_comparison" in part for part in path.parts)
+
+
 def canonicalization_routes() -> list[Path]:
-    return [path for path in _server_route_modules() if path.stem in TARGET_ROUTE_MODULES]
+    feature_root = REPO_ROOT / f"packages/{SERVER}/{SERVER}/features"
+    return sorted(
+        {
+            path
+            for path in [*_server_route_modules(), *feature_root.rglob("*.py")]
+            if (path.stem in TARGET_ROUTE_MODULES or "features" in path.parts)
+            and not benchmark_path(path)
+        }
+    )

@@ -259,3 +259,371 @@ def test_dormant_export_module_cannot_eagerly_construct_placeholder() -> None:
         {path: "class QdrantDocumentChunkIndex: pass\ndefault = QdrantDocumentChunkIndex()"}
     )
     assert dormant_edges(index, [path])
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    ['"Services"', '"Annotated[Services, Depends(get_container)]"', 'Optional["Services"]'],
+)
+def test_quoted_container_annotation_executes(annotation: str) -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"""
+from typing import Annotated, Optional
+from {SERVER}.composition import Container as Services
+def endpoint(c: {annotation}):
+    c.remember_fact.execute(command)
+"""
+        }
+    )
+    assert (f"{SERVER}.api.v1.facts.endpoint", "remember_fact.execute") in route_edges(
+        index, [ROUTE], FIELDS
+    )
+
+
+def test_quoted_additional_overlap_is_rejected() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"""
+from {CORE}.application.use_cases.remember_fact import RememberFactUseCase as Old
+from {CORE}.features.memory_facts.public import MemoryFactLifecycleUseCases as New
+class Container:
+    remember_fact: Old
+    another_writer: "Old"
+    memory_fact_lifecycle: New
+"""
+        }
+    )
+    with pytest.raises(AssertionError, match="another_writer"):
+        require_inventory(
+            container_overlaps(index.fields(ROUTE, "Container")), container_overlaps(FIELDS)
+        )
+
+
+def test_quoted_placeholder_injection_and_ordinary_string_are_distinct() -> None:
+    prefix = (
+        f"from {ADAPTERS}.features.document_ingestion.qdrant_chunk_index "
+        f"import QdrantDocumentChunkIndex as Factory\n"
+    )
+    index = SourceIndex({ROUTE: prefix + 'def endpoint(x: "Factory"):\n    wire(x)'})
+    assert dormant_edges(index, [ROUTE])
+    index = SourceIndex({ROUTE: prefix + 'log("Factory()", "Container", "not valid Python !")'})
+    assert not dormant_edges(index, [ROUTE])
+    assert not route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        (
+            "def helper(*, services):\n"
+            "    services.remember_fact.execute(command)\n"
+            "def endpoint(c: Container):\n    helper(services=c)"
+        ),
+        (
+            "def helper(services):\n"
+            "    services.remember_fact.execute(command)\n"
+            "def endpoint(c: Container):\n    helper(c)"
+        ),
+        (
+            "def inner(*, services):\n"
+            "    services.remember_fact.execute(command)\ndef helper(c):\n"
+            "    inner(services=c)\ndef endpoint(c: Container):\n    helper(c)"
+        ),
+        (
+            "def endpoint(c: Container):\n    def helper():\n"
+            "        c.remember_fact.execute(command)\n    helper()"
+        ),
+    ],
+)
+def test_forwarded_container_and_nested_capture_reach_endpoint(body: str) -> None:
+    index = SourceIndex({ROUTE: f"from {SERVER}.composition import Container\n{body}"})
+    edges = route_edges(index, [ROUTE], FIELDS)
+    assert (f"{SERVER}.api.v1.facts.endpoint", "remember_fact.execute") in edges
+    with pytest.raises(AssertionError, match="New execution debt"):
+        require_inventory(edges, set())
+
+
+def test_unknown_container_forwarding_fails_closed() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: (
+                f"from {SERVER}.composition import Container\n"
+                f"def endpoint(c: Container):\n    unknown(services=c)"
+            )
+        }
+    )
+    with pytest.raises(AssertionError, match="Unresolved Container forwarding"):
+        route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize(
+    "registration",
+    [
+        'router.add_api_route("/new", imported)',
+        'router.add_api_route(path="/new", endpoint=imported)',
+        "def endpoint():\n    imported()",
+        "router.include_router(imported)",
+    ],
+)
+def test_imported_handlers_helpers_and_feature_router_are_followed(registration: str) -> None:
+    feature = REPO_ROOT / f"packages/{SERVER}/{SERVER}/features/new_feature/routes.py"
+    index = SourceIndex(
+        {
+            ROUTE: (
+                f"from {SERVER}.features.new_feature.routes import endpoint as "
+                f"imported\n{registration}"
+            ),
+            feature: (
+                f"from {SERVER}.composition import Container\n"
+                f"def endpoint(c: Container):\n    c.remember_fact.execute(command)"
+            ),
+        }
+    )
+    edges = route_edges(index, [ROUTE], FIELDS)
+    assert (f"{SERVER}.features.new_feature.routes.endpoint", "remember_fact.execute") in edges
+    with pytest.raises(AssertionError, match="New execution debt"):
+        require_inventory(edges, set())
+
+
+def test_unknown_registration_is_rejected() -> None:
+    index = SourceIndex({ROUTE: 'router.add_api_route("/new", dynamic_handler)'})
+    with pytest.raises(AssertionError, match="Unresolved route registration"):
+        route_edges(index, [ROUTE], FIELDS)
+
+
+def test_feature_routes_selected_and_benchmarks_explicitly_excluded(monkeypatch) -> None:
+    import canonicalization_ast as analyzer  # noqa: PLC0415
+
+    feature = REPO_ROOT / f"packages/{SERVER}/{SERVER}/features/new_feature/routes.py"
+    benchmark = ROUTE.with_name("internal_memory_comparison_runs.py")
+    monkeypatch.setattr(analyzer, "_server_route_modules", lambda: [ROUTE, feature, benchmark])
+    assert {ROUTE, feature} <= set(analyzer.canonicalization_routes())
+    assert benchmark not in analyzer.canonicalization_routes()
+    index = SourceIndex(
+        {
+            ROUTE: "from .internal_memory_comparison_runs import endpoint\nendpoint()",
+            benchmark: (
+                f"from {SERVER}.composition import Container\n"
+                f"def endpoint(c: Container):\n    c.remember_fact.execute(command)"
+            ),
+        }
+    )
+    assert not route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("class Defaults:\n    Factory = int\ndef endpoint():\n    Factory()", True),
+        ("def endpoint():\n    def Factory(): pass\n    Factory()", False),
+        ("def endpoint():\n    class Factory: pass\n    Factory()", False),
+        ("class Defaults:\n    Factory = int\n    value = Factory()", False),
+        ("class Defaults:\n    Factory = int\n    def method(self):\n        Factory()", True),
+        (
+            (
+                "def endpoint():\n    def Factory(): pass\n    class Defaults:\n"
+                "        def method(self):\n            Factory()"
+            ),
+            False,
+        ),
+    ],
+)
+def test_class_and_function_lexical_bindings(body: str, expected: bool) -> None:
+    index = SourceIndex(
+        {
+            ROUTE: (
+                f"from {ADAPTERS}.features.document_ingestion.qdrant_chunk_index "
+                f"import QdrantDocumentChunkIndex as Factory\n{body}"
+            )
+        }
+    )
+    assert bool(dormant_edges(index, [ROUTE])) is expected
+
+
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("class Defaults:\n    value = QdrantDocumentChunkIndex()", True),
+        ("class Defaults:\n    class Nested:\n        value = QdrantDocumentChunkIndex()", True),
+        ("class Defaults:\n    def method(self, value=QdrantDocumentChunkIndex()): pass", True),
+        (
+            "class Defaults:\n    def method(self):\n        return QdrantDocumentChunkIndex()",
+            False,
+        ),
+        ("def factory():\n    class Defaults:\n        value = QdrantDocumentChunkIndex()", False),
+    ],
+)
+def test_dormant_class_eagerness_is_separate_from_lexical_caller(body: str, expected: bool) -> None:
+    path = (
+        REPO_ROOT
+        / f"packages/{ADAPTERS}/{ADAPTERS}/features/document_ingestion/qdrant_chunk_index.py"
+    )
+    index = SourceIndex({path: f"class QdrantDocumentChunkIndex: pass\n{body}"})
+    assert bool(dormant_edges(index, [path])) is expected
+
+
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "factory = create_qdrant_document_chunk_index",
+        "factory: object = create_qdrant_document_chunk_index",
+    ],
+)
+def test_valued_reexport_assignments_share_index_extraction(assignment: str) -> None:
+    index = SourceIndex(
+        {
+            SHIM: (
+                f"from {ADAPTERS}.features.document_ingestion.qdrant_chunk_index "
+                f"import create_qdrant_document_chunk_index\n{assignment}"
+            ),
+            ROUTE: "from ..compatibility import factory\nfactory()",
+        }
+    )
+    assert not dormant_edges(index, [SHIM])
+    assert dormant_edges(index, [ROUTE]) == {
+        (
+            f"{SERVER}.api.v1.facts",
+            (
+                f"{ADAPTERS}.features.document_ingestion.qdrant_chunk_index."
+                f"create_qdrant_document_chunk_index"
+            ),
+        )
+    }
+
+
+@pytest.mark.parametrize(
+    "mount, export",
+    [
+        ("router.include_router(imported)", "router"),
+        ("router.include_router(imported())", "build_router"),
+    ],
+)
+def test_real_imported_router_and_factory_registration(mount: str, export: str) -> None:
+    feature = ROUTE.with_name("new_router.py")
+    index = SourceIndex(
+        {
+            ROUTE: f"from .new_router import {export} as imported\n{mount}",
+            feature: f"""
+from fastapi import APIRouter
+from {SERVER}.composition import Container
+router = APIRouter()
+def build_router():
+    return router
+@router.get('/new')
+def endpoint(c: Container):
+    c.remember_fact.execute(command)
+""",
+        }
+    )
+    assert (f"{SERVER}.api.v1.new_router.endpoint", "remember_fact.execute") in route_edges(
+        index, [ROUTE], FIELDS
+    )
+
+
+def test_imported_helper_keyword_container_and_direct_legacy_execution() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {SERVER}.composition import Container\n"
+            "from ..compatibility import helper\ndef endpoint(c: Container):\n"
+            "    helper(services=c)",
+            SHIM: f"from {CORE}.application.use_cases.remember_fact import RememberFactUseCase\n"
+            "def helper(*, services):\n    services.remember_fact.execute(command)\n"
+            "    RememberFactUseCase()",
+        }
+    )
+    assert (f"{SERVER}.api.v1.facts.endpoint", "remember_fact.execute") in route_edges(
+        index, [ROUTE], FIELDS
+    )
+    assert (f"{SERVER}.api.compatibility.helper", LEGACY) in legacy_execution_edges(index, [ROUTE])
+
+
+def test_imported_unused_sibling_is_not_a_reachable_helper() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: "from ..compatibility import helper\nhelper()",
+            SHIM: f"from {SERVER}.composition import Container\ndef helper(): pass\n"
+            "def unused(c: Container):\n    c.remember_fact.execute(command)",
+        }
+    )
+    assert not route_edges(index, [ROUTE], FIELDS)
+
+
+def test_ambiguous_ownership_annotation_is_explicitly_rejected() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {SERVER}.composition import Container\n"
+            'def endpoint(c: "Container | int"):\n    c.remember_fact.execute(command)'
+        }
+    )
+    with pytest.raises(AssertionError, match="Unresolved ownership-relevant"):
+        route_edges(index, [ROUTE], FIELDS)
+
+
+def test_annotation_uses_defining_scope_before_function_local_shadow() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {ADAPTERS}.features.document_ingestion.qdrant_chunk_index "
+            'import QdrantDocumentChunkIndex as Factory\ndef endpoint(x: "Factory"):\n'
+            "    def Factory(): pass\n    wire(x)"
+        }
+    )
+    assert dormant_edges(index, [ROUTE])
+
+
+def test_keyword_names_are_retained_for_equal_value_sequences() -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {SERVER}.composition import Container\n"
+            + """
+def helper(*, services, unused):
+    services.remember_fact.execute(command)
+def endpoint(c: Container, x):
+    helper(services=c, unused=x)
+    helper(unused=c, services=x)
+"""
+        }
+    )
+    assert (f"{SERVER}.api.v1.facts.endpoint", "remember_fact.execute") in route_edges(
+        index, [ROUTE], FIELDS
+    )
+
+
+@pytest.mark.parametrize("export", ["missing", "external"])
+def test_registered_import_must_resolve_beyond_its_module(export: str) -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f'from ..compatibility import {export}\nrouter.add_api_route("/new", {export})',
+            SHIM: "from unavailable_provider import endpoint as external",
+        }
+    )
+    with pytest.raises(AssertionError, match="Unresolved route registration"):
+        route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize(
+    "future, expected", [("", True), ("from __future__ import annotations\n", False)]
+)
+def test_annotation_construction_respects_evaluation_context(future: str, expected: bool) -> None:
+    path = REPO_ROOT / (
+        f"packages/{ADAPTERS}/{ADAPTERS}/features/document_ingestion/qdrant_chunk_index.py"
+    )
+    index = SourceIndex(
+        {
+            path: future + "class QdrantDocumentChunkIndex: pass\n"
+            "class Defaults:\n    def method(self, x: QdrantDocumentChunkIndex()): pass"
+        }
+    )
+    assert bool(dormant_edges(index, [path])) is expected
+
+
+@pytest.mark.parametrize("call", ['helper(**{"services": c})', "helper(*[c])"])
+def test_unresolved_container_unpacking_is_explicitly_rejected(call: str) -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {SERVER}.composition import Container\n"
+            f"def endpoint(c: Container):\n    {call}"
+        }
+    )
+    with pytest.raises(AssertionError, match="Unresolved Container forwarding"):
+        route_edges(index, [ROUTE], FIELDS)
