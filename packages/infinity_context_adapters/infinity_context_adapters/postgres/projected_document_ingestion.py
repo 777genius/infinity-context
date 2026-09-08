@@ -7,7 +7,7 @@ import json
 from dataclasses import dataclass
 
 from infinity_context_core.application.document_fragments import fragment_document_text
-from infinity_context_core.application.document_text import document_chunk_retrieval_text
+from infinity_context_core.application.document_text import projected_document_retrieval_text
 from infinity_context_core.application.dto import IngestDocumentResult
 from infinity_context_core.application.normalize import (
     content_hash,
@@ -202,9 +202,7 @@ class PostgresProjectedDocumentIngestor:
         document_row.retrieval_projected = True
         session.add(document_row)
         await session.flush()
-        retrieval_text = document_chunk_retrieval_text(
-            text=piece.text, metadata=command.chunk_metadata or {}, title=document.title
-        )
+        retrieval_text = projected_document_retrieval_text(text=piece.text, title=document.title)
         chunk = MemoryChunk.create(
             chunk_id=MemoryChunkId(self.ids.new_id("chunk")),
             space_id=command.space_id,
@@ -223,7 +221,7 @@ class PostgresProjectedDocumentIngestor:
             ),
             kind=piece.kind,
             text=piece.text,
-            normalized_text=normalize_text(retrieval_text),
+            normalized_text=retrieval_text,
             sequence=piece.sequence,
             char_start=piece.char_start,
             char_end=piece.char_end,

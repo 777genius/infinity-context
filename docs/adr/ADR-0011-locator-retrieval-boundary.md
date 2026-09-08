@@ -204,6 +204,23 @@ Canonical versions, document/chunk identities,
 provider identity, text, citations, aliases and authorization remain server-owned or
 outside this contract.
 
+For projected documents, the server renders canonical embedding text from the
+explicit document title and the single canonical chunk body only: strip each,
+join nonempty parts with two newlines, then apply canonical normalization
+(lowercase and collapse whitespace). The explicit title is always included when
+nonempty, even when the body repeats it. Metadata, including source references,
+is preserved as structured evidence and never appended as retrieval hints.
+Both generic vector upsert and locator profile backfill/replay consume this stored
+normalized text. Ordinary non-projected documents retain metadata retrieval hints.
+This guarantee lets clients budget the exact normalized title/body text without
+hidden metadata overhead; it does not change the SDK or projection DTO.
+
+Existing projected rows rendered with metadata hints require canonical text
+regeneration and reindexing through an explicit maintenance operation, or fresh
+ingestion into a disposable index for qualification. Replaying jobs or backfilling
+a new profile over those rows alone reuses the old normalized text and does not
+repair it. This change does not perform a data migration.
+
 The locator is never derived from canonical Infinity identities. Permanent locator
 ownership is scoped by space, memory scope and locator; active ordinal ownership also
 includes optional thread, source key, generation and ordinal. Exact projection, scope,

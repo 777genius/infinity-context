@@ -121,9 +121,12 @@ class ProjectionOutboxProcess:
                     "embeddings.document_budget_exceeded",
                 )
 
-            projection_text = document_chunk_retrieval_text(
-                text=chunk.text,
-                metadata=chunk.metadata,
+            # Projected ingestion owns the normalized title/body rendering, also
+            # consumed by locator profile backfill and replay.
+            projection_text = (
+                chunk.normalized_text
+                if "_canonical_retrieval_projection" in chunk.metadata
+                else document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
             )
             embedding = await self._container.embedder.embed_texts((projection_text,))
             if _is_disabled_projection(embedding.diagnostics):

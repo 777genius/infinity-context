@@ -208,6 +208,7 @@ class ConfigurableProjectionDelete:
 class ImmediateVectorAdapter:
     def __init__(self) -> None:
         self.upserts: list[object] = []
+        self.embedding_texts: list[str] = []
         self.deletes: list[tuple[tuple[str, ...], int]] = []
 
     async def capabilities(self) -> AdapterCapabilities:
@@ -232,6 +233,7 @@ class ImmediateVectorAdapter:
         return VectorWriteResult.ok(len(chunk_ids))
 
     async def embed_texts(self, texts) -> EmbeddingResult:
+        self.embedding_texts.extend(texts)
         return EmbeddingResult(
             status=PortStatus.OK,
             vectors=tuple((0.25, 0.75) for _ in texts),
@@ -850,3 +852,36 @@ def test_postgres_projection_state_query_is_unlocked() -> None:
     assert "cleanup_plan_state = 'sealed'" in sql
     assert "cleanup_plan_json IS NOT NULL" in sql
     assert "cleanup_plan_sha256 IS NOT NULL" in sql
+
+
+def test_projected_vector_worker_uses_stored_title_body_without_metadata_hints() -> None:
+    chunk = _chunk()
+    chunk.normalized_text = "canonical title chunk text"
+    chunk.metadata = {
+        "_canonical_retrieval_projection": {"canonical_version": 1},
+        "title": "Metadata title must not replace the canonical title",
+        "source_refs": [
+            {"source_type": "transcript", "kind": "transcript_segment", "time_start_ms": 0}
+        ],
+    }
+    vector = ImmediateVectorAdapter()
+    process = _immediate_vector_process(chunk, vector=vector)
+
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert vector.embedding_texts == ["canonical title chunk text"]
+    assert vector.upserts[0].text == chunk.normalized_text
+    assert chunk.metadata["source_refs"][0]["time_start_ms"] == 0
+
+
+def test_ordinary_vector_worker_retains_metadata_hints() -> None:
+    chunk = _chunk()
+    chunk.metadata = {"normalized_content_type": "audio/mpeg"}
+    vector = ImmediateVectorAdapter()
+    process = _immediate_vector_process(chunk, vector=vector)
+
+    asyncio.run(process.handle_vector_upsert(_job("vector")))
+
+    assert "Retrieval hints:" in vector.embedding_texts[0]
+    assert "audio transcript evidence" in vector.embedding_texts[0]
+    assert vector.upserts[0].text == vector.embedding_texts[0]

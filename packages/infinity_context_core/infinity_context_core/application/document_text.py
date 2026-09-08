@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 
+from infinity_context_core.application.normalize import normalize_text
 from infinity_context_core.application.safe_payload import safe_metadata_text
 from infinity_context_core.application.sensitive_text import contains_sensitive_text
 
@@ -51,6 +52,15 @@ _TRUE_FLAG_HINTS = {
     "evidence_has_bbox_ref": "bbox image region",
     "evidence_has_time_range_ref": "time range evidence",
 }
+
+
+def projected_document_retrieval_text(*, text: str, title: str) -> str:
+    """Canonical projected embedding text: normalized explicit title and body only.
+
+    Projection metadata and source citations remain structured data; they must not
+    add embedding tokens after a caller has budgeted the title and body.
+    """
+    return normalize_text("\n\n".join(part for part in (title.strip(), text.strip()) if part))
 
 
 def document_chunk_retrieval_text(
