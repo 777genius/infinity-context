@@ -364,3 +364,87 @@ def test_repository_actual_deployment_default_bounds_an_overflowing_bundle():
     assert len(legacy.items) < len(candidates)
     assert handler.queries[0].budget.max_rendered_chars == default
     assert_consistent(handler.result.bundle)
+
+
+class EmptyOverheadPlanner:
+    def plan(self, items):
+        if items:
+            return core.PromptSectionPlanner().plan(items)
+        return core.PromptSectionPlan(
+            sections=(
+                core.PromptEvidenceSection(
+                    section_id="empty",
+                    title="No matching evidence",
+                    items=(),
+                    priority=0,
+                    estimated_tokens=0,
+                ),
+            )
+        )
+
+
+@pytest.mark.parametrize("cap", [0, 1])
+@pytest.mark.parametrize("rejection", [None, "characters", "tokens"])
+def test_empty_custom_overhead_is_normalized_with_diagnostics(cap, rejection):
+    candidates = () if rejection is None else (item(),)
+    planner = EmptyOverheadPlanner()
+    assert len(core.ContextEvidenceRenderer().render_plan(planner.plan(()))) > cap
+    bundle = pack(
+        candidates,
+        cap,
+        tokens=1 if rejection == "tokens" else 100,
+        prompt_section_planner=planner,
+    )
+    assert bundle.items == ()
+    assert bundle.prompt_section_plan == core.PromptSectionPlan(sections=())
+    assert bundle.rendered_evidence == ""
+    assert bundle.total_estimated_tokens == 0
+    assert len(bundle.rendered_evidence) <= cap
+    assert len(bundle.dropped_items) == len(candidates)
+    if rejection is not None:
+        assert bundle.dropped_items[0].item_id == candidates[0].item_id
+        assert bundle.dropped_items[0].reason == (
+            "item_exceeds_budget" if rejection == "tokens" else "rendered_character_budget_exceeded"
+        )
+    assert_consistent(bundle)
+
+
+@pytest.mark.parametrize("bounded", [True, False])
+def test_empty_custom_overhead_is_preserved_when_allowed(bounded):
+    planner = EmptyOverheadPlanner()
+    expected_plan = planner.plan(())
+    expected_text = core.ContextEvidenceRenderer().render_plan(expected_plan)
+    bundle = pack(
+        (), len(expected_text) if bounded else None, prompt_section_planner=planner
+    )
+    assert bundle.prompt_section_plan == expected_plan
+    assert bundle.rendered_evidence == expected_text
+    assert_consistent(bundle)
+
+
+@pytest.mark.parametrize("overflow", [True, False])
+def test_non_pure_renderer_final_output_is_checked_without_retry(overflow):
+    class ChangingRenderer:
+        def __init__(self):
+            self.plans = []
+
+        def render_plan(self, plan):
+            self.plans.append(plan)
+            if len(self.plans) == 1:
+                return "x"
+            return "final evidence" if overflow else "y"
+
+    renderer = ChangingRenderer()
+    candidate = item()
+    if overflow:
+        with pytest.raises(ValueError, match="Final rendered evidence exceeds max_rendered_chars"):
+            pack((candidate,), 1, evidence_renderer=renderer)
+    else:
+        bundle = pack((candidate,), 1, evidence_renderer=renderer)
+        assert bundle.rendered_evidence == "y"
+        assert bundle.items == (candidate,)
+        assert bundle.prompt_section_plan.items == (candidate,)
+        assert bundle.total_estimated_tokens == candidate.token_cost
+        assert bundle.dropped_items == ()
+    assert len(renderer.plans) == 2
+    assert all(plan.items == (candidate,) for plan in renderer.plans)

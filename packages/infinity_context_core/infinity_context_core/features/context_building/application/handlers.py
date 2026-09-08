@@ -19,6 +19,7 @@ from infinity_context_core.features.context_building.domain import (
     ContextBundle,
     ContextEvidenceRenderer,
     ContextQueryExpansionPolicy,
+    PromptSectionPlan,
     PromptSectionPlanner,
 )
 from infinity_context_core.features.context_building.ports import (
@@ -49,6 +50,15 @@ class PackContextHandler:
         )
         prompt_section_plan = self.prompt_section_planner.plan(plan.selected_items)
         rendered_evidence = self.evidence_renderer.render_plan(prompt_section_plan)
+        max_rendered_chars = query.budget.max_rendered_chars
+        if max_rendered_chars is not None and len(rendered_evidence) > max_rendered_chars:
+            # Custom rendering may change between admission and final rendering.
+            # Fail explicitly for selected evidence; never truncate or discard it.
+            if plan.selected_items:
+                raise ValueError("Final rendered evidence exceeds max_rendered_chars")
+            # Empty output has a canonical representation, bypassing custom overhead.
+            prompt_section_plan = PromptSectionPlan(sections=())
+            rendered_evidence = ""
         bundle = ContextBundle(
             query=query.query,
             items=plan.selected_items,
