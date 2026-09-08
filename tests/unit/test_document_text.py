@@ -89,7 +89,7 @@ def test_document_chunk_retrieval_text_drops_sensitive_hint_keys_and_values() ->
     ("title", "body", "expected"),
     [
         ("  Project TITLE  ", "  Body\n with\tspaces  ", "project title body with spaces"),
-        ("Title", "TITLE repeated in body", "title title repeated in body"),
+        ("Title", "TITLE repeated in body", "title repeated in body"),
         ("Title", "", "title"),
         ("", "Body", "body"),
     ],

@@ -205,11 +205,12 @@ provider identity, text, citations, aliases and authorization remain server-owne
 outside this contract.
 
 For projected documents, the server renders canonical embedding text from the
-explicit document title and the single canonical chunk body only: strip each,
-join nonempty parts with two newlines, then apply canonical normalization
-(lowercase and collapse whitespace). The explicit title is always included when
-nonempty, even when the body repeats it. Metadata, including source references,
-is preserved as structured evidence and never appended as retrieval hints.
+explicit document title and the single canonical chunk body only, using the
+existing title/body renderer without metadata. Strip both parts, omit the title
+when the body already starts with it (casefolded and whitespace-collapsed), join
+nonempty parts with two newlines, then apply canonical normalization (lowercase
+and collapse whitespace). Metadata, including source references, is preserved as
+structured evidence and never appended as retrieval hints.
 Both generic vector upsert and locator profile backfill/replay consume this stored
 normalized text. Ordinary non-projected documents retain metadata retrieval hints.
 This guarantee lets clients budget the exact normalized title/body text without

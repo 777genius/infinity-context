@@ -60,7 +60,7 @@ def projected_document_retrieval_text(*, text: str, title: str) -> str:
     Projection metadata and source citations remain structured data; they must not
     add embedding tokens after a caller has budgeted the title and body.
     """
-    return normalize_text("\n\n".join(part for part in (title.strip(), text.strip()) if part))
+    return normalize_text(document_chunk_retrieval_text(text=text, title=title))
 
 
 def document_chunk_retrieval_text(
