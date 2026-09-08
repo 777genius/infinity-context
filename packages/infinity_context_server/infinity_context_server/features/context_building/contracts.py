@@ -18,6 +18,7 @@ class ContextBudgetHttpRequest(BaseModel):
 
     max_context_tokens: int = Field(default=1800, ge=1, le=64000)
     reserved_response_tokens: int = Field(default=0, ge=0, le=64000)
+    max_rendered_chars: int | None = Field(default=None, ge=0)
     max_items: int | None = Field(default=None, ge=1, le=1000)
     strategy: str = Field(default="balanced", min_length=1, max_length=80)
 
@@ -27,6 +28,7 @@ class ContextBudgetHttpRequest(BaseModel):
             reserved_response_tokens=self.reserved_response_tokens,
             max_items=self.max_items,
             strategy=self.strategy,
+            max_rendered_chars=self.max_rendered_chars,
         )
 
 

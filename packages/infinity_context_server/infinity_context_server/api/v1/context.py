@@ -428,6 +428,11 @@ async def _build_context_bundle(
             as_of=request.as_of,
             budget=context_building_server.ContextBudgetHttpRequest(
                 max_context_tokens=request.token_budget,
+                max_rendered_chars=(
+                    max_rendered_chars
+                    if max_rendered_chars is not None
+                    else container.settings.max_context_chars
+                ),
                 max_items=canonical_item_limit,
             ),
             tags=(),

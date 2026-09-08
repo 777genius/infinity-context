@@ -43,6 +43,7 @@ def build_context_query_from_contract(
         budget=context_building.ContextBudget(
             max_prompt_tokens=budget.max_context_tokens,
             reserved_response_tokens=budget.reserved_response_tokens,
+            max_rendered_chars=budget.max_rendered_chars,
         ),
         candidate_limit=budget.max_items or DEFAULT_CANDIDATE_LIMIT,
     )
@@ -97,6 +98,11 @@ def _budget_from_contract(
         ),
         max_items=_optional_positive_int(budget.get("max_items"), "budget.max_items"),
         strategy=str(budget.get("strategy") or "balanced"),
+        max_rendered_chars=(
+            _non_negative_int(budget["max_rendered_chars"], "budget.max_rendered_chars")
+            if budget.get("max_rendered_chars") is not None
+            else None
+        ),
     )
 
 

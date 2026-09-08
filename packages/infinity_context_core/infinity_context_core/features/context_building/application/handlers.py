@@ -40,7 +40,13 @@ class PackContextHandler:
     )
 
     async def execute(self, query: PackContextQuery) -> PackContextResult:
-        plan = self.budget_policy.plan(query.candidates, query.budget)
+        plan = self.budget_policy.plan(
+            query.candidates,
+            query.budget,
+            render=lambda items: self.evidence_renderer.render_plan(
+                self.prompt_section_planner.plan(items)
+            ),
+        )
         prompt_section_plan = self.prompt_section_planner.plan(plan.selected_items)
         rendered_evidence = self.evidence_renderer.render_plan(prompt_section_plan)
         bundle = ContextBundle(

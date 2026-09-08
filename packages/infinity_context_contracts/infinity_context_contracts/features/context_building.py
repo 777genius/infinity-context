@@ -64,6 +64,7 @@ class ContextBudgetDto:
     reserved_response_tokens: int = 0
     max_items: int | None = None
     strategy: str = "balanced"
+    max_rendered_chars: int | None = None
 
     def to_dict(self) -> JsonObject:
         return {
@@ -71,6 +72,11 @@ class ContextBudgetDto:
             "reserved_response_tokens": self.reserved_response_tokens,
             "max_items": self.max_items,
             "strategy": self.strategy,
+            **(
+                {"max_rendered_chars": self.max_rendered_chars}
+                if self.max_rendered_chars is not None
+                else {}
+            ),
         }
 
 
