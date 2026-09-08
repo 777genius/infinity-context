@@ -9,6 +9,7 @@ from typing import ClassVar
 from infinity_context_core.features.memory_facts.public import (
     FEATURE_ID,
     FactEligibilityPolicy,
+    FactRelationSnapshot,
     FactSupersessionRelation,
     FactTemporalDecision,
     FactTemporalDecisionType,
@@ -20,6 +21,10 @@ from infinity_context_core.features.memory_facts.public import (
     MemoryFactSelectionQuery,
     MemoryFactSnapshot,
     MemoryFactUnitOfWorkFactoryPort,
+)
+
+from infinity_context_adapters.features.memory_facts.in_memory_relation_store import (
+    InMemoryFactRelationRepository,
 )
 
 _FactKey = tuple[str, str, str | None, str]
@@ -36,6 +41,7 @@ class _InMemoryMemoryFactState:
         self._decision_idempotency: dict[_IdempotencyKey, str] = {}
         self._operation_receipts: dict[_OperationReceiptKey, MemoryFactOperationReceipt] = {}
         self._supersessions: list[FactSupersessionRelation] = []
+        self._relations: dict[str, FactRelationSnapshot] = {}
         self._revision = 0
         for fact in facts:
             self._put(fact, allow_existing=False)
@@ -51,6 +57,7 @@ class _InMemoryMemoryFactState:
         dict[_IdempotencyKey, str],
         dict[_OperationReceiptKey, MemoryFactOperationReceipt],
         list[FactSupersessionRelation],
+        dict[str, FactRelationSnapshot],
         int,
     ]:
         return (
@@ -61,6 +68,7 @@ class _InMemoryMemoryFactState:
             dict(self._decision_idempotency),
             dict(self._operation_receipts),
             list(self._supersessions),
+            dict(self._relations),
             self._revision,
         )
 
@@ -73,6 +81,7 @@ class _InMemoryMemoryFactState:
         decision_idempotency: dict[_IdempotencyKey, str],
         operation_receipts: dict[_OperationReceiptKey, MemoryFactOperationReceipt],
         supersessions: list[FactSupersessionRelation],
+        relations: dict[str, FactRelationSnapshot],
         expected_revision: int,
     ) -> None:
         if self._revision != expected_revision:
@@ -84,6 +93,7 @@ class _InMemoryMemoryFactState:
         self._decision_idempotency = dict(decision_idempotency)
         self._operation_receipts = dict(operation_receipts)
         self._supersessions = list(supersessions)
+        self._relations = dict(relations)
         self._revision += 1
 
     def facts(self) -> tuple[MemoryFactSnapshot, ...]:
@@ -507,6 +517,7 @@ class InMemoryMemoryFactUnitOfWork:
             self._working_decision_idempotency,
             self._working_operation_receipts,
             self._working_supersessions,
+            self._working_relations,
             self._base_revision,
         ) = self._state.snapshot()
         self.facts = InMemoryMemoryFactRepository.transactional(
@@ -523,6 +534,9 @@ class InMemoryMemoryFactUnitOfWork:
             self._working_operation_receipts
         )
         self.supersessions = InMemoryFactSupersessionRepository(self._working_supersessions)
+        self.relations = InMemoryFactRelationRepository(
+            self._working_relations, self._working_facts, self._working_supersessions
+        )
         self._committed = False
 
     async def __aenter__(self) -> InMemoryMemoryFactUnitOfWork:
@@ -554,6 +568,7 @@ class InMemoryMemoryFactUnitOfWork:
             self._working_decision_idempotency,
             self._working_operation_receipts,
             self._working_supersessions,
+            self._working_relations,
             self._base_revision,
         )
         self._committed = True
@@ -567,6 +582,7 @@ class InMemoryMemoryFactUnitOfWork:
             self._working_decision_idempotency,
             self._working_operation_receipts,
             self._working_supersessions,
+            self._working_relations,
             self._base_revision,
         ) = self._state.snapshot()
         self.facts = InMemoryMemoryFactRepository.transactional(
@@ -582,6 +598,9 @@ class InMemoryMemoryFactUnitOfWork:
             self._working_operation_receipts
         )
         self.supersessions = InMemoryFactSupersessionRepository(self._working_supersessions)
+        self.relations = InMemoryFactRelationRepository(
+            self._working_relations, self._working_facts, self._working_supersessions
+        )
         self._committed = False
 
 

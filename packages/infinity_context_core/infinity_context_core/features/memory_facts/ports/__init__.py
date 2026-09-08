@@ -21,6 +21,9 @@ from infinity_context_core.features.memory_facts.ports.read_models import (
     MemoryFactListSpec,
     MemoryFactReadModelPort,
 )
+from infinity_context_core.features.memory_facts.ports.relations import (
+    FactRelationRepositoryPort,
+)
 from infinity_context_core.features.memory_facts.ports.repositories import (
     MemoryFactRepositoryPort,
 )
@@ -38,6 +41,7 @@ from infinity_context_core.features.memory_facts.ports.unit_of_work import (
 )
 
 __all__ = (
+    "FactRelationRepositoryPort",
     "FactSupersessionRepositoryPort",
     "FactTemporalDecisionRepositoryPort",
     "MemoryFactClockPort",

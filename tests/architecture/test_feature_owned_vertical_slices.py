@@ -511,6 +511,21 @@ def test_memory_facts_public_api_is_importable_and_narrow() -> None:
     assert public.FEATURE_ID == "memory_facts"
     assert public.MemoryFactsFeature().feature_id == "memory_facts"
     assert public.__all__ == (
+        "FactRelationConflict",
+        "FactRelationSnapshot",
+        "FactRelationStatus",
+        "FactRelationType",
+        "LinkFactsCommand",
+        "LinkFactsHandler",
+        "ListFactRelationsQuery",
+        "ListFactRelationsHandler",
+        "UnlinkFactRelationCommand",
+        "UnlinkFactRelationHandler",
+        "FactRelationResult",
+        "FactRelationItem",
+        "FactRelationsResult",
+        "link_facts_in_transaction",
+        "FactRelationRepositoryPort",
         "FEATURE_ID",
         "FACT_TEMPORAL_MUTATION_POLICY_VERSION",
         "SUPERSESSION_POLICY_VERSION",
