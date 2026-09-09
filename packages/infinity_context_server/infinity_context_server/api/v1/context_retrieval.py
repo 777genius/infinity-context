@@ -17,6 +17,15 @@ from infinity_context_contracts.features.context_building import (
     RetrieveContextResponseDto,
     decode_retrieve_context_request,
 )
+from infinity_context_contracts.features.context_retrieval_v3 import (
+    CONTRACT_VERSION as V3_CONTRACT_VERSION,
+    RetrieveContextV3ResponseDto,
+    decode_retrieve_context_v3_request,
+    retrieval_v3_capability,
+)
+from infinity_context_server.features.context_building.retrieval_mappers import (
+    retrieval_v3_request_to_core,
+)
 from infinity_context_core.domain.errors import MemoryForbiddenError, MemoryValidationError
 
 from infinity_context_server.api.auth import (
@@ -42,6 +51,28 @@ async def retrieve_context(
     http_request: Request,
     container: Annotated[Container, Depends(get_container)],
 ) -> Response:
+    return await _retrieve_context(http_request, container, v3=False)
+
+
+@router.post("/context/retrieve-v3")
+async def retrieve_context_v3(
+    http_request: Request,
+    container: Annotated[Container, Depends(get_container)],
+) -> Response:
+    return await _retrieve_context(http_request, container, v3=True)
+
+
+@router.get("/context/retrieve-v3/capability")
+async def retrieval_v3_descriptor(
+    container: Annotated[Container, Depends(get_container)],
+) -> Response:
+    if container.locator_retrieval is None:
+        return _error("memory.context_retrieval_unavailable", "Retrieval is unavailable")
+    descriptor = await container.locator_retrieval.descriptor()
+    return Response(content=_compact_bytes(retrieval_v3_capability(descriptor)), media_type="application/json")
+
+
+async def _retrieve_context(http_request: Request, container: Container, *, v3: bool) -> Response:
     started = asyncio.get_running_loop().time()
     try:
         # The maximum contract deadline bounds headers and body ingestion too.
@@ -49,7 +80,8 @@ async def retrieve_context(
         async with asyncio.timeout_at(started + MAX_DEADLINE_SECONDS) as deadline_scope:
             _validate_media_headers(http_request)
             raw = await _read_raw_body(http_request)
-            dto = decode_retrieve_context_request(raw)
+            dto = (decode_retrieve_context_v3_request(raw) if v3
+                   else decode_retrieve_context_request(raw))
             deadline = started + dto.bounds.deadline_ms / 1000
             deadline_scope.reschedule(deadline)
             _check_deadline(deadline)
@@ -65,13 +97,17 @@ async def retrieve_context(
             response = await _execute_with_disconnect(
                 http_request,
                 service.execute(
-                    context_building.retrieval_request_to_core(resolved),
+                    (retrieval_v3_request_to_core(resolved) if v3
+                     else context_building.retrieval_request_to_core(resolved)),
                     deadline_monotonic=deadline,
+                    **({"contract_version": V3_CONTRACT_VERSION} if v3 else {}),
                 ),
                 deadline_monotonic=deadline,
             )
             _check_deadline(deadline)
             body = context_building.retrieval_response_to_contract(response).to_dict()
+            if v3:
+                body["contract_version"] = V3_CONTRACT_VERSION
             encoded = _compact_bytes(body)
             _check_deadline(deadline)
             if len(encoded) > resolved.bounds.response_byte_limit:
@@ -258,7 +294,10 @@ def _oversized_fallback(body: Mapping[str, object]) -> bytes:
     applied["returned_seeds"] = 0
     applied["returned_neighbors"] = 0
     fallback["applied_bounds"] = applied
-    return _compact_bytes(RetrieveContextResponseDto.from_dict(fallback).to_dict())
+    response_type = (RetrieveContextV3ResponseDto
+                     if fallback["contract_version"] == V3_CONTRACT_VERSION
+                     else RetrieveContextResponseDto)
+    return _compact_bytes(response_type.from_dict(fallback).to_dict())
 
 
 def _compact_bytes(value: Mapping[str, object]) -> bytes:

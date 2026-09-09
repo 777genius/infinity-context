@@ -33,6 +33,7 @@ class QdrantLocatorSearchPort(Protocol):
         query_text: str,
         limit: int,
         filter_spec: Mapping[str, object],
+        thread_mode: str = "exact",
     ) -> tuple[Mapping[str, object], ...]: ...
 
 
@@ -65,6 +66,7 @@ class QdrantContextCandidateProvider:
                 query_text=variant.query,
                 limit=request.bounds.candidate_limit,
                 filter_spec=spec,
+                thread_mode=request.scope.thread_mode,
             )
             for rank, point in enumerate(points, start=1):
                 identity = point.get("canonical_identity")
@@ -118,10 +120,11 @@ def translate_qdrant_locator_filters(
         }
         for pair in filters.source_generations
     ]
-    if request.scope.thread_id is None:
-        must.append({"key": "thread_id", "is_null": True})
-    else:
-        must.append({"key": "thread_id", "match": request.scope.thread_id})
+    if request.scope.thread_mode == "exact":
+        if request.scope.thread_id is None:
+            must.append({"key": "thread_id", "is_null": True})
+        else:
+            must.append({"key": "thread_id", "match": request.scope.thread_id})
     for key, values in (
         ("document_key", filters.document_keys),
         ("kind", filters.kinds),

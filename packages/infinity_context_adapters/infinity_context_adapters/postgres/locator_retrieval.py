@@ -141,11 +141,12 @@ def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]
         MemoryChunkRow.retrieval_category.is_not(None),
         parent_eligible_condition(),
     ]
-    conditions.append(
-        MemoryChunkRow.thread_id.is_(None)
-        if scope.thread_id is None
-        else MemoryChunkRow.thread_id == scope.thread_id
-    )
+    if scope.thread_mode == "exact":
+        conditions.append(
+            MemoryChunkRow.thread_id.is_(None)
+            if scope.thread_id is None
+            else MemoryChunkRow.thread_id == scope.thread_id
+        )
     conditions.append(
         or_(
             *(

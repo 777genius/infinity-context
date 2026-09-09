@@ -287,3 +287,40 @@ def _client(handler):
         timeout=0.1,
         transport=httpx.MockTransport(handler),
     )
+
+
+def test_official_python_v3_selector_exchange_and_no_downgrade() -> None:
+    from infinity_context_contracts.features.context_retrieval_v3 import (
+        RetrieveContextV3RequestDto, retrieval_v3_capability,
+    )
+    old_request, old_capability = _inputs()
+    capability = retrieval_v3_capability(old_capability)
+    payload = old_request.to_dict()
+    payload.update(contract_version="context-retrieval.v3",
+                   capability_fingerprint=capability["capability_fingerprint"])
+    payload["scope"] = {"spaceId": old_request.scope.space_id,
+                        "memoryScopeId": old_request.scope.memory_scope_id,
+                        "thread": {"mode": "any"}}
+    request = RetrieveContextV3RequestDto.from_dict(payload)
+    response = json.loads((FIXTURES / "success.json").read_text())
+    response.update(contract_version="context-retrieval.v3",
+                    capability_fingerprint=capability["capability_fingerprint"])
+    calls = []
+
+    def handler(http_request):
+        calls.append(http_request)
+        assert http_request.url.path == "/v1/context/retrieve-v3"
+        assert json.loads(http_request.content) == payload
+        return httpx.Response(200, json=response)
+
+    assert _client(handler).retrieve_context_v3(request, capability=capability).to_dict() == response
+    assert len(calls) == 1
+    with pytest.raises(InfinityRetrievalContractError):
+        _client(handler).retrieve_context_v3(request, capability=old_capability.to_dict())
+    with pytest.raises(InfinityRetrievalContractError):
+        _client(handler).retrieve_context(request, capability=old_capability)
+    assert len(calls) == 1
+    response["contract_version"] = "context-retrieval.v2"
+    with pytest.raises(InfinityRetrievalContractError):
+        _client(handler).retrieve_context_v3(request, capability=capability)
+    assert len(calls) == 2

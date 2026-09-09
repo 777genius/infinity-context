@@ -29,7 +29,12 @@ async def search_locator_chunks(
     query_text,
     limit,
     filter_spec,
+    thread_mode="exact",
 ):
+    if thread_mode not in ("exact", "any") or (
+        thread_mode == "any" and thread_id is not None
+    ):
+        raise QdrantLocatorPayloadError("invalid thread selector")
     if not adapter._locator_profile_enabled:
         raise QdrantLocatorPayloadError("locator index profile is not configured")
     if limit <= 0:
@@ -50,7 +55,7 @@ async def search_locator_chunks(
                 *list(filter_spec.get("must", ())),
                 {"key": "space_id", "match": space_id},
                 {"key": "memory_scope_id", "match": memory_scope_id},
-                thread_condition,
+                *([thread_condition] if thread_mode == "exact" else []),
                 {"key": "projection_version", "match": adapter._projection_version},
                 {"key": "index_profile_digest", "match": adapter._index_profile_digest},
                 {"key": "index_generation", "match": adapter._index_generation},

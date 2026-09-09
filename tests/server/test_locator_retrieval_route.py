@@ -20,7 +20,8 @@ from infinity_context_server.auth_tokens import MEMORY_PERMISSION_READ, ActiveSe
 
 
 class _Service:
-    async def execute(self, request, *, deadline_monotonic):
+    async def execute(self, request, *, deadline_monotonic, contract_version="context-retrieval.v2"):
+        assert contract_version == "context-retrieval.v3" or request.scope.thread_mode == "exact"
         assert asyncio.get_running_loop().time() < deadline_monotonic
         return core.LocatorRetrievalResponse(
             status="unqualified",
@@ -67,12 +68,12 @@ def _app(monkeypatch, token: ActiveServiceToken | None) -> FastAPI:
     return app
 
 
-def _post(app: FastAPI, payload: dict[str, object]) -> Response:
+def _post(app: FastAPI, payload: dict[str, object], path="/v1/context/retrieve") -> Response:
     async def execute() -> Response:
         async with AsyncClient(
             transport=ASGITransport(app=app), base_url="http://testserver"
         ) as client:
-            return await client.post("/v1/context/retrieve", json=payload)
+            return await client.post(path, json=payload)
 
     return asyncio.run(execute())
 
@@ -253,3 +254,65 @@ def test_repeated_deadlines_release_handler_capacity() -> None:
         assert asyncio.get_running_loop().time() - started < 0.5
 
     asyncio.run(scenario())
+
+
+def _v3_payload():
+    payload = _payload()
+    payload["contract_version"] = "context-retrieval.v3"
+    payload["scope"] = {"spaceId": "space-a", "memoryScopeId": "scope-a", "thread": {"mode": "any"}}
+    return payload
+
+
+@pytest.mark.parametrize("selector", ({"mode": "any"}, {"mode": "exact", "id": None},
+                                       {"mode": "exact", "id": "meeting-a"}))
+def test_v3_http_selectors_use_same_authorized_boundary(monkeypatch, selector):
+    app = _app(monkeypatch, _token())
+    payload = _v3_payload()
+    payload["scope"]["thread"] = selector
+    response = _post(app, payload, "/v1/context/retrieve-v3")
+    assert response.status_code == 200
+    assert response.json()["contract_version"] == "context-retrieval.v3"
+    assert len(app.state.resolve_calls) == 1
+    assert app.state.resolve_calls[0].scope.thread.to_dict() == selector
+
+
+@pytest.mark.parametrize("selector", ({"mode": "any", "id": None}, {"mode": "exact"},
+                                       {"mode": "all"}, None))
+def test_v3_invalid_selector_rejected_before_resolution(monkeypatch, selector):
+    app = _app(monkeypatch, _token())
+    payload = _v3_payload()
+    payload["scope"]["thread"] = selector
+    assert _post(app, payload, "/v1/context/retrieve-v3").status_code >= 400
+    assert app.state.resolve_calls == []
+
+
+@pytest.mark.parametrize("field", ("spaceId", "memoryScopeId"))
+def test_v3_any_cannot_escape_authorized_scope(monkeypatch, field):
+    app = _app(monkeypatch, _token())
+    payload = _v3_payload()
+    payload["scope"][field] = "other"
+    assert _post(app, payload, "/v1/context/retrieve-v3").status_code == 403
+    assert app.state.resolve_calls == []
+
+
+def test_v3_response_byte_fallback_preserves_version():
+    from infinity_context_contracts.features.context_retrieval_v3 import RetrieveContextV3ResponseDto
+    path = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_contracts/infinity_context_contracts/fixtures/context_retrieval_v2/success.json"
+    )
+    body = json.loads(path.read_text())
+    body["contract_version"] = "context-retrieval.v3"
+    result = json.loads(route._oversized_fallback(body))
+    assert RetrieveContextV3ResponseDto.from_dict(result).status == "unavailable"
+    assert result["applied_bounds"]["returned_seeds"] == 0
+
+
+def test_v3_reauthorizes_after_scope_resolution(monkeypatch):
+    from dataclasses import replace
+    app = _app(monkeypatch, _token())
+
+    async def changed_scope(dto, _container):
+        return replace(dto, scope=replace(dto.scope, memory_scope_id="other-room"))
+
+    monkeypatch.setattr(route, "_resolve_scope", changed_scope)
+    assert _post(app, _v3_payload(), "/v1/context/retrieve-v3").status_code == 403

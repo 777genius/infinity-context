@@ -30,7 +30,7 @@ for (const name of expectedNames) {
 }
 
 const contextResource = await readFile(new URL("../src/resources/context.ts", import.meta.url), "utf8");
-if (!/method:\s*"POST"[\s\S]{0,300}?path:\s*"\/v1\/context\/retrieve"/u.test(contextResource)) {
+if (!/method:\s*"POST"[\s\S]{0,300}?path:\s*(?:v3 \? RETRIEVAL_V3_ENDPOINT : )?"\/v1\/context\/retrieve"/u.test(contextResource)) {
   throw new Error("Retrieval SDK endpoint parity failed: POST /v1/context/retrieve is missing");
 }
 const pythonClient = await readFile(
@@ -38,7 +38,8 @@ const pythonClient = await readFile(
   "utf8",
 );
 if (!pythonClient.includes("def retrieve_context(") ||
-    !/async with client\.stream\("POST", "\/v1\/context\/retrieve"/u.test(pythonClient) ||
+    (!/async with client\.stream\("POST", endpoint, content=payload/u.test(pythonClient) ||
+     !pythonClient.includes('endpoint: str = "/v1/context/retrieve"')) ||
     !pythonClient.includes("await asyncio.gather(request_task, cancellation_task")) {
   throw new Error("Retrieval Python SDK endpoint parity failed");
 }

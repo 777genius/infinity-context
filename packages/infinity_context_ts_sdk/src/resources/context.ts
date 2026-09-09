@@ -1,3 +1,9 @@
+import {
+  retrievalV3RequestPayload, decodeRetrievalV3Capability, commonV3Capability,
+  decodeRetrieveContextV3ResponseBytes, RETRIEVAL_V3_ENDPOINT,
+  type RetrieveContextV3Input, type RetrievalV3Capability, type RetrieveContextV3Response,
+} from "../retrieval-v3.js";
+import { retrievalCapabilityFingerprint } from "../retrieval-canonical.js";
 import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import type {
   ContextBundleData,
@@ -87,6 +93,21 @@ export class ContextClient {
     required: RequiredRetrievalCapability,
     controls: RequestControls = {},
   ): Promise<RetrieveContextResponse> {
+    return this.retrieveVersion(input, capability, required, controls, false) as Promise<RetrieveContextResponse>;
+  }
+
+  async retrieveV3(
+    input: RetrieveContextV3Input, capability: RetrievalV3Capability,
+    required: RequiredRetrievalCapability, controls: RequestControls = {},
+  ): Promise<RetrieveContextV3Response> {
+    return this.retrieveVersion(input, capability, required, controls, true) as Promise<RetrieveContextV3Response>;
+  }
+
+  private async retrieveVersion(
+    input: RetrieveContextInput | RetrieveContextV3Input,
+    capability: RetrievalCapability | RetrievalV3Capability,
+    required: RequiredRetrievalCapability, controls: RequestControls, v3: boolean,
+  ): Promise<RetrieveContextResponse | RetrieveContextV3Response> {
     const startedAtMs = monotonicNowMs();
     let budget: ReturnType<typeof retrievalCallBudget> | undefined;
     try {
@@ -103,21 +124,28 @@ export class ContextClient {
       );
       budget = retrievalCallBudget(controls.signal, transportTimeoutMs, startedAtMs);
       budget.throwIfExhausted();
-      const attestedCapability = decodeRetrievalCapability(capability);
+      const attestedCapability = v3 ? decodeRetrievalV3Capability(capability) : decodeRetrievalCapability(capability);
       budget.throwIfExhausted();
-      validateRetrievalPreflight(input, attestedCapability, required);
+      validateRetrievalPreflight(
+        (v3 ? { ...input, contractVersion: "context-retrieval.v2" } : input) as RetrieveContextInput,
+        v3 ? commonV3Capability(attestedCapability as RetrievalV3Capability) : attestedCapability as RetrievalCapability,
+        required,
+      );
       budget.throwIfExhausted();
-      const payload = retrievalRequestPayload(input);
+      const payload = v3 ? retrievalV3RequestPayload(input as RetrieveContextV3Input) : retrievalRequestPayload(input as RetrieveContextInput);
       budget.throwIfExhausted();
       await abortableRetrievalPreflight(
-        verifyRetrievalCapabilityFingerprint(attestedCapability),
+        v3 ? retrievalCapabilityFingerprint(attestedCapability).then((actual) => {
+          if (actual !== attestedCapability.capability_fingerprint) throw retrievalClientError(
+            "memory.context_retrieval_capability_mismatch", "Capability fingerprint mismatch", false);
+        }) : verifyRetrievalCapabilityFingerprint(attestedCapability as RetrievalCapability),
         budget.signal,
       );
       budget.throwIfExhausted();
       const remainingTimeoutMs = budget.remainingTimeoutMs();
       const response = await this.http.request<Uint8Array | string>({
         method: "POST",
-        path: "/v1/context/retrieve",
+        path: v3 ? RETRIEVAL_V3_ENDPOINT : "/v1/context/retrieve",
         ...requestControls({
           ...controls, signal: budget.signal, timeoutMs: remainingTimeoutMs,
         }),
@@ -129,7 +157,9 @@ export class ContextClient {
         errorDecoder: retrievalErrorDecoder(input.bounds.responseByteLimit),
       });
       budget.throwIfExhausted();
-      const decoded = decodeRetrieveContextResponseBytes(response, payload, attestedCapability);
+      const decoded = v3
+        ? decodeRetrieveContextV3ResponseBytes(response, payload, attestedCapability as RetrievalV3Capability)
+        : decodeRetrieveContextResponseBytes(response, payload, attestedCapability as RetrievalCapability);
       budget.throwIfExhausted();
       return decoded;
     } catch (error) {

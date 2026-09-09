@@ -6,6 +6,7 @@ import asyncio
 import json
 import time
 from threading import Event
+from collections.abc import Mapping
 
 import httpx
 from infinity_context_contracts.features.context_building import (
@@ -16,6 +17,11 @@ from infinity_context_contracts.features.context_building import (
     RetrieveContextResponseDto,
     decode_context_retrieval_json,
     decode_retrieve_context_response,
+)
+
+from infinity_context_contracts.features.context_retrieval_v3 import (
+    ENDPOINT as V3_ENDPOINT, RetrieveContextV3RequestDto, RetrieveContextV3ResponseDto,
+    decode_retrieve_context_v3_response, validate_retrieval_v3_capability,
 )
 
 from infinity_context_sdk.async_facade import run_on_owned_loop
@@ -61,14 +67,29 @@ class InfinityRetrievalMixin:
             )
         )
 
+    def retrieve_context_v3(
+        self, request: RetrieveContextV3RequestDto, *, capability: Mapping[str, object],
+        cancellation_event: Event | None = None,
+    ) -> RetrieveContextV3ResponseDto:
+        """Explicit V3 exchange; obtain attestation from /v1/context/retrieve-v3/capability."""
+        request_budget = (request.bounds.deadline_ms / 1000
+                          if isinstance(request, RetrieveContextV3RequestDto) else self.timeout)
+        transport = self._cancellable_async_transport()
+        return run_on_owned_loop(lambda: self._retrieve_context_async(
+            request, capability=capability, cancellation_event=cancellation_event,
+            deadline=time.monotonic() + min(self.timeout, request_budget),
+            transport=transport, v3=True,
+        ))
+
     async def _retrieve_context_async(
         self,
         request: RetrieveContextRequestDto,
         *,
-        capability: RetrievalCapabilityDto,
+        capability: RetrievalCapabilityDto | Mapping[str, object],
         cancellation_event: Event | None,
         deadline: float,
         transport: httpx.AsyncBaseTransport | None,
+        v3: bool = False,
     ) -> RetrieveContextResponseDto:
         """Run one cancellable exchange and await all cancellation cleanup."""
 
@@ -76,14 +97,20 @@ class InfinityRetrievalMixin:
             _check_budget(deadline, cancellation_event)
             if not isinstance(request, RetrieveContextRequestDto):
                 raise ValueError("request must be RetrieveContextRequestDto")
-            if not isinstance(capability, RetrievalCapabilityDto):
-                raise ValueError("capability must be RetrievalCapabilityDto")
-            canonical_request = RetrieveContextRequestDto.from_dict(request.to_dict())
-            canonical_capability = RetrievalCapabilityDto.from_dict(capability.to_dict())
+            if v3:
+                if not isinstance(request, RetrieveContextV3RequestDto) or not isinstance(capability, Mapping):
+                    raise ValueError("V3 request and capability are required")
+                canonical_request = RetrieveContextV3RequestDto.from_dict(request.to_dict())
+                canonical_capability = validate_retrieval_v3_capability(capability)
+            else:
+                if not isinstance(capability, RetrievalCapabilityDto):
+                    raise ValueError("capability must be RetrievalCapabilityDto")
+                canonical_request = RetrieveContextRequestDto.from_dict(request.to_dict())
+                canonical_capability = RetrievalCapabilityDto.from_dict(capability.to_dict()).to_dict()
             if (
                 canonical_request.capability_fingerprint
-                != canonical_capability.capability_fingerprint
-                or canonical_request.profile_id != canonical_capability.profile_id
+                != canonical_capability["capability_fingerprint"]
+                or canonical_request.profile_id != canonical_capability["profile_id"]
             ):
                 raise ValueError("request capability/profile does not match attestation")
             payload = json.dumps(
@@ -110,7 +137,8 @@ class InfinityRetrievalMixin:
             try:
                 async with asyncio.timeout(_remaining(deadline, cancellation_event)):
                     response, body = await _race_response(
-                        client, payload, maximum_bytes, cancellation_event
+                        client, payload, maximum_bytes, cancellation_event,
+                        endpoint=V3_ENDPOINT if v3 else "/v1/context/retrieve",
                     )
             except InfinityRetrievalError:
                 raise
@@ -143,13 +171,14 @@ class InfinityRetrievalMixin:
             raise _decode_error(response.status_code, body)
         try:
             _check_budget(deadline, cancellation_event)
-            result = decode_retrieve_context_response(body)
+            result = (decode_retrieve_context_v3_response(body) if v3
+                      else decode_retrieve_context_response(body))
             _check_budget(deadline, cancellation_event)
             if (
                 result.capability_fingerprint != canonical_request.capability_fingerprint
-                or result.capability_fingerprint != canonical_capability.capability_fingerprint
+                or result.capability_fingerprint != canonical_capability["capability_fingerprint"]
                 or result.profile_id != canonical_request.profile_id
-                or result.profile_id != canonical_capability.profile_id
+                or result.profile_id != canonical_capability["profile_id"]
             ):
                 raise ValueError("response capability/profile does not match attestation")
             applied = result.applied_bounds
@@ -165,7 +194,7 @@ class InfinityRetrievalMixin:
             _validate_cross_envelope(
                 result.to_dict(),
                 canonical_request.to_dict(),
-                canonical_capability.to_dict(),
+                canonical_capability,
                 received_bytes=len(body),
             )
             _check_budget(deadline, cancellation_event)
@@ -175,9 +204,10 @@ class InfinityRetrievalMixin:
 
 
 async def _read_response(
-    client: httpx.AsyncClient, payload: bytes, maximum_bytes: int
+    client: httpx.AsyncClient, payload: bytes, maximum_bytes: int,
+    endpoint: str = "/v1/context/retrieve",
 ) -> tuple[httpx.Response, bytes]:
-    async with client.stream("POST", "/v1/context/retrieve", content=payload) as response:
+    async with client.stream("POST", endpoint, content=payload) as response:
         body = bytearray()
         async for chunk in response.aiter_bytes():
             body.extend(chunk)
@@ -186,9 +216,10 @@ async def _read_response(
         return response, bytes(body)
 
 
-async def _race_response(client, payload, maximum_bytes, cancellation_event):
+async def _race_response(client, payload, maximum_bytes, cancellation_event,
+                         *, endpoint="/v1/context/retrieve"):
     request_task = asyncio.create_task(
-        _read_response(client, payload, maximum_bytes), name="infinity-retrieval-http"
+        _read_response(client, payload, maximum_bytes, endpoint), name="infinity-retrieval-http"
     )
     cancellation_task = asyncio.create_task(
         _wait_for_cancellation(cancellation_event),
