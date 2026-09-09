@@ -177,6 +177,8 @@ class SourceIndex:
             for node in self.trees[path].body
         )
         self.parameters = getattr(self, "parameters", {})
+        self.positional_parameters = getattr(self, "positional_parameters", {})
+        self.variadic_parameters = getattr(self, "variadic_parameters", {})
         self.named_calls = getattr(self, "named_calls", {})
 
         class Visitor(ast.NodeVisitor):
@@ -216,6 +218,10 @@ class SourceIndex:
                 self.eager, self.class_outer = False, None
                 params = (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs)
                 index.parameters[self.scope] = [arg.arg for arg in params]
+                index.positional_parameters[self.scope] = [
+                    arg.arg for arg in (*node.args.posonlyargs, *node.args.args)
+                ]
+                index.variadic_parameters[self.scope] = node.args.vararg is not None
                 # Python determines function locals for the whole block. Do not
                 # let a local definition resolve to a same-named module import.
                 for item in node.body:
@@ -423,7 +429,24 @@ def ownership_calls(
         for caller, target, arguments in original:
             for positional, keywords in index.named_calls[(caller, target, arguments)]:
                 params = index.parameters.get(target, [])
-                supplied = [*zip(params, positional, strict=False), *keywords]
+                positional_params = index.positional_parameters.get(target, [])
+                # Retain surplus values until after propagated Container substitution.
+                # Keyword-only formals cannot receive positional arguments.
+                supplied = [
+                    (positional_params[offset] if offset < len(positional_params) else None, value)
+                    for offset, value in enumerate(positional)
+                ]
+                for name, value in supplied:
+                    values = {value}
+                    values.update(value.replace(old, new) for old, new in before if old in value)
+                    if "$container" in values and name is None:
+                        assert not index.variadic_parameters.get(target, False), (
+                            f"Unsupported variadic Container forwarding: {caller} -> {target}"
+                        )
+                        raise AssertionError(
+                            f"Unresolved Container forwarding: {caller} -> {target}"
+                        )
+                supplied.extend(keywords)
                 for name, value in supplied:
                     values = {value}
                     values.update(value.replace(old, new) for old, new in before if old in value)

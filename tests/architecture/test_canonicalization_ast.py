@@ -627,3 +627,63 @@ def test_unresolved_container_unpacking_is_explicitly_rejected(call: str) -> Non
     )
     with pytest.raises(AssertionError, match="Unresolved Container forwarding"):
         route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize(
+    "body, error",
+    [
+        (
+            "def helper(command, *services):\n"
+            "    services[0].remember_fact.execute(command)\n"
+            "def endpoint(c: Container):\n    helper(None, c)",
+            "Unsupported variadic Container forwarding",
+        ),
+        (
+            "def helper(services):\n    unknown(services)\n"
+            "def endpoint(c: Container):\n    helper(c)",
+            "Unresolved Container forwarding",
+        ),
+        (
+            "def variadic(command, *services):\n"
+            "    services[0].remember_fact.execute(command)\n"
+            "def helper(services):\n    variadic(None, services)\n"
+            "def endpoint(c: Container):\n    helper(c)",
+            "Unsupported variadic Container forwarding",
+        ),
+        (
+            "def helper(command, *, services): pass\n"
+            "def endpoint(c: Container):\n    helper(None, c)",
+            "Unresolved Container forwarding",
+        ),
+        (
+            "def helper(command): pass\n"
+            "def endpoint(c: Container):\n    helper(None, c)",
+            "Unresolved Container forwarding",
+        ),
+        (
+            "def helper(): pass\n"
+            "def endpoint(c: Container):\n    helper(c)",
+            "Unresolved Container forwarding",
+        ),
+    ],
+)
+def test_positional_container_forwarding_validates_every_recipient(body: str, error: str) -> None:
+    index = SourceIndex({ROUTE: f"from {SERVER}.composition import Container\n{body}"})
+    with pytest.raises(AssertionError, match=error):
+        route_edges(index, [ROUTE], FIELDS)
+
+
+@pytest.mark.parametrize("tail, extra", [("", ""), (", *unused", ", 42")])
+def test_ordinary_positional_helper_preserves_both_execution_edges(tail: str, extra: str) -> None:
+    index = SourceIndex(
+        {
+            ROUTE: f"from {SERVER}.composition import Container\n"
+            f"def helper(command, services{tail}):\n"
+            "    services.remember_fact.execute(command)\n"
+            f"def endpoint(c: Container):\n    helper(None, c{extra})"
+        }
+    )
+    assert route_edges(index, [ROUTE], FIELDS) == {
+        (f"{SERVER}.api.v1.facts.helper", "remember_fact.execute"),
+        (f"{SERVER}.api.v1.facts.endpoint", "remember_fact.execute"),
+    }
