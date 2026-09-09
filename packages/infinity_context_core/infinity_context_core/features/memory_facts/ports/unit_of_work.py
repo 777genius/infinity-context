@@ -15,6 +15,7 @@ from infinity_context_core.features.memory_facts.ports.idempotency import (
 from infinity_context_core.features.memory_facts.ports.outbox import (
     MemoryFactOutboxPort,
 )
+from infinity_context_core.features.memory_facts.ports.relations import FactRelationRepositoryPort
 from infinity_context_core.features.memory_facts.ports.repositories import (
     MemoryFactRepositoryPort,
 )
@@ -25,6 +26,7 @@ from infinity_context_core.features.memory_facts.ports.temporal_decisions import
 
 
 class MemoryFactTransactionPort(Protocol):
+    relations: FactRelationRepositoryPort
     facts: MemoryFactRepositoryPort
     supersessions: FactSupersessionRepositoryPort
     temporal_decisions: FactTemporalDecisionRepositoryPort

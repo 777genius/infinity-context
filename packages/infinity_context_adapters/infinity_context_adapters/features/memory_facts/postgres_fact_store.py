@@ -37,6 +37,9 @@ from infinity_context_adapters.features.memory_facts.postgres_fact_mapping impor
     memory_fact_source_ref_row_to_domain,
     memory_fact_source_ref_to_row,
 )
+from infinity_context_adapters.features.memory_facts.postgres_relation_store import (
+    PostgresFactRelationRepository,
+)
 from infinity_context_adapters.features.memory_facts.postgres_temporal_decision_store import (
     PostgresFactSupersessionRepository,
     PostgresFactTemporalDecisionRepository,
@@ -501,6 +504,7 @@ class PostgresMemoryFactTransaction:
 
     def __init__(self, session: AsyncSession, *, now: datetime) -> None:
         self._session = session
+        self.relations = PostgresFactRelationRepository(session)
         self.facts = PostgresMemoryFactStore(session)
         self.temporal_decisions = PostgresFactTemporalDecisionRepository(session)
         self.supersessions = PostgresFactSupersessionRepository(session)
@@ -555,6 +559,7 @@ class PostgresMemoryFactUnitOfWork:
         self._session = self._session_factory()
         now = self._clock.now()
         self._transaction = PostgresMemoryFactTransaction(self._session, now=now)
+        self.relations = self._transaction.relations
         self.facts = self._transaction.facts
         self.temporal_decisions = self._transaction.temporal_decisions
         self.supersessions = self._transaction.supersessions

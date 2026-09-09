@@ -27,6 +27,18 @@ from infinity_context_core.features.memory_facts.application.reads import (
     ListMemoryFactVersionsHandler,
     MemoryFactReadUseCases,
 )
+from infinity_context_core.features.memory_facts.application.relations import (
+    FactRelationItem,
+    FactRelationResult,
+    FactRelationsResult,
+    LinkFactsCommand,
+    LinkFactsHandler,
+    ListFactRelationsHandler,
+    ListFactRelationsQuery,
+    UnlinkFactRelationCommand,
+    UnlinkFactRelationHandler,
+    link_facts_in_transaction,
+)
 from infinity_context_core.features.memory_facts.application.reviewed_mutations import (
     ReviewedFactCandidate,
     ReviewedFactDecision,
@@ -65,6 +77,16 @@ from infinity_context_core.features.memory_facts.application.use_cases import (
 )
 
 __all__ = (
+    "LinkFactsCommand",
+    "LinkFactsHandler",
+    "ListFactRelationsQuery",
+    "ListFactRelationsHandler",
+    "UnlinkFactRelationCommand",
+    "UnlinkFactRelationHandler",
+    "FactRelationResult",
+    "FactRelationItem",
+    "FactRelationsResult",
+    "link_facts_in_transaction",
     "SUPERSESSION_POLICY_VERSION",
     "FACT_TEMPORAL_MUTATION_POLICY_VERSION",
     "ConfirmFactCommand",

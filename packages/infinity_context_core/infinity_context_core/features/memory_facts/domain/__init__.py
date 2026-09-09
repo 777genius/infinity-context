@@ -18,6 +18,12 @@ from infinity_context_core.features.memory_facts.domain.feature import (
     FEATURE_ID,
     MemoryFactsFeature,
 )
+from infinity_context_core.features.memory_facts.domain.relations import (
+    FactRelationConflict,
+    FactRelationSnapshot,
+    FactRelationStatus,
+    FactRelationType,
+)
 from infinity_context_core.features.memory_facts.domain.selection import (
     FactEligibilityAssessment,
     FactEligibilityPolicy,
@@ -58,6 +64,10 @@ from infinity_context_core.features.memory_facts.domain.value_objects import (
 )
 
 __all__ = (
+    "FactRelationConflict",
+    "FactRelationSnapshot",
+    "FactRelationStatus",
+    "FactRelationType",
     "FEATURE_ID",
     "FactCurrentness",
     "FactCurrentnessAssessment",

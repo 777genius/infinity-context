@@ -218,6 +218,21 @@ def test_memory_facts_public_api_exports_exact_feature_boundary() -> None:
     public = importlib.import_module(PUBLIC_MODULE)
 
     expected_exports = {
+        "FactRelationConflict": domain,
+        "FactRelationSnapshot": domain,
+        "FactRelationStatus": domain,
+        "FactRelationType": domain,
+        "LinkFactsCommand": application,
+        "LinkFactsHandler": application,
+        "ListFactRelationsQuery": application,
+        "ListFactRelationsHandler": application,
+        "UnlinkFactRelationCommand": application,
+        "UnlinkFactRelationHandler": application,
+        "FactRelationResult": application,
+        "FactRelationItem": application,
+        "FactRelationsResult": application,
+        "link_facts_in_transaction": application,
+        "FactRelationRepositoryPort": ports,
         "FEATURE_ID": domain,
         "FACT_TEMPORAL_MUTATION_POLICY_VERSION": application,
         "SUPERSESSION_POLICY_VERSION": application,
