@@ -32,7 +32,7 @@ class FactRelationRepositoryPort(Protocol):
     async def get_related_fact(
         self, fact_id: str, *, scope: MemoryFactScope
     ) -> MemoryFactSnapshot | None:
-        """Hydrate canonical related evidence across threads within one memory scope."""
+        """Hydrate canonical related evidence within one memory scope."""
 
     async def list_for_fact(
         self,

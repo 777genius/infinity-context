@@ -32,6 +32,7 @@ class InMemoryFactRelationRepository:
                 relation_id=item.relation_id,
                 space_id=item.scope.space_id,
                 memory_scope_id=item.scope.memory_scope_id,
+                thread_id=item.scope.thread_id,
                 source_fact_id=item.successor_fact_id,
                 target_fact_id=item.predecessor_fact_id,
                 relation_type=FactRelationType.SUPERSEDES,

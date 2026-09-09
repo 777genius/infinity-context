@@ -43,6 +43,7 @@ class FactRelationSnapshot:
     valid_to: datetime | None
     created_at: datetime
     updated_at: datetime
+    thread_id: str | None = None
 
     @classmethod
     def create(
@@ -72,6 +73,7 @@ class FactRelationSnapshot:
             relation_id=relation_id,
             space_id=source.identity.scope.space_id,
             memory_scope_id=source.identity.scope.memory_scope_id,
+            thread_id=source.identity.scope.thread_id,
             source_fact_id=source.identity.fact_id,
             target_fact_id=target.identity.fact_id,
             relation_type=FactRelationType(relation_type),
@@ -127,12 +129,14 @@ def require_generic_relation_type(value: FactRelationType | str) -> FactRelation
 
 def require_linkable_facts(source: MemoryFactSnapshot, target: MemoryFactSnapshot) -> None:
     source_scope, target_scope = source.identity.scope, target.identity.scope
-    # Threads may differ: legacy generic relations belong to a memory scope.
+    # Canonical endpoint FKs require the same exact thread, including global.
     if (source_scope.space_id, source_scope.memory_scope_id) != (
         target_scope.space_id,
         target_scope.memory_scope_id,
     ):
         raise FactRelationConflict("Fact relations cannot cross memory_scope boundaries")
+    if source_scope.thread_id != target_scope.thread_id:
+        raise FactRelationConflict("Fact relations cannot cross thread boundaries")
     if any(fact.visibility.status == "deleted" for fact in (source, target)):
         raise FactRelationConflict("Deleted facts cannot be linked")
     if any(fact.visibility.classification == "restricted" for fact in (source, target)):

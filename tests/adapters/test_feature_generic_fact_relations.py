@@ -32,10 +32,10 @@ from infinity_context_core.features.memory_facts.public import (
     UnlinkFactRelationHandler,
     link_facts_in_transaction,
 )
-from memory_fact_test_support import EARLIER, LATER, NOW, FakeClock, FakeIds, _fact_snapshot, _scope
+from memory_fact_test_support import EARLIER, LATER, NOW, FakeClock, FakeIds, _fact_snapshot
 
 SOURCE = _fact_snapshot(fact_id="source")
-TARGET = _fact_snapshot(fact_id="target", scope=_scope(thread_id="other-thread"))
+TARGET = _fact_snapshot(fact_id="target")
 COMMAND = LinkFactsCommand(SOURCE.identity, TARGET.identity, "supports", " evidence ")
 
 
@@ -410,5 +410,40 @@ def test_link_locks_scope_then_unique_facts_in_stable_identity_order():
                 ("scope", SOURCE.identity.scope),
                 ("facts", (SOURCE.identity, TARGET.identity)),
             ]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "source_thread,target_thread", [(None, "one"), ("one", None), ("one", "two")]
+)
+def test_thread_mismatch_rejected_before_replay(source_thread, target_thread):
+    async def run():
+        source = replace(
+            SOURCE,
+            identity=replace(
+                SOURCE.identity, scope=replace(SOURCE.identity.scope, thread_id=source_thread)
+            ),
+        )
+        target = replace(
+            TARGET,
+            identity=replace(
+                TARGET.identity, scope=replace(TARGET.identity.scope, thread_id=target_thread)
+            ),
+        )
+        factory = InMemoryMemoryFactUnitOfWorkFactory((source, target))
+        # Simulate an old invalid row: endpoint validation must still precede replay.
+        async with factory() as uow:
+            uow.relations._relations["relation"] = _relation()
+            await uow.commit()
+        with pytest.raises(FactRelationConflict, match="cross thread boundaries"):
+            await _handler(factory).execute(
+                replace(COMMAND, source_identity=source.identity, target_identity=target.identity)
+            )
+        assert factory.facts == (source, target)
+        assert factory.outbox_messages == ()
+        assert factory.temporal_decisions == ()
+        async with factory() as uow:
+            assert await uow.relations.get("relation", scope=source.identity.scope) == _relation()
 
     asyncio.run(run())

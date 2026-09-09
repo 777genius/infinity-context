@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import timedelta
 
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactTransaction,
@@ -38,6 +39,8 @@ from infinity_context_core.features.memory_facts.public import (
 )
 from memory_fact_test_support import NOW, FakeClock, FakeIds, _fact_snapshot
 from sqlalchemy import func, select
+
+from tests.adapters.feature_relation_thread_cases import exercise_thread_cases
 
 
 def test_existing_rows_session_rollback_hydration_and_legacy_order(tmp_path):
@@ -103,6 +106,15 @@ def test_existing_rows_session_rollback_hydration_and_legacy_order(tmp_path):
                     str(item.id) for item in legacy
                 ]
                 assert all(item.related_fact.source_refs[0].char_end == 5 for item in result.items)
+            # Excluded project relation ranks first; filtering must precede LIMIT 1.
+            async with sessions() as session:
+                project_row = await session.get(MemoryFactRelationRow, "b")
+                project_row.updated_at = NOW + timedelta(days=1)
+                await session.commit()
+            selected = await reader.execute(
+                ListFactRelationsQuery(facts[0].identity, limit=1, enforce_code_scope=True)
+            )
+            assert [item.relation.relation_id for item in selected.items] == ["c"]
             # Joining the supplied session must roll back with unrelated canonical work.
             async with sessions() as session:
                 transaction = PostgresMemoryFactTransaction(session, now=NOW)
@@ -113,9 +125,14 @@ def test_existing_rows_session_rollback_hydration_and_legacy_order(tmp_path):
                     now=NOW,
                     ids=FakeIds(fact_relation_ids=("rollback",)),
                 )
+                unrelated = await session.get(MemoryFactRow, "source")
+                unrelated.text = "uncommitted canonical change"
+                await session.flush()
+                assert unrelated.text != facts[0].text
                 await session.rollback()
             async with sessions() as session:
                 assert await session.get(MemoryFactRelationRow, "rollback") is None
+                assert (await session.get(MemoryFactRow, "source")).text == facts[0].text
                 assert await session.scalar(select(func.count()).select_from(MemoryFactRow)) == 3
                 assert (
                     await session.scalar(select(func.count()).select_from(MemoryFactVersionRow))
@@ -143,6 +160,13 @@ def test_existing_rows_session_rollback_hydration_and_legacy_order(tmp_path):
             )
             async with sessions() as session:
                 assert (await session.get(MemoryFactRelationRow, "b")).status == "deleted"
+            await exercise_thread_cases(
+                engine,
+                sessions,
+                factory,
+                FakeClock(NOW),
+                FakeIds(fact_relation_ids=("global-link", "thread-link")),
+            )
         finally:
             await engine.dispose()
 

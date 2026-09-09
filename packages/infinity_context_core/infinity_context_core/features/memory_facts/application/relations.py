@@ -102,8 +102,8 @@ async def link_facts_in_transaction(
             {command.source_identity, command.target_identity}, key=memory_fact_identity_lock_key
         )
     )
-    # Generic relations allow cross-thread endpoints. Lock the common memory-scope
-    # key, then facts in the same stable order used by audited mutations.
+    # Lock the memory-scope key, then endpoints in the stable order used by
+    # audited mutations. Validate exact-thread eligibility before replay or writes.
     scopes = sorted(
         {(identity.scope.space_id, identity.scope.memory_scope_id) for identity in identities}
     )

@@ -25,6 +25,7 @@ from infinity_context_adapters.postgres import (
 )
 from infinity_context_adapters.postgres.models import (
     MemoryFactRelationRow,
+    MemoryFactRow,
     MemoryFactVersionRow,
     MemoryOutboxRow,
     MemorySourceRefRow,
@@ -44,6 +45,8 @@ from infinity_context_core.features.memory_facts.public import (
 from postgres_test_database import PostgresTestDatabase
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
+
+from tests.adapters.feature_relation_thread_cases import exercise_thread_cases
 
 NOW = datetime(2026, 9, 8, tzinfo=UTC)
 
@@ -155,8 +158,12 @@ async def _exercise(url):
                     now=NOW,
                     ids=ids,
                 )
+                unrelated = await uow._session.get(MemoryFactRow, "source")
+                unrelated.text = "uncommitted canonical change"
+                await uow._session.flush()
                 raise RuntimeError("injected failure before commit")
         async with sessions() as session:
+            assert (await session.get(MemoryFactRow, "source")).text == facts[0].text
             assert (
                 await session.scalar(select(func.count()).select_from(MemoryFactRelationRow)) == 1
             )
@@ -182,6 +189,7 @@ async def _exercise(url):
                 )
                 == 1
             )
+        await exercise_thread_cases(engine, sessions, factory, SystemClock(), ids)
     finally:
         if pending is not None:
             pending.cancel()
