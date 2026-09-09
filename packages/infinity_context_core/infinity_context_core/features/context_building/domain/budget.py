@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from infinity_context_core.features.context_building.domain.context import (
@@ -12,13 +13,21 @@ from infinity_context_core.features.context_building.domain.context import (
 
 @dataclass(frozen=True, slots=True)
 class ContextBudget:
-    """Prompt token budget with explicit reserves outside memory evidence."""
+    """Independent token and optional rendered Unicode character limits.
+
+    Token estimates and reserves retain their existing meaning. A character cap
+    measures the complete evidence rendering with Python's ``len(str)``; zero
+    allows an empty bundle and ``None`` preserves uncapped feature callers.
+    """
 
     max_prompt_tokens: int
     reserved_response_tokens: int = 0
     reserved_system_tokens: int = 0
+    max_rendered_chars: int | None = None
 
     def __post_init__(self) -> None:
+        if self.max_rendered_chars is not None and self.max_rendered_chars < 0:
+            raise ValueError("Rendered character budget cannot be negative")
         if self.max_prompt_tokens < 1:
             raise ValueError("Context budget must allow at least one prompt token")
         if self.reserved_response_tokens < 0:
@@ -57,7 +66,13 @@ class ContextBudgetPolicy:
         self,
         items: tuple[ContextItem, ...],
         budget: ContextBudget,
+        *,
+        render: Callable[[tuple[ContextItem, ...]], str] | None = None,
     ) -> ContextPackingPlan:
+        if budget.max_rendered_chars is not None and render is None:
+            from .rendering import ContextEvidenceRenderer
+
+            render = ContextEvidenceRenderer().render
         remaining = budget.available_evidence_tokens
         selected: list[ContextItem] = []
         dropped: list[ContextDroppedItem] = []
@@ -70,6 +85,21 @@ class ContextBudgetPolicy:
         for _, item in ranked_items:
             token_cost = item.token_cost
             if token_cost <= remaining:
+                # Measure the actual proposed rendering, including section headings,
+                # escaped quotes, citations and numbering. Keep evidence records whole.
+                if (
+                    budget.max_rendered_chars is not None
+                    and render is not None
+                    and len(render((*selected, item))) > budget.max_rendered_chars
+                ):
+                    dropped.append(
+                        ContextDroppedItem(
+                            item_id=item.item_id,
+                            reason="rendered_character_budget_exceeded",
+                            estimated_tokens=token_cost,
+                        )
+                    )
+                    continue
                 selected.append(item)
                 remaining -= token_cost
                 used += token_cost
