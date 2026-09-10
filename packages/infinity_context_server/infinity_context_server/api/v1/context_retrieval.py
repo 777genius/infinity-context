@@ -67,7 +67,16 @@ async def retrieval_v3_descriptor(
 ) -> Response:
     if container.locator_retrieval is None:
         return _error("memory.context_retrieval_unavailable", "Retrieval is unavailable")
-    descriptor = await container.locator_retrieval.descriptor()
+    try:
+        async with asyncio.timeout(MAX_DEADLINE_SECONDS):
+            descriptor = await container.locator_retrieval.descriptor()
+    except TimeoutError:
+        return _error("memory.context_retrieval_unavailable", "Retrieval is unavailable")
+    except RuntimeError as exc:
+        # Only the profile facade's unavailable sentinel is an expected outage.
+        if str(exc) != "retrieval_profile_query_unavailable":
+            raise
+        return _error("memory.context_retrieval_unavailable", "Retrieval is unavailable")
     return Response(
         content=_compact_bytes(retrieval_v3_capability(descriptor)), media_type="application/json"
     )
