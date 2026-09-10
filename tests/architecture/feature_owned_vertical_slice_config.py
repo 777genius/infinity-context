@@ -12,6 +12,12 @@ NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT = {
     ),
 }
 
+# Versioned public contracts retain their wire-version module while belonging to
+# an existing business feature; they do not introduce a new vertical slice.
+CONTRACT_FEATURE_MODULE_OWNERS = {
+    "context_retrieval_v3": "context_building",
+}
+
 # These compatibility seams adapt legacy context selection to the feature-owned
 # policy. Every exception is an exact source-path/module pair.
 INTERNAL_POLICY_ADAPTER_IMPORTS = frozenset(

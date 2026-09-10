@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 
 from feature_owned_vertical_slice_config import (
+    CONTRACT_FEATURE_MODULE_OWNERS,
     NON_VERTICAL_SLICE_SUPPORT_COMPONENTS_BY_ROOT,
     TRANSITIONAL_CORE_FEATURE_INTERNAL_IMPORTS,
 )
@@ -401,8 +402,14 @@ def test_non_vertical_slice_support_classifications_are_bounded_and_current() ->
 
 def test_contract_feature_modules_use_known_feature_ids() -> None:
     unexpected: list[str] = []
+    for module, owner in CONTRACT_FEATURE_MODULE_OWNERS.items():
+        assert module not in FEATURE_IDS
+        assert owner in FEATURE_IDS
+        assert (CONTRACT_FEATURE_ROOT / f"{module}.py").is_file()
+        assert (CONTRACT_FEATURE_ROOT / f"{owner}.py").is_file()
     for path in _feature_modules(CONTRACT_FEATURE_ROOT):
-        if path.stem not in FEATURE_IDS:
+        owner = CONTRACT_FEATURE_MODULE_OWNERS.get(path.stem, path.stem)
+        if owner not in FEATURE_IDS:
             unexpected.append(str(path.relative_to(REPO_ROOT)))
 
     assert unexpected == []

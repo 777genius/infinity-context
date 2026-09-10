@@ -72,8 +72,13 @@ class LocatorRetrievalScope:
     space_id: str
     memory_scope_id: str
     thread_id: str | None = None
+    thread_mode: str = "exact"
 
     def __post_init__(self) -> None:
+        if self.thread_mode not in ("exact", "any"):
+            raise ValueError("Unsupported thread selector mode")
+        if self.thread_mode == "any" and self.thread_id is not None:
+            raise ValueError("Any thread selector cannot carry an id")
         _require_opaque("space_id", self.space_id)
         _require_opaque("memory_scope_id", self.memory_scope_id)
         if self.thread_id is not None:
@@ -767,7 +772,7 @@ def candidate_matches_request(
         return False
     if candidate.space_id != scope.space_id or candidate.memory_scope_id != scope.memory_scope_id:
         return False
-    if candidate.thread_id != scope.thread_id:
+    if scope.thread_mode == "exact" and candidate.thread_id != scope.thread_id:
         return False
     if (candidate.source_key, candidate.projection_generation) not in {
         (item.source_key, item.projection_generation) for item in filters.source_generations

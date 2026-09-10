@@ -55,6 +55,12 @@ ROUTE_OWNERS = {
     ("api.v1.context.search_memory", "build_context.execute"),
     ("api.v1.context.search_memory", "ensure_scope.execute"),
     ("api.v1.context_retrieval._resolve_scope", "ensure_scope.execute"),
+    # V3 shares the admitted retrieval owner; explicit route/helper edges remain audited.
+    ("api.v1.context_retrieval._retrieve_context", "ensure_scope.execute"),
+    ("api.v1.context_retrieval._retrieve_context", "locator_retrieval.execute"),
+    ("api.v1.context_retrieval.retrieval_v3_descriptor", "locator_retrieval.descriptor"),
+    ("api.v1.context_retrieval.retrieve_context_v3", "ensure_scope.execute"),
+    ("api.v1.context_retrieval.retrieve_context_v3", "locator_retrieval.execute"),
     ("api.v1.context_retrieval.retrieve_context", "ensure_scope.execute"),
     ("api.v1.context_retrieval.retrieve_context", "locator_retrieval.execute"),
     ("api.v1.digest.build_digest", "build_memory_digest.execute"),

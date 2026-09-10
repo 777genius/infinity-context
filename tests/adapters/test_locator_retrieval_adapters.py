@@ -14,6 +14,7 @@ from infinity_context_adapters.features.context_building.qdrant_candidate_provid
 from infinity_context_adapters.postgres.locator_retrieval import (
     _candidate_statement,
     _canonical_rows,
+    _hard_sql_conditions,
 )
 from infinity_context_adapters.postgres.mappers import chunk_row_to_domain
 from infinity_context_adapters.postgres.retrieval_projection_mapping import (
@@ -392,7 +393,7 @@ class _Model:
 class _Models:
     FieldCondition = MatchValue = MatchAny = Filter = Range = DatetimeRange = _Model
     IsNullCondition = PayloadField = _Model
-    PointStruct = _Model
+    PointStruct = MinShould = _Model
 
 
 class _QdrantRead(QdrantVectorMemoryAdapter):
@@ -453,3 +454,78 @@ def _locator_upsert_item() -> VectorUpsertItem:
             "chunk_key": "chunk",
         },
     )
+
+
+def test_postgres_any_only_removes_thread_predicate_from_provider_and_hydration():
+    exact = _request()
+    any_threads = replace(exact, scope=core.LocatorRetrievalScope("space", "scope", None, "any"))
+    dialect = postgresql.dialect()
+
+    def render(request):
+        return [str(item.compile(dialect=dialect)) for item in _hard_sql_conditions(request)]
+
+    exact_conditions = render(exact)
+    thread_condition = "memory_chunks.thread_id = %(thread_id_1)s"
+    assert exact_conditions.count(thread_condition) == 1
+    assert render(any_threads) == [item for item in exact_conditions if item != thread_condition]
+    parent_conditions = [item for item in exact_conditions if "EXISTS" in item]
+    assert parent_conditions
+    assert all(item in render(any_threads) for item in parent_conditions)
+    assert any(
+        "memory_documents.thread_id IS NOT DISTINCT FROM memory_chunks.thread_id" in item
+        for item in parent_conditions
+    )
+    null = replace(exact, scope=core.LocatorRetrievalScope("space", "scope"))
+    assert "memory_chunks.thread_id IS NULL" in render(null)
+    assert "memory_chunks.thread_id =" not in str(
+        _candidate_statement(any_threads, "query").compile(dialect=dialect)
+    )
+
+
+def test_qdrant_runtime_any_keeps_scope_and_profile_fences():
+    adapter = _QdrantScopeRead(
+        url="http://unused",
+        collection_name="locator-profile",
+        vector_size=2,
+        projection_version="document-retrieval-projection.v1",
+        index_profile_digest="a" * 64,
+        index_generation="b" * 64,
+    )
+    request = replace(_request(), scope=core.LocatorRetrievalScope("space", "scope", None, "any"))
+    asyncio.run(
+        adapter.search_locator_chunks(
+            space_id="space",
+            memory_scope_id="scope",
+            thread_id=None,
+            thread_mode="any",
+            query_vector=(0.1, 0.2),
+            query_text="query",
+            limit=1,
+            filter_spec=translate_qdrant_locator_filters(request),
+        )
+    )
+    coordinates = {
+        (condition.kwargs["key"], condition.kwargs["match"].kwargs["value"])
+        for condition in adapter.query_filter.kwargs["must"]
+        if "match" in condition.kwargs and "value" in condition.kwargs["match"].kwargs
+    }
+    assert {
+        ("space_id", "space"),
+        ("memory_scope_id", "scope"),
+        ("index_profile_digest", "a" * 64),
+        ("index_generation", "b" * 64),
+        ("lifecycle_status", "active"),
+    } <= coordinates
+    assert not any(
+        condition.kwargs.get("key") == "thread_id" or "is_null" in condition.kwargs
+        for condition in adapter.query_filter.kwargs["must"]
+    )
+
+    minimum = adapter.query_filter.kwargs["min_should"].kwargs
+    assert minimum["min_count"] == 1
+    assert len(minimum["conditions"]) == 1
+    pair = minimum["conditions"][0].kwargs["must"]
+    assert [(item.kwargs["key"], item.kwargs["match"].kwargs["value"]) for item in pair] == [
+        ("source_key", "source"),
+        ("projection_generation", "generation"),
+    ]

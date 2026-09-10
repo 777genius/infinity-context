@@ -194,6 +194,7 @@ def test_context_building_server_feature_public_surface_composes_router() -> Non
         "create_context_building_router",
         "retrieval_request_to_core",
         "retrieval_response_to_contract",
+        "retrieval_v3_request_to_core",
     )
     assert server_public.FEATURE_ID == "context_building"
     assert {route.path for route in feature.create_router().routes} == {

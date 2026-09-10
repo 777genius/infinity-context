@@ -21,6 +21,7 @@ from infinity_context_contracts.features.context_building import (
     RetrievalRankingParametersDto,
     capability_fingerprint,
 )
+from infinity_context_contracts.features.context_retrieval_v3 import retrieval_v3_capability
 
 
 class RetrievalProfileConflict(RuntimeError):
@@ -111,11 +112,25 @@ class LocatorRetrievalService:
                     record(profile_id, f"profile_failure:{lane.provider_id}")
         return RetrievalCapabilityDto.from_dict(payload)
 
-    async def execute(self, request: core.LocatorRetrievalRequest) -> core.LocatorRetrievalResponse:
+    async def execute(
+        self,
+        request: core.LocatorRetrievalRequest,
+        *,
+        contract_version: str = "context-retrieval.v2",
+    ) -> core.LocatorRetrievalResponse:
+        if contract_version not in ("context-retrieval.v2", "context-retrieval.v3"):
+            raise ValueError("Unsupported retrieval boundary")
+        if contract_version == "context-retrieval.v2" and request.scope.thread_mode != "exact":
+            raise ValueError("V2 requires exact thread selection")
         started = perf_counter()
         descriptor = await self.descriptor()
+        fingerprint = (
+            retrieval_v3_capability(descriptor)["capability_fingerprint"]
+            if contract_version == "context-retrieval.v3"
+            else descriptor.capability_fingerprint
+        )
         if (
-            request.capability_fingerprint != descriptor.capability_fingerprint
+            request.capability_fingerprint != fingerprint
             or request.profile_id != descriptor.profile_id
         ):
             record = getattr(self.diagnostics, "record", None)
@@ -135,7 +150,7 @@ class LocatorRetrievalService:
             for lane in self.lanes
         )
         capability = core.LocatorRetrievalCapability(
-            capability_fingerprint=descriptor.capability_fingerprint,
+            capability_fingerprint=fingerprint,
             profile_id=descriptor.profile_id,
             supports_neighbors=descriptor.supports_neighbors,
             service_revision=descriptor.service_revision,

@@ -88,7 +88,7 @@ const CAPABILITIES_RESPONSE_INTEGER_PATHS = [
   "context.retrieval.bounds.*.*", "context.retrieval.provider_lanes.*.weight_micros",
   "context.retrieval.ranking_parameters.*",
 ] as const;
-const RESPONSE_INTEGER_PATHS = [
+export const RESPONSE_INTEGER_PATHS = [
   "applied_bounds.candidate_limit", "applied_bounds.result_limit", "applied_bounds.neighbor_radius",
   "applied_bounds.response_byte_limit", "applied_bounds.deadline_ms", "applied_bounds.returned_seeds",
   "applied_bounds.returned_neighbors", "candidates.*.canonical_version", "candidates.*.distance",

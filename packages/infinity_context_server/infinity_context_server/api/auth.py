@@ -125,8 +125,8 @@ def _canonical_presented_token(value: str) -> str | None:
 
 
 def _constant_time_token_matches(presented: str, expected: str) -> bool:
-    return expected.isascii() and expected.isprintable() and hmac.compare_digest(
-        presented, expected
+    return (
+        expected.isascii() and expected.isprintable() and hmac.compare_digest(presented, expected)
     )
 
 
@@ -487,11 +487,17 @@ async def _ensure_memory_scope_scoped_token_can_access_request(
 
 
 def _is_safe_unscoped_endpoint(request: Request) -> bool:
-    return request.method.upper() == "GET" and request.url.path == "/v1/capabilities"
+    return request.method.upper() == "GET" and request.url.path in {
+        "/v1/capabilities",
+        "/v1/context/retrieve-v3/capability",
+    }
 
 
 def _uses_trusted_post_resolution_scope(request: Request) -> bool:
-    return request.method.upper() == "POST" and request.url.path == "/v1/context/retrieve"
+    return request.method.upper() == "POST" and request.url.path in {
+        "/v1/context/retrieve",
+        "/v1/context/retrieve-v3",
+    }
 
 
 def authorize_resolved_retrieval_scope(

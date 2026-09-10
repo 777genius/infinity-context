@@ -432,6 +432,7 @@ class QdrantVectorMemoryAdapter(QdrantVectorMutationMixin):
         query_text: str,
         limit: int,
         filter_spec: dict[str, object],
+        thread_mode: str = "exact",
     ) -> tuple[dict[str, object], ...]:
         return await _search_locator_chunks(
             self,
@@ -442,6 +443,7 @@ class QdrantVectorMemoryAdapter(QdrantVectorMutationMixin):
             query_text=query_text,
             limit=limit,
             filter_spec=filter_spec,
+            thread_mode=thread_mode,
         )
 
     @property

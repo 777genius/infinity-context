@@ -448,3 +448,8 @@ export type {
   TransferMemorySnapshotResult,
   WorkflowStepOptions,
 } from "./workflows/memory.js";
+
+export { CONTEXT_RETRIEVAL_V3_CONTRACT, RETRIEVAL_V3_ENDPOINT, retrievalV3RequestPayload,
+  decodeRetrievalV3Capability, decodeRetrieveContextV3ResponseBytes } from "./retrieval-v3.js";
+export type { RetrievalThreadSelector, RetrieveContextV3Input, RetrievalV3Capability,
+  RetrieveContextV3Response } from "./retrieval-v3.js";

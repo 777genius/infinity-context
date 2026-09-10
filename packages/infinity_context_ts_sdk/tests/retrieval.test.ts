@@ -516,3 +516,34 @@ describe("Contract C locator Retrieval", () => {
     }
   });
 });
+
+it("V3 explicitly selects threads and rejects downgrade before/after transport", async () => {
+  const { retrievalV3RequestPayload, decodeRetrievalV3Capability } = await import("../src/retrieval-v3.js");
+  const original = await fixture("capability.json");
+  const capability = { ...original, contract_version: "context-retrieval.v3", endpoint: "/v1/context/retrieve-v3" };
+  capability.capability_fingerprint = await retrievalCapabilityFingerprint(capability);
+  const request = { ...input(), contractVersion: "context-retrieval.v3" as const,
+    capabilityFingerprint: capability.capability_fingerprint,
+    scope: { spaceId: "space-a", memoryScopeId: "scope-a", thread: { mode: "any" as const } },
+  };
+  const response = { ...await fixture("success.json"), contract_version: "context-retrieval.v3",
+    capability_fingerprint: capability.capability_fingerprint };
+  const executor = { request: vi.fn(async (_options: RequestOptions) => JSON.stringify(response)) };
+  const client = new ContextClient(executor as unknown as RequestExecutor);
+  const pins = { capabilityFingerprint: capability.capability_fingerprint, profileId: capability.profile_id,
+    requiredProviderLanes: capability.required_provider_lanes };
+  expect(await client.retrieveV3(request, capability, pins)).toEqual(response);
+  expect(executor.request).toHaveBeenCalledTimes(1);
+  expect(executor.request.mock.calls[0]?.[0].method).toBe("POST");
+  expect(executor.request.mock.calls[0]?.[0].path).toBe("/v1/context/retrieve-v3");
+  expect(executor.request.mock.calls[0]?.[0].json).toEqual(expect.objectContaining({ scope: request.scope }));
+  for (const thread of [{ mode: "exact" }, { mode: "any", id: null }, { mode: "unknown" }]) {
+    expect(() => retrievalV3RequestPayload({ ...request, scope: { ...request.scope, thread } } as never)).toThrow();
+  }
+  expect(() => decodeRetrievalV3Capability(original)).toThrow();
+  await expect(client.retrieveV3(request, original, pins)).rejects.toBeDefined();
+  expect(executor.request).toHaveBeenCalledTimes(1);
+  response.contract_version = "context-retrieval.v2";
+  await expect(client.retrieveV3(request, capability, pins)).rejects.toBeDefined();
+  expect(executor.request).toHaveBeenCalledTimes(2);
+});

@@ -416,7 +416,9 @@ def _validated_request_copy(value: object) -> LocatorRetrievalRequest:
         else value.contract_version,
         value.capability_fingerprint,
         value.profile_id,
-        LocatorRetrievalScope(scope.space_id, scope.memory_scope_id, scope.thread_id),
+        LocatorRetrievalScope(
+            scope.space_id, scope.memory_scope_id, scope.thread_id, scope.thread_mode
+        ),
         queries,
         LocatorHardFilters(
             tuple(

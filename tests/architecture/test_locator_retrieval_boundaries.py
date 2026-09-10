@@ -129,6 +129,12 @@ IMMUTABLE_COMPATIBILITY_PATTERNS = tuple(
     for literal in sorted(IMMUTABLE_COMPATIBILITY_LITERALS, key=len, reverse=True)
 )
 NEW_SOURCE_CLASSIFICATION = {
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_contracts"
+    / "infinity_context_contracts"
+    / "features"
+    / "context_retrieval_v3.py": "contract_selector",
     CORE_FEATURE / "domain" / "locator_retrieval.py": "domain",
     CORE_FEATURE / "domain" / "locator_retrieval_filters.py": "domain_filters",
     CORE_FEATURE / "ports" / "locator_retrieval.py": "ports",
@@ -205,6 +211,7 @@ NEW_SOURCE_CLASSIFICATION = {
     / "projection_ownership.py": "ingestion_ports",
 }
 INTEGRATION_SOURCE_CLASSIFICATION = {
+    SERVER_PACKAGE / "retrieval_profile_query.py": "profile_query_orchestration",
     SERVER_CONTEXT_BUILDING / "retrieval_service.py": "application_composition",
     SERVER_CONTEXT_BUILDING / "retrieval_mappers.py": "contract_mapping",
     SERVER_PACKAGE / "retrieval_profile_composition.py": "provider_composition",
@@ -224,6 +231,7 @@ INTEGRATION_SOURCE_CLASSIFICATION = {
     QDRANT_ADAPTER / "locator_runtime.py": "derived_runtime_adapter",
 }
 STDLIB_ALLOWLIST = {
+    "contract_selector": {"__future__", "collections", "dataclasses"},
     "application": {"__future__", "asyncio", "dataclasses", "json", "math"},
     "contract": {
         "__future__",
@@ -259,6 +267,12 @@ STDLIB_ALLOWLIST = {
     "ports": {"__future__", "typing"},
 }
 OWN_FEATURE_ALLOWLIST = {
+    "contract_selector": {
+        "._context_building_retrieval",
+        "._context_building_retrieval_json",
+        "._context_building_retrieval_validation",
+        "._context_building_retrieval_capability",
+    },
     "application": {
         "infinity_context_core.features.context_building.domain.locator_retrieval",
         "infinity_context_core.features.context_building.ports.locator_retrieval",

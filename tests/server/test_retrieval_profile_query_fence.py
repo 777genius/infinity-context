@@ -6,6 +6,13 @@ import asyncio
 
 import pytest
 from infinity_context_core.features.context_building.public import (
+    LocatorHardFilters,
+    LocatorQueryVariant,
+    LocatorRetrievalBounds,
+    LocatorRetrievalRequest,
+    LocatorRetrievalScope,
+    LocatorSoftPreferences,
+    LocatorSourceGeneration,
     ProfileQueryAdmission,
     ProfileQueryAdmissionStatus,
     RetrievalProfileIdentity,
@@ -14,7 +21,18 @@ from infinity_context_server.retrieval_profile_composition import (
     ProfileAwareLocatorRetrievalService,
 )
 
-_DEFAULT_REQUEST = object()
+_DEFAULT_REQUEST = LocatorRetrievalRequest(
+    contract_version="context-retrieval.v2",
+    capability_fingerprint="a" * 64,
+    profile_id="synthetic-fence-profile",
+    scope=LocatorRetrievalScope("synthetic-space", "synthetic-memory"),
+    queries=(LocatorQueryVariant("original", "synthetic question"),),
+    hard_filters=LocatorHardFilters(
+        source_generations=(LocatorSourceGeneration("synthetic-source", "synthetic-generation"),)
+    ),
+    soft_preferences=LocatorSoftPreferences(),
+    bounds=LocatorRetrievalBounds(),
+)
 
 
 def _deadline(seconds: float = 1.0) -> float:
@@ -89,7 +107,9 @@ def test_query_cancellation_waits_for_durable_fence_close(monkeypatch) -> None:
             lambda _self, _active, **_kwargs: delegate,
         )
 
-        query = asyncio.create_task(service.execute(object(), deadline_monotonic=_deadline()))
+        query = asyncio.create_task(
+            service.execute(_DEFAULT_REQUEST, deadline_monotonic=_deadline())
+        )
         await delegate.started.wait()
         query.cancel()
         await registry.close_started.wait()
@@ -124,7 +144,9 @@ def test_query_cancellation_during_admission_still_closes_committed_fence(
             lambda _self, _active, **_kwargs: _UnexpectedQueryDelegate(),
         )
 
-        query = asyncio.create_task(service.execute(object(), deadline_monotonic=_deadline()))
+        query = asyncio.create_task(
+            service.execute(_DEFAULT_REQUEST, deadline_monotonic=_deadline())
+        )
         await registry.admission_started.wait()
         query.cancel()
         await asyncio.sleep(0)
@@ -223,7 +245,7 @@ def test_blocked_admission_is_cancelled_at_absolute_deadline(monkeypatch) -> Non
         )
         started = asyncio.get_running_loop().time()
         with pytest.raises(TimeoutError):
-            await service.execute(object(), deadline_monotonic=started + 0.02)
+            await service.execute(_DEFAULT_REQUEST, deadline_monotonic=started + 0.02)
         assert asyncio.get_running_loop().time() - started < 0.2
         assert registry.admission_cancelled.is_set()
 
@@ -251,7 +273,7 @@ def test_blocked_finish_is_cancelled_and_fence_expires_at_request_deadline(
         )
         started = asyncio.get_running_loop().time()
         with pytest.raises(TimeoutError):
-            await service.execute(object(), deadline_monotonic=started + 0.02)
+            await service.execute(_DEFAULT_REQUEST, deadline_monotonic=started + 0.02)
         assert asyncio.get_running_loop().time() - started < 0.2
         assert registry.finish_cancelled.is_set()
         assert registry.admitted_ttl.total_seconds() <= 0.02

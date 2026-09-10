@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 
 import infinity_context_core.features.context_building.public as core
@@ -11,9 +12,41 @@ from infinity_context_contracts.features.context_building import (
     RetrievalContributionDto,
     RetrievalNeighborDto,
     RetrievalProviderOutcomeDto,
+    RetrievalScopeDto,
     RetrieveContextRequestDto,
     RetrieveContextResponseDto,
 )
+from infinity_context_contracts.features.context_retrieval_v3 import (
+    RetrieveContextV3RequestDto,
+)
+
+
+def retrieval_v3_request_to_core(
+    request: RetrieveContextV3RequestDto,
+) -> core.LocatorRetrievalRequest:
+    # Revalidate at the boundary, including callers using DTOs directly.
+    request = RetrieveContextV3RequestDto.from_dict(request.to_dict())
+    common = RetrieveContextRequestDto(
+        "context-retrieval.v2",
+        request.capability_fingerprint,
+        request.profile_id,
+        RetrievalScopeDto(
+            request.scope.space_id, request.scope.memory_scope_id, request.scope.thread_id
+        ),
+        request.queries,
+        request.filters,
+        request.soft_preferences,
+        request.bounds,
+    )
+    return replace(
+        retrieval_request_to_core(common),
+        scope=core.LocatorRetrievalScope(
+            request.scope.space_id,
+            request.scope.memory_scope_id,
+            request.scope.thread.id,
+            request.scope.thread.mode,
+        ),
+    )
 
 
 def retrieval_request_to_core(
@@ -170,4 +203,8 @@ def _relative_interval(
     return core.LocatorRelativeTimeInterval(value.start_ms, value.end_ms)
 
 
-__all__ = ("retrieval_request_to_core", "retrieval_response_to_contract")
+__all__ = (
+    "retrieval_request_to_core",
+    "retrieval_v3_request_to_core",
+    "retrieval_response_to_contract",
+)

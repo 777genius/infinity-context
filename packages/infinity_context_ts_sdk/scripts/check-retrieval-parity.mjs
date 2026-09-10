@@ -30,15 +30,32 @@ for (const name of expectedNames) {
 }
 
 const contextResource = await readFile(new URL("../src/resources/context.ts", import.meta.url), "utf8");
-if (!/method:\s*"POST"[\s\S]{0,300}?path:\s*"\/v1\/context\/retrieve"/u.test(contextResource)) {
-  throw new Error("Retrieval SDK endpoint parity failed: POST /v1/context/retrieve is missing");
+// Bind each public method to its version and require the route to reach transport.
+for (const [method, endpoint, version] of [
+  ["retrieve", "/v1/context/retrieve", "false"],
+  ["retrieveV3", "/v1/context/retrieve-v3", "true"],
+]) {
+  const body = contextResource.split(`async ${method}(`)[1]?.split("\n  }")[0] ?? "";
+  if (!body.includes(`return this.retrieveVersion(input, capability, required, controls, { method: "POST", path: "${endpoint}" }, ${version})`)) {
+    throw new Error(`Retrieval TypeScript SDK endpoint parity failed: ${method}`);
+  }
+}
+if (!/const response = await this\.http\.request<Uint8Array \| string>\(\{\s*\.\.\.route,/u.test(contextResource)) {
+  throw new Error("Retrieval TypeScript SDK route transport parity failed");
 }
 const pythonClient = await readFile(
   new URL("../../infinity_context_sdk/infinity_context_sdk/retrieval.py", import.meta.url),
   "utf8",
 );
-if (!pythonClient.includes("def retrieve_context(") ||
-    !/async with client\.stream\("POST", "\/v1\/context\/retrieve"/u.test(pythonClient) ||
+const pythonV2 = pythonClient.split("    def retrieve_context(")[1]?.split("\n    def ")[0] ?? "";
+const pythonV3 = pythonClient.split("    def retrieve_context_v3(")[1]?.split("\n    async def ")[0] ?? "";
+if (!pythonV2.includes("self._retrieve_context_async(") || /v3\s*=/u.test(pythonV2) ||
+    !pythonV3.includes("self._retrieve_context_async(") || !pythonV3.includes("v3=True,") ||
+    !/from infinity_context_contracts\.features\.context_retrieval_v3 import \(\s*ENDPOINT as V3_ENDPOINT,/u.test(pythonClient) ||
+    !pythonClient.includes("v3: bool = False,") ||
+    !/response, body = await _race_response\(\s*client,\s*payload,\s*maximum_bytes,\s*cancellation_event,\s*endpoint=V3_ENDPOINT if v3 else "\/v1\/context\/retrieve",/u.test(pythonClient) ||
+    !pythonClient.includes("else _read_response(client, payload, maximum_bytes, endpoint)") ||
+    !/async with client\.stream\("POST", endpoint, content=payload\)/u.test(pythonClient) ||
     !pythonClient.includes("await asyncio.gather(request_task, cancellation_task")) {
   throw new Error("Retrieval Python SDK endpoint parity failed");
 }
@@ -52,4 +69,4 @@ if (packageJson.exports?.["./fixtures/context_retrieval_v2/*.json"]?.default !==
   throw new Error("Retrieval fixture package export is missing");
 }
 
-console.log(`Retrieval parity ok: Python/TypeScript POST /v1/context/retrieve and ${expectedNames.length} canonical fixtures`);
+console.log(`Retrieval parity ok: Python/TypeScript POST V2/V3 routing and ${expectedNames.length} canonical fixtures`);
