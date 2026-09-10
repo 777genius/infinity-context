@@ -20,6 +20,12 @@ for name in GITHUB_OUTPUT GITHUB_REPOSITORY GITHUB_RUN_ATTEMPT GITHUB_RUN_ID \
   required_env "${name}"
 done
 
+PUBLISH_RELEASE="${PUBLISH_RELEASE-false}"
+case "${PUBLISH_RELEASE}" in
+  true|false) ;;
+  *) die "PUBLISH_RELEASE must be true or false" ;;
+esac
+
 case "${RECONCILE_ONLY:-false}" in
   true|false) ;;
   *) die "RECONCILE_ONLY must be true or false" ;;
@@ -202,7 +208,7 @@ if [ "${RELEASE_STATE}" = published ]; then
     --workflow-run-attempt "${origin_run_attempt}" \
     --workflow-run-id "${origin_run_id}" \
     --workflow-sha256 "${WORKFLOW_SHA256}"
-else
+elif [ "${PUBLISH_RELEASE}" = true ]; then
   revalidate_tag_and_ruleset
   set +e
   gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false
@@ -226,6 +232,42 @@ else
   done
 fi
 
+# Mutable draft observations are not immutable/public attestations.
+if [ "${RELEASE_STATE}" = draft ]; then
+  observed_release="$(jq -Sc '{id, tag_name, name, draft, prerelease, html_url, assets}' <<<"${RELEASE_JSON}")"
+  revalidate_tag_and_ruleset
+  inspect_release
+  [ "${RELEASE_STATE}" = draft ] || die "Qualification release no longer draft"
+  validate_release_shape true
+  test "$(jq -Sc '{id, tag_name, name, draft, prerelease, html_url, assets}' <<<"${RELEASE_JSON}")" = "${observed_release}" || \
+    die "Draft identity or assets changed during qualification"
+  mkdir draft-qualification
+  asset_evidence='[]'
+  for asset in "${assets[@]}"; do
+    digest="$(sha256sum "verification-receipt/${asset}" | cut -d' ' -f1)"
+    byte_length="$(wc -c <"verification-receipt/${asset}")"
+    asset_evidence="$(jq --arg name "${asset}" --arg sha256 "${digest}" \
+      --argjson byte_length "${byte_length}" \
+      '. + [{name: $name, sha256: $sha256, byte_length: $byte_length}]' <<<"${asset_evidence}")"
+  done
+  jq -n --argjson release "${RELEASE_JSON}" --argjson assets "${asset_evidence}" \
+    --arg repository "${GITHUB_REPOSITORY}" --arg commit "${RELEASE_COMMIT}" \
+    --arg tag_object "${TAG_OBJECT}" --arg workflow_sha256 "${WORKFLOW_SHA256}" \
+    --arg run_id "${GITHUB_RUN_ID}" --arg run_attempt "${GITHUB_RUN_ATTEMPT}" '
+      {schema_version: "infinity-context-typescript-sdk-draft-qualification.v1",
+       release_state: "draft", immutable_attestation_verified: false,
+       evidence_scope: "Observed mutable draft; downloaded bytes match this build. Not public distribution or immutable attestation.",
+       repository: $repository, source_commit: $commit, tag_object: $tag_object,
+       workflow_sha256: $workflow_sha256, run_id: $run_id, run_attempt: $run_attempt,
+       release_id: $release.id, release_tag: $release.tag_name,
+       observed_draft_url: $release.html_url,
+       assets: [$assets[] as $asset | $asset +
+         {id: ($release.assets[] | select(.name == $asset.name) | .id)}]}
+    ' >draft-qualification/infinity-context-sdk-draft-qualification-receipt.json
+  printf 'release_state=draft\n' >>"${GITHUB_OUTPUT}"
+  exit 0
+fi
+
 printf '%s\n' "${RELEASE_JSON}" >verification-receipt/release.json
 release_attestation="$(gh release verify "${RELEASE_TAG}" \
   --repo "${GITHUB_REPOSITORY}" --format json)"
@@ -240,3 +282,4 @@ for asset in "${assets[@]}"; do
     >"verification-receipt/${asset}.attestation.json"
 done
 printf 'url=%s\n' "$(jq -er '.html_url' <<<"${RELEASE_JSON}")" >>"${GITHUB_OUTPUT}"
+printf 'release_state=published\n' >>"${GITHUB_OUTPUT}"

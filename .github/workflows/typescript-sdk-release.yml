@@ -7,6 +7,11 @@ on:
         description: Exact dispatched protected annotated sdk-vX.Y.Z tag/ref
         required: true
         type: string
+      publish_release:
+        description: Publish an immutable public release only after explicit approval of this SDK version
+        required: true
+        default: false
+        type: boolean
       reconcile_only:
         description: Verify and retain a receipt for an exact existing published release; never publish
         required: true
@@ -293,7 +298,7 @@ jobs:
           fi
 
   publish:
-    name: Publish protected immutable SDK release
+    name: Qualify draft or explicitly publish protected SDK release
     needs: [build, policy_preflight]
     if: github.repository == '777genius/infinity-context'
     runs-on: ubuntu-latest
@@ -366,6 +371,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PUBLISH_RELEASE: ${{ inputs.publish_release }}
           RECONCILE_ONLY: ${{ inputs.reconcile_only }}
           RELEASE_COMMIT: ${{ needs.build.outputs.commit }}
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
@@ -378,6 +384,7 @@ jobs:
           bash packages/infinity_context_ts_sdk/scripts/sdk-release-publish.sh
 
       - name: Create non-release verification receipt
+        if: steps.publish.outputs.release_state == 'published'
         shell: bash
         env:
           RELEASE_TAG: ${{ needs.build.outputs.tag }}
@@ -394,10 +401,22 @@ jobs:
             --tag "${RELEASE_TAG}"
 
       - name: Retain verification receipt for Discord and operations custody
+        if: steps.publish.outputs.release_state == 'published'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: typescript-sdk-release-verification-${{ needs.build.outputs.tag }}
           path: verification-receipt/infinity-context-sdk-release-verification-receipt.json
+          if-no-files-found: error
+          include-hidden-files: false
+          overwrite: false
+          retention-days: 90
+
+      - name: Retain mutable draft qualification evidence
+        if: steps.publish.outputs.release_state == 'draft'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: typescript-sdk-draft-qualification-${{ needs.build.outputs.tag }}
+          path: draft-qualification/infinity-context-sdk-draft-qualification-receipt.json
           if-no-files-found: error
           include-hidden-files: false
           overwrite: false
