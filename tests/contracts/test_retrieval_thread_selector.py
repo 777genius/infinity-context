@@ -1,17 +1,21 @@
 """Strict V3 wire isolation against immutable V2 synthetic request fixtures."""
+
 import copy
 import json
-from pathlib import Path
 import unittest
-
-from infinity_context_contracts.features.context_building import RetrieveContextRequestDto
-from infinity_context_contracts.features.context_retrieval_v3 import (
-    RetrieveContextV3RequestDto, decode_retrieve_context_v3_request,
-    RetrieveContextV3ResponseDto, retrieval_v3_capability, validate_retrieval_v3_capability,
-)
+from pathlib import Path
 
 from infinity_context_contracts.features.context_building import (
-    RetrievalCapabilityDto, RetrieveContextResponseDto,
+    RetrievalCapabilityDto,
+    RetrieveContextRequestDto,
+    RetrieveContextResponseDto,
+)
+from infinity_context_contracts.features.context_retrieval_v3 import (
+    RetrieveContextV3RequestDto,
+    RetrieveContextV3ResponseDto,
+    decode_retrieve_context_v3_request,
+    retrieval_v3_capability,
+    validate_retrieval_v3_capability,
 )
 
 FIXTURE = Path(__file__).resolve().parents[2] / (
@@ -27,14 +31,18 @@ class ThreadSelectorWireTests(unittest.TestCase):
         self.v3["contract_version"] = "context-retrieval.v3"
         scope = self.v2["scope"]
         self.v3["scope"] = {
-            "spaceId": scope["space_id"], "memoryScopeId": scope["memory_scope_id"],
+            "spaceId": scope["space_id"],
+            "memoryScopeId": scope["memory_scope_id"],
             "thread": {"mode": "any"},
         }
 
     def test_roundtrip_and_v2_stays_strict(self):
         self.assertEqual(RetrieveContextRequestDto.from_dict(self.v2).to_dict(), self.v2)
-        for selector in ({"mode": "any"}, {"mode": "exact", "id": None},
-                         {"mode": "exact", "id": "meeting-a"}):
+        for selector in (
+            {"mode": "any"},
+            {"mode": "exact", "id": None},
+            {"mode": "exact", "id": "meeting-a"},
+        ):
             self.v3["scope"]["thread"] = selector
             self.assertEqual(
                 decode_retrieve_context_v3_request(json.dumps(self.v3).encode()).to_dict(), self.v3
@@ -65,10 +73,17 @@ class ThreadSelectorWireTests(unittest.TestCase):
             RetrieveContextResponseDto.from_dict(response)
 
     def test_invalid_selectors(self):
-        for selector in ({"mode": "exact"}, {"mode": "any", "id": None},
-                         {"mode": "unknown"}, {"mode": "exact", "id": 1},
-                         {"mode": "exact", "id": ""}, {"mode": "any", "extra": True},
-                         None, "any", {"mode": []}):
+        for selector in (
+            {"mode": "exact"},
+            {"mode": "any", "id": None},
+            {"mode": "unknown"},
+            {"mode": "exact", "id": 1},
+            {"mode": "exact", "id": ""},
+            {"mode": "any", "extra": True},
+            None,
+            "any",
+            {"mode": []},
+        ):
             with self.subTest(selector=selector):
                 self.v3["scope"]["thread"] = selector
                 with self.assertRaises(ValueError):

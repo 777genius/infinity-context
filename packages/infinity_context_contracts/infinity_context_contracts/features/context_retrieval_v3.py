@@ -1,18 +1,25 @@
 """Explicit opt-in thread selector boundary; V2 validators remain strict."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 
 from ._context_building_retrieval import (
-    RetrievalScopeDto, RetrieveContextRequestDto, RetrieveContextResponseDto,
+    RetrievalScopeDto,
+    RetrieveContextRequestDto,
+    RetrieveContextResponseDto,
 )
 from ._context_building_retrieval_capability import (
-    CAPABILITY_ENDPOINT, RetrievalCapabilityDto, capability_fingerprint,
+    CAPABILITY_ENDPOINT,
+    RetrievalCapabilityDto,
+    capability_fingerprint,
 )
 from ._context_building_retrieval_json import decode_context_retrieval_json
 from ._context_building_retrieval_validation import (
-    mapping, require_exact, validated_opaque,
+    mapping,
+    require_exact,
+    validated_opaque,
 )
 
 CONTRACT_VERSION = "context-retrieval.v3"
@@ -55,7 +62,9 @@ class RetrievalScopeV3Dto:
         validated_opaque(self.memory_scope_id, "scope.memoryScopeId")
         if not isinstance(self.thread, RetrievalThreadSelectorDto):
             raise ValueError("scope.thread has an invalid runtime type")
-        object.__setattr__(self, "thread", RetrievalThreadSelectorDto(self.thread.mode, self.thread.id))
+        object.__setattr__(
+            self, "thread", RetrievalThreadSelectorDto(self.thread.mode, self.thread.id)
+        )
 
     @property
     def thread_id(self) -> str | None:
@@ -64,7 +73,8 @@ class RetrievalScopeV3Dto:
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "spaceId": self.space_id, "memoryScopeId": self.memory_scope_id,
+            "spaceId": self.space_id,
+            "memoryScopeId": self.memory_scope_id,
             "thread": self.thread.to_dict(),
         }
 
@@ -72,7 +82,8 @@ class RetrievalScopeV3Dto:
     def from_dict(cls, payload: Mapping[str, object]) -> RetrievalScopeV3Dto:
         require_exact(payload, {"spaceId", "memoryScopeId", "thread"}, "scope")
         return cls(
-            payload["spaceId"], payload["memoryScopeId"],
+            payload["spaceId"],
+            payload["memoryScopeId"],
             RetrievalThreadSelectorDto.from_dict(mapping(payload["thread"], "scope.thread")),
         )
 
@@ -86,12 +97,19 @@ class RetrieveContextV3RequestDto(RetrieveContextRequestDto):
             raise ValueError("contract_version is unsupported")
         if not isinstance(self.scope, RetrievalScopeV3Dto):
             raise ValueError("scope has an invalid runtime type")
-        scope = RetrievalScopeV3Dto(self.scope.space_id, self.scope.memory_scope_id, self.scope.thread)
+        scope = RetrievalScopeV3Dto(
+            self.scope.space_id, self.scope.memory_scope_id, self.scope.thread
+        )
         # Share validation of all non-selector fields, without relaxing V2 parsing.
         common = RetrieveContextRequestDto(
-            "context-retrieval.v2", self.capability_fingerprint, self.profile_id,
+            "context-retrieval.v2",
+            self.capability_fingerprint,
+            self.profile_id,
             RetrievalScopeDto(scope.space_id, scope.memory_scope_id, scope.thread_id),
-            self.queries, self.filters, self.soft_preferences, self.bounds,
+            self.queries,
+            self.filters,
+            self.soft_preferences,
+            self.bounds,
         )
         for item in fields(common):
             if item.name not in ("contract_version", "scope"):
@@ -103,13 +121,24 @@ class RetrieveContextV3RequestDto(RetrieveContextRequestDto):
         if payload.get("contract_version") != CONTRACT_VERSION:
             raise ValueError("contract_version is unsupported")
         scope = RetrievalScopeV3Dto.from_dict(mapping(payload.get("scope"), "scope"))
-        common = RetrieveContextRequestDto.from_dict({
-            **payload, "contract_version": "context-retrieval.v2",
-            "scope": RetrievalScopeDto(scope.space_id, scope.memory_scope_id, scope.thread_id).to_dict(),
-        })
+        common = RetrieveContextRequestDto.from_dict(
+            {
+                **payload,
+                "contract_version": "context-retrieval.v2",
+                "scope": RetrievalScopeDto(
+                    scope.space_id, scope.memory_scope_id, scope.thread_id
+                ).to_dict(),
+            }
+        )
         return cls(
-            CONTRACT_VERSION, common.capability_fingerprint, common.profile_id, scope,
-            common.queries, common.filters, common.soft_preferences, common.bounds,
+            CONTRACT_VERSION,
+            common.capability_fingerprint,
+            common.profile_id,
+            scope,
+            common.queries,
+            common.filters,
+            common.soft_preferences,
+            common.bounds,
         )
 
 
@@ -130,7 +159,11 @@ def validate_retrieval_v3_capability(payload: Mapping[str, object]) -> dict[str,
         raise ValueError("V3 capability is unsupported")
     if payload.get("capability_fingerprint") != capability_fingerprint(payload):
         raise ValueError("V3 capability fingerprint does not match payload")
-    common = {**payload, "contract_version": "context-retrieval.v2", "endpoint": CAPABILITY_ENDPOINT}
+    common = {
+        **payload,
+        "contract_version": "context-retrieval.v2",
+        "endpoint": CAPABILITY_ENDPOINT,
+    }
     common["capability_fingerprint"] = capability_fingerprint(common)
     return retrieval_v3_capability(RetrievalCapabilityDto.from_dict(common))
 
@@ -153,9 +186,12 @@ class RetrieveContextV3ResponseDto(RetrieveContextResponseDto):
     def from_dict(cls, payload: Mapping[str, object]) -> RetrieveContextV3ResponseDto:
         if payload.get("contract_version") != CONTRACT_VERSION:
             raise ValueError("contract_version is unsupported")
-        common = RetrieveContextResponseDto.from_dict({
-            **payload, "contract_version": "context-retrieval.v2",
-        })
+        common = RetrieveContextResponseDto.from_dict(
+            {
+                **payload,
+                "contract_version": "context-retrieval.v2",
+            }
+        )
         values = {item.name: getattr(common, item.name) for item in fields(common)}
         values["contract_version"] = CONTRACT_VERSION
         return cls(**values)

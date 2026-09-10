@@ -20,7 +20,9 @@ from infinity_context_server.auth_tokens import MEMORY_PERMISSION_READ, ActiveSe
 
 
 class _Service:
-    async def execute(self, request, *, deadline_monotonic, contract_version="context-retrieval.v2"):
+    async def execute(
+        self, request, *, deadline_monotonic, contract_version="context-retrieval.v2"
+    ):
         assert contract_version == "context-retrieval.v3" or request.scope.thread_mode == "exact"
         assert asyncio.get_running_loop().time() < deadline_monotonic
         return core.LocatorRetrievalResponse(
@@ -263,8 +265,10 @@ def _v3_payload():
     return payload
 
 
-@pytest.mark.parametrize("selector", ({"mode": "any"}, {"mode": "exact", "id": None},
-                                       {"mode": "exact", "id": "meeting-a"}))
+@pytest.mark.parametrize(
+    "selector",
+    ({"mode": "any"}, {"mode": "exact", "id": None}, {"mode": "exact", "id": "meeting-a"}),
+)
 def test_v3_http_selectors_use_same_authorized_boundary(monkeypatch, selector):
     app = _app(monkeypatch, _token())
     payload = _v3_payload()
@@ -276,8 +280,9 @@ def test_v3_http_selectors_use_same_authorized_boundary(monkeypatch, selector):
     assert app.state.resolve_calls[0].scope.thread.to_dict() == selector
 
 
-@pytest.mark.parametrize("selector", ({"mode": "any", "id": None}, {"mode": "exact"},
-                                       {"mode": "all"}, None))
+@pytest.mark.parametrize(
+    "selector", ({"mode": "any", "id": None}, {"mode": "exact"}, {"mode": "all"}, None)
+)
 def test_v3_invalid_selector_rejected_before_resolution(monkeypatch, selector):
     app = _app(monkeypatch, _token())
     payload = _v3_payload()
@@ -296,7 +301,10 @@ def test_v3_any_cannot_escape_authorized_scope(monkeypatch, field):
 
 
 def test_v3_response_byte_fallback_preserves_version():
-    from infinity_context_contracts.features.context_retrieval_v3 import RetrieveContextV3ResponseDto
+    from infinity_context_contracts.features.context_retrieval_v3 import (
+        RetrieveContextV3ResponseDto,
+    )
+
     path = Path(__file__).resolve().parents[2] / (
         "packages/infinity_context_contracts/infinity_context_contracts/fixtures/context_retrieval_v2/success.json"
     )
@@ -309,6 +317,7 @@ def test_v3_response_byte_fallback_preserves_version():
 
 def test_v3_reauthorizes_after_scope_resolution(monkeypatch):
     from dataclasses import replace
+
     app = _app(monkeypatch, _token())
 
     async def changed_scope(dto, _container):

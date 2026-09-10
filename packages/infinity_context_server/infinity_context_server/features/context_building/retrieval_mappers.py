@@ -16,7 +16,6 @@ from infinity_context_contracts.features.context_building import (
     RetrieveContextRequestDto,
     RetrieveContextResponseDto,
 )
-
 from infinity_context_contracts.features.context_retrieval_v3 import (
     RetrieveContextV3RequestDto,
 )
@@ -28,15 +27,24 @@ def retrieval_v3_request_to_core(
     # Revalidate at the boundary, including callers using DTOs directly.
     request = RetrieveContextV3RequestDto.from_dict(request.to_dict())
     common = RetrieveContextRequestDto(
-        "context-retrieval.v2", request.capability_fingerprint, request.profile_id,
-        RetrievalScopeDto(request.scope.space_id, request.scope.memory_scope_id, request.scope.thread_id),
-        request.queries, request.filters, request.soft_preferences, request.bounds,
+        "context-retrieval.v2",
+        request.capability_fingerprint,
+        request.profile_id,
+        RetrievalScopeDto(
+            request.scope.space_id, request.scope.memory_scope_id, request.scope.thread_id
+        ),
+        request.queries,
+        request.filters,
+        request.soft_preferences,
+        request.bounds,
     )
     return replace(
         retrieval_request_to_core(common),
         scope=core.LocatorRetrievalScope(
-            request.scope.space_id, request.scope.memory_scope_id,
-            request.scope.thread.id, request.scope.thread.mode,
+            request.scope.space_id,
+            request.scope.memory_scope_id,
+            request.scope.thread.id,
+            request.scope.thread.mode,
         ),
     )
 
@@ -196,5 +204,7 @@ def _relative_interval(
 
 
 __all__ = (
-    "retrieval_request_to_core", "retrieval_v3_request_to_core", "retrieval_response_to_contract",
+    "retrieval_request_to_core",
+    "retrieval_v3_request_to_core",
+    "retrieval_response_to_contract",
 )

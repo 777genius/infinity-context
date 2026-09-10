@@ -534,6 +534,7 @@ it("V3 explicitly selects threads and rejects downgrade before/after transport",
     requiredProviderLanes: capability.required_provider_lanes };
   expect(await client.retrieveV3(request, capability, pins)).toEqual(response);
   expect(executor.request).toHaveBeenCalledTimes(1);
+  expect(executor.request.mock.calls[0]?.[0].method).toBe("POST");
   expect(executor.request.mock.calls[0]?.[0].path).toBe("/v1/context/retrieve-v3");
   expect(executor.request.mock.calls[0]?.[0].json).toEqual(expect.objectContaining({ scope: request.scope }));
   for (const thread of [{ mode: "exact" }, { mode: "any", id: null }, { mode: "unknown" }]) {

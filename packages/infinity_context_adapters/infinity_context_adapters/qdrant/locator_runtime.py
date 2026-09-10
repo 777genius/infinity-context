@@ -31,9 +31,7 @@ async def search_locator_chunks(
     filter_spec,
     thread_mode="exact",
 ):
-    if thread_mode not in ("exact", "any") or (
-        thread_mode == "any" and thread_id is not None
-    ):
+    if thread_mode not in ("exact", "any") or (thread_mode == "any" and thread_id is not None):
         raise QdrantLocatorPayloadError("invalid thread selector")
     if not adapter._locator_profile_enabled:
         raise QdrantLocatorPayloadError("locator index profile is not configured")

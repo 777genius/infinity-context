@@ -129,7 +129,12 @@ IMMUTABLE_COMPATIBILITY_PATTERNS = tuple(
     for literal in sorted(IMMUTABLE_COMPATIBILITY_LITERALS, key=len, reverse=True)
 )
 NEW_SOURCE_CLASSIFICATION = {
-    REPO_ROOT / "packages/infinity_context_contracts/infinity_context_contracts/features/context_retrieval_v3.py": "contract_selector",
+    REPO_ROOT
+    / "packages"
+    / "infinity_context_contracts"
+    / "infinity_context_contracts"
+    / "features"
+    / "context_retrieval_v3.py": "contract_selector",
     CORE_FEATURE / "domain" / "locator_retrieval.py": "domain",
     CORE_FEATURE / "domain" / "locator_retrieval_filters.py": "domain_filters",
     CORE_FEATURE / "ports" / "locator_retrieval.py": "ports",
@@ -263,8 +268,10 @@ STDLIB_ALLOWLIST = {
 }
 OWN_FEATURE_ALLOWLIST = {
     "contract_selector": {
-        "._context_building_retrieval", "._context_building_retrieval_json",
-        "._context_building_retrieval_validation", "._context_building_retrieval_capability",
+        "._context_building_retrieval",
+        "._context_building_retrieval_json",
+        "._context_building_retrieval_validation",
+        "._context_building_retrieval_capability",
     },
     "application": {
         "infinity_context_core.features.context_building.domain.locator_retrieval",

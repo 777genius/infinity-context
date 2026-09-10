@@ -21,7 +21,6 @@ from infinity_context_contracts.features.context_building import (
     RetrievalRankingParametersDto,
     capability_fingerprint,
 )
-
 from infinity_context_contracts.features.context_retrieval_v3 import retrieval_v3_capability
 
 
@@ -114,7 +113,10 @@ class LocatorRetrievalService:
         return RetrievalCapabilityDto.from_dict(payload)
 
     async def execute(
-        self, request: core.LocatorRetrievalRequest, *, contract_version: str = "context-retrieval.v2"
+        self,
+        request: core.LocatorRetrievalRequest,
+        *,
+        contract_version: str = "context-retrieval.v2",
     ) -> core.LocatorRetrievalResponse:
         if contract_version not in ("context-retrieval.v2", "context-retrieval.v3"):
             raise ValueError("Unsupported retrieval boundary")
@@ -124,7 +126,8 @@ class LocatorRetrievalService:
         descriptor = await self.descriptor()
         fingerprint = (
             retrieval_v3_capability(descriptor)["capability_fingerprint"]
-            if contract_version == "context-retrieval.v3" else descriptor.capability_fingerprint
+            if contract_version == "context-retrieval.v3"
+            else descriptor.capability_fingerprint
         )
         if (
             request.capability_fingerprint != fingerprint

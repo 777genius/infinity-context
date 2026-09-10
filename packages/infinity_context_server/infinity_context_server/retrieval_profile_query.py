@@ -1,9 +1,11 @@
 """Execute one admitted profile query, including bounded cancellation cleanup."""
+
 from asyncio import get_running_loop, timeout_at
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from infinity_context_core.features.context_building.public import ProfileQueryAdmissionStatus
+
 from infinity_context_server.retrieval_runtime_lifecycle import complete_despite_cancellation
 
 
@@ -51,10 +53,14 @@ async def execute_profile_query(
         if admission_cancellation is not None:
             raise admission_cancellation
         async with timeout_at(deadline_monotonic):
-            return await self._service_for_active(
-                active, admission_proven=True
-            ).execute(request, **({"contract_version": contract_version}
-                if contract_version == "context-retrieval.v3" else {}))
+            return await self._service_for_active(active, admission_proven=True).execute(
+                request,
+                **(
+                    {"contract_version": contract_version}
+                    if contract_version == "context-retrieval.v3"
+                    else {}
+                ),
+            )
     finally:
         try:
             _, close_cancellation = await complete_despite_cancellation(

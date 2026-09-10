@@ -1,8 +1,9 @@
 import {
   retrievalV3RequestPayload, decodeRetrievalV3Capability, commonV3Capability,
-  decodeRetrieveContextV3ResponseBytes, RETRIEVAL_V3_ENDPOINT,
+  decodeRetrieveContextV3ResponseBytes,
   type RetrieveContextV3Input, type RetrievalV3Capability, type RetrieveContextV3Response,
 } from "../retrieval-v3.js";
+import { decodeRetrievalJson } from "../retrieval-json.js";
 import { retrievalCapabilityFingerprint } from "../retrieval-canonical.js";
 import { requestControls, type RequestControls, type RequestExecutor } from "../client.js";
 import type {
@@ -87,26 +88,54 @@ export interface BuildInsightsInput extends ContextScopeInput {
 export class ContextClient {
   constructor(private readonly http: RequestExecutor) {}
 
+  /** Fetch the exact V3 attestation with bounded, cancellable strict decoding. */
+  async retrievalV3Capability(controls: RequestControls = {}): Promise<RetrievalV3Capability> {
+    const maximumBytes = 65_536;
+    const budget = retrievalCallBudget(controls.signal, controls.timeoutMs ?? 10_000, monotonicNowMs());
+    try {
+      budget.throwIfExhausted();
+      const body = await this.http.request<Uint8Array | string>({
+        method: "GET", path: "/v1/context/retrieve-v3/capability",
+        ...requestControls({ ...controls, signal: budget.signal, timeoutMs: budget.remainingTimeoutMs() }),
+        responseType: "bytes", expectedStatuses: [200],
+        maxResponseBytes: maximumBytes, maxErrorResponseBytes: maximumBytes,
+        errorDecoder: retrievalErrorDecoder(maximumBytes),
+      });
+      budget.throwIfExhausted();
+      const capability = decodeRetrievalV3Capability(decodeRetrievalJson(body,
+        ["bounds.*.*", "provider_lanes.*.weight_micros", "ranking_parameters.*"]));
+      const fingerprint = await abortableRetrievalPreflight(retrievalCapabilityFingerprint(capability), budget.signal);
+      if (fingerprint !== capability.capability_fingerprint) throw retrievalClientError(
+        "memory.context_retrieval_capability_mismatch", "Capability fingerprint mismatch", false);
+      budget.throwIfExhausted();
+      return capability;
+    } catch (error) {
+      throw retrievalTransportError(error, budget.timedOut(), controls.signal?.aborted === true);
+    } finally {
+      budget.cleanup();
+    }
+  }
+
   async retrieve(
     input: RetrieveContextInput,
     capability: RetrievalCapability,
     required: RequiredRetrievalCapability,
     controls: RequestControls = {},
   ): Promise<RetrieveContextResponse> {
-    return this.retrieveVersion(input, capability, required, controls, false) as Promise<RetrieveContextResponse>;
+    return this.retrieveVersion(input, capability, required, controls, { method: "POST", path: "/v1/context/retrieve" }, false) as Promise<RetrieveContextResponse>;
   }
 
   async retrieveV3(
     input: RetrieveContextV3Input, capability: RetrievalV3Capability,
     required: RequiredRetrievalCapability, controls: RequestControls = {},
   ): Promise<RetrieveContextV3Response> {
-    return this.retrieveVersion(input, capability, required, controls, true) as Promise<RetrieveContextV3Response>;
+    return this.retrieveVersion(input, capability, required, controls, { method: "POST", path: "/v1/context/retrieve-v3" }, true) as Promise<RetrieveContextV3Response>;
   }
 
   private async retrieveVersion(
     input: RetrieveContextInput | RetrieveContextV3Input,
     capability: RetrievalCapability | RetrievalV3Capability,
-    required: RequiredRetrievalCapability, controls: RequestControls, v3: boolean,
+    required: RequiredRetrievalCapability, controls: RequestControls, route: { method: "POST"; path: string }, v3: boolean,
   ): Promise<RetrieveContextResponse | RetrieveContextV3Response> {
     const startedAtMs = monotonicNowMs();
     let budget: ReturnType<typeof retrievalCallBudget> | undefined;
@@ -144,8 +173,7 @@ export class ContextClient {
       budget.throwIfExhausted();
       const remainingTimeoutMs = budget.remainingTimeoutMs();
       const response = await this.http.request<Uint8Array | string>({
-        method: "POST",
-        path: v3 ? RETRIEVAL_V3_ENDPOINT : "/v1/context/retrieve",
+        ...route,
         ...requestControls({
           ...controls, signal: budget.signal, timeoutMs: remainingTimeoutMs,
         }),

@@ -291,20 +291,28 @@ def _client(handler):
 
 def test_official_python_v3_selector_exchange_and_no_downgrade() -> None:
     from infinity_context_contracts.features.context_retrieval_v3 import (
-        RetrieveContextV3RequestDto, retrieval_v3_capability,
+        RetrieveContextV3RequestDto,
+        retrieval_v3_capability,
     )
+
     old_request, old_capability = _inputs()
     capability = retrieval_v3_capability(old_capability)
     payload = old_request.to_dict()
-    payload.update(contract_version="context-retrieval.v3",
-                   capability_fingerprint=capability["capability_fingerprint"])
-    payload["scope"] = {"spaceId": old_request.scope.space_id,
-                        "memoryScopeId": old_request.scope.memory_scope_id,
-                        "thread": {"mode": "any"}}
+    payload.update(
+        contract_version="context-retrieval.v3",
+        capability_fingerprint=capability["capability_fingerprint"],
+    )
+    payload["scope"] = {
+        "spaceId": old_request.scope.space_id,
+        "memoryScopeId": old_request.scope.memory_scope_id,
+        "thread": {"mode": "any"},
+    }
     request = RetrieveContextV3RequestDto.from_dict(payload)
     response = json.loads((FIXTURES / "success.json").read_text())
-    response.update(contract_version="context-retrieval.v3",
-                    capability_fingerprint=capability["capability_fingerprint"])
+    response.update(
+        contract_version="context-retrieval.v3",
+        capability_fingerprint=capability["capability_fingerprint"],
+    )
     calls = []
 
     def handler(http_request):
@@ -313,7 +321,9 @@ def test_official_python_v3_selector_exchange_and_no_downgrade() -> None:
         assert json.loads(http_request.content) == payload
         return httpx.Response(200, json=response)
 
-    assert _client(handler).retrieve_context_v3(request, capability=capability).to_dict() == response
+    assert (
+        _client(handler).retrieve_context_v3(request, capability=capability).to_dict() == response
+    )
     assert len(calls) == 1
     with pytest.raises(InfinityRetrievalContractError):
         _client(handler).retrieve_context_v3(request, capability=old_capability.to_dict())
@@ -324,3 +334,67 @@ def test_official_python_v3_selector_exchange_and_no_downgrade() -> None:
     with pytest.raises(InfinityRetrievalContractError):
         _client(handler).retrieve_context_v3(request, capability=capability)
     assert len(calls) == 2
+
+
+def test_python_v3_capability_public_fetch_and_strict_decode():
+    from infinity_context_contracts.features.context_retrieval_v3 import retrieval_v3_capability
+
+    _, old = _inputs()
+    capability = retrieval_v3_capability(old)
+
+    def handler(request):
+        assert request.method == "GET"
+        assert request.url.path == "/v1/context/retrieve-v3/capability"
+        assert request.content == b""
+        return httpx.Response(200, json=capability)
+
+    assert _client(handler).retrieval_v3_capability() == capability
+    for body in (
+        json.dumps({**capability, "extra": True}),
+        json.dumps({**capability, "capability_fingerprint": "0" * 64}),
+        '{"contract_version":"context-retrieval.v3",' + json.dumps(capability)[1:],
+        " " * 65_537,
+    ):
+        with pytest.raises(InfinityRetrievalContractError):
+            _client(
+                lambda request, body=body: httpx.Response(200, content=body)
+            ).retrieval_v3_capability()
+
+
+def test_python_v3_capability_errors_and_cancellation():
+    body = {"error": {"code": "memory.unauthorized", "message": "Unauthorized", "retryable": False}}
+    with pytest.raises(InfinityRetrievalError) as caught:
+        _client(lambda request: httpx.Response(401, json=body)).retrieval_v3_capability()
+    assert caught.value.code == "memory.unauthorized"
+    with pytest.raises(InfinityRetrievalContractError):
+        _client(lambda request: httpx.Response(401, json={})).retrieval_v3_capability()
+    cancelled = Event()
+    cancelled.set()
+    with pytest.raises(InfinityRetrievalError) as caught:
+        _client(lambda request: pytest.fail("cancelled request sent")).retrieval_v3_capability(
+            cancellation_event=cancelled,
+        )
+    assert caught.value.code == "memory.context_retrieval_cancelled"
+
+
+def test_python_v3_capability_absolute_deadline_cleans_up_stream():
+    closed = Event()
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            while True:
+                await asyncio.sleep(0.01)
+                yield b" "
+
+        async def aclose(self):
+            closed.set()
+
+    client = InfinityContextClient(
+        base_url="https://memory.invalid",
+        timeout=0.04,
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=SlowStream())),
+    )
+    with pytest.raises(InfinityRetrievalError) as caught:
+        client.retrieval_v3_capability()
+    assert caught.value.code == "memory.context_retrieval_deadline_exceeded"
+    assert closed.is_set()
