@@ -281,13 +281,22 @@ def test_v3_http_selectors_use_same_authorized_boundary(monkeypatch, selector):
 
 
 @pytest.mark.parametrize(
-    "selector", ({"mode": "any", "id": None}, {"mode": "exact"}, {"mode": "all"}, None)
+    ("selector", "status", "code"),
+    (
+        ({"mode": "any", "id": None}, 422, "memory.context_retrieval_unsupported"),
+        ({"mode": "exact"}, 400, "memory.context_retrieval_contract_invalid"),
+        ({"mode": "all"}, 422, "memory.context_retrieval_unsupported"),
+        (None, 400, "memory.context_retrieval_contract_invalid"),
+    ),
 )
-def test_v3_invalid_selector_rejected_before_resolution(monkeypatch, selector):
+def test_v3_invalid_selector_rejected_before_resolution(monkeypatch, selector, status, code):
     app = _app(monkeypatch, _token())
     payload = _v3_payload()
     payload["scope"]["thread"] = selector
-    assert _post(app, payload, "/v1/context/retrieve-v3").status_code >= 400
+    response = _post(app, payload, "/v1/context/retrieve-v3")
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+    assert response.json()["error"]["retryable"] is False
     assert app.state.resolve_calls == []
 
 
@@ -325,3 +334,135 @@ def test_v3_reauthorizes_after_scope_resolution(monkeypatch):
 
     monkeypatch.setattr(route, "_resolve_scope", changed_scope)
     assert _post(app, _v3_payload(), "/v1/context/retrieve-v3").status_code == 403
+
+
+def _capability_app(monkeypatch, service):
+    app = _app(monkeypatch, _token())
+    app.dependency_overrides[get_container] = lambda: SimpleNamespace(locator_retrieval=service)
+    return app
+
+
+async def _get_capability(app):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://testserver"
+    ) as client:
+        return await client.get("/v1/context/retrieve-v3/capability")
+
+
+def _assert_capability_unavailable(response):
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "memory.context_retrieval_unavailable",
+            "message": "Retrieval is unavailable",
+            "retryable": True,
+        }
+    }
+
+
+def test_v3_capability_stalled_lane_health_is_bounded(monkeypatch):
+    from infinity_context_server.features.context_building.retrieval_service import (
+        LocatorRetrievalService,
+        RetrievalLaneRuntime,
+    )
+
+    async def scenario():
+        cancelled = asyncio.Event()
+
+        async def health():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        service = LocatorRetrievalService(
+            lanes=(RetrievalLaneRuntime("postgres_keyword", None, health),),
+            canonical_reader=None,
+            service_revision="1" * 40,
+            index_profile_digest="a" * 64,
+            profile_kind="lexical",
+        )
+        monkeypatch.setattr(route, "MAX_DEADLINE_SECONDS", 0.02)
+        started = asyncio.get_running_loop().time()
+        response = await asyncio.wait_for(
+            _get_capability(_capability_app(monkeypatch, service)), timeout=0.5
+        )
+        assert asyncio.get_running_loop().time() - started < 0.5
+        _assert_capability_unavailable(response)
+        assert cancelled.is_set()
+
+    asyncio.run(scenario())
+
+
+def test_v3_capability_missing_profile(monkeypatch):
+    from infinity_context_server.retrieval_profile_composition import (
+        ProfileAwareLocatorRetrievalService,
+    )
+
+    async def active():
+        return None
+
+    service = ProfileAwareLocatorRetrievalService(
+        registry=SimpleNamespace(active=active),
+        projection=None,
+        sessions=None,
+        query_embeddings=None,
+        service_revision="1" * 40,
+    )
+    app = _capability_app(monkeypatch, service)
+    _assert_capability_unavailable(asyncio.run(_get_capability(app)))
+
+
+def test_v3_capability_success(monkeypatch):
+    from infinity_context_contracts.features.context_building import RetrievalCapabilityDto
+    from infinity_context_contracts.features.context_retrieval_v3 import retrieval_v3_capability
+
+    fixture = Path(__file__).resolve().parents[2] / (
+        "packages/infinity_context_contracts/infinity_context_contracts/fixtures/"
+        "context_retrieval_v2/capability.json"
+    )
+    capability = RetrievalCapabilityDto.from_dict(json.loads(fixture.read_text()))
+
+    async def descriptor():
+        return capability
+
+    response = asyncio.run(
+        _get_capability(_capability_app(monkeypatch, SimpleNamespace(descriptor=descriptor)))
+    )
+    assert response.status_code == 200
+    assert response.json() == retrieval_v3_capability(capability)
+
+
+@pytest.mark.parametrize(
+    "error", [RuntimeError("unexpected bug"), ValueError("invalid descriptor")]
+)
+def test_v3_capability_unexpected_errors_remain_visible(monkeypatch, error):
+    async def descriptor():
+        raise error
+
+    app = _capability_app(monkeypatch, SimpleNamespace(descriptor=descriptor))
+    with pytest.raises(type(error), match=str(error)):
+        asyncio.run(_get_capability(app))
+
+
+def test_v3_capability_preserves_cancellation(monkeypatch):
+    async def scenario():
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def descriptor():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+        app = _capability_app(monkeypatch, SimpleNamespace(descriptor=descriptor))
+        task = asyncio.create_task(_get_capability(app))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cancelled.is_set()
+
+    asyncio.run(scenario())
