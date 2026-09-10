@@ -232,14 +232,20 @@ elif [ "${PUBLISH_RELEASE}" = true ]; then
   done
 fi
 
+# Compare identity/content only: downloads can change API counters and asset order.
+draft_identity() {
+  jq -Sc '{id, tag_name, name, draft, prerelease, html_url,
+    assets: ([.assets[] | {id, name, size, digest}] | sort_by(.id, .name))}'
+}
+
 # Mutable draft observations are not immutable/public attestations.
 if [ "${RELEASE_STATE}" = draft ]; then
-  observed_release="$(jq -Sc '{id, tag_name, name, draft, prerelease, html_url, assets}' <<<"${RELEASE_JSON}")"
+  observed_release="$(draft_identity <<<"${RELEASE_JSON}")"
   revalidate_tag_and_ruleset
   inspect_release
   [ "${RELEASE_STATE}" = draft ] || die "Qualification release no longer draft"
   validate_release_shape true
-  test "$(jq -Sc '{id, tag_name, name, draft, prerelease, html_url, assets}' <<<"${RELEASE_JSON}")" = "${observed_release}" || \
+  test "$(draft_identity <<<"${RELEASE_JSON}")" = "${observed_release}" || \
     die "Draft identity or assets changed during qualification"
   mkdir draft-qualification
   asset_evidence='[]'

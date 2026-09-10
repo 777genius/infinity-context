@@ -216,11 +216,13 @@ def _release(state: str, artifact_bytes: bytes, manifest_bytes: bytes) -> dict[s
         "assets": [
             {
                 "id": 51,
+                "size": len(artifact_bytes),
                 "name": ARTIFACT,
                 "digest": f"sha256:{hashlib.sha256(artifact_bytes).hexdigest()}",
             },
             {
                 "id": 52,
+                "size": len(manifest_bytes),
                 "name": MANIFEST,
                 "digest": f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}",
             },
@@ -250,6 +252,18 @@ def release_for(name):
     if name == "draft":
         value["html_url"] = os.environ["FAKE_DRAFT_URL"]
     value.update(json.loads(os.environ["FAKE_RELEASE_OVERRIDES"]).get(name, {}))
+    calls = [json.loads(line) for line in log_path.read_text().splitlines()]
+    downloads = [call for call in calls if call[:2] == ["release", "download"]]
+    for asset in value["assets"]:
+        asset["download_count"] = sum(
+            call[call.index("--pattern") + 1] == asset["name"] for call in downloads)
+    if downloads:
+        drift = json.loads(os.environ["FAKE_AFTER_DOWNLOAD"])
+        for asset in value["assets"]:
+            asset.update(drift.get("assets", {}).get(asset["name"], {}))
+        value.update(drift.get("release", {}))
+        if drift.get("reverse_assets"):
+            value["assets"].reverse()
     return value
 
 if args[0] == "api":
@@ -339,6 +353,7 @@ def _run_helper(
     verify_fail: bool = False,
     draft_url: str = DRAFT_URL,
     release_overrides: dict[str, dict[str, object]] | None = None,
+    after_download: dict[str, object] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], Path]:
     artifact_bytes = b"exact pack-once bytes\n"
     manifest_bytes = b'{"build_workflow_run_attempt":2,"build_workflow_run_id":12345}\n'
@@ -375,6 +390,7 @@ def _run_helper(
         {
             "FAKE_ATTESTATION_JSON": json.dumps(_attestation(artifact_bytes, manifest_bytes)),
             "FAKE_DRAFT_URL": draft_url,
+            "FAKE_AFTER_DOWNLOAD": json.dumps(after_download or {}),
             "FAKE_RELEASE_OVERRIDES": json.dumps(release_overrides or {}),
             "FAKE_EDIT_AMBIGUOUS": str(ambiguous).lower(),
             "FAKE_GH_LOG": str(log_path),
@@ -717,8 +733,16 @@ def test_release_files_do_not_reintroduce_service_quality_or_public_api_changes(
 
 
 @pytest.mark.parametrize("publish_release", [None, "false"])
-def test_draft_default_retains_only_mutable_byte_evidence(tmp_path, publish_release):
-    result, calls, state = _run_helper(tmp_path, "absent", publish_release=publish_release)
+@pytest.mark.parametrize("reverse_assets", [False, True])
+def test_draft_counter_increase_retains_only_mutable_byte_evidence(
+    tmp_path, publish_release, reverse_assets
+):
+    result, calls, state = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release=publish_release,
+        after_download={"reverse_assets": reverse_assets},
+    )
     assert result.returncode == 0, result.stderr
     assert json.loads(state.read_text()) == "draft"
     assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
@@ -806,3 +830,40 @@ def test_published_receipt_verifier_rejects_draft(tmp_path):
     result = subprocess.run(args, check=False, capture_output=True, text=True)
     assert result.returncode != 0
     assert not output.exists()
+
+
+@pytest.mark.parametrize("asset", [ARTIFACT, MANIFEST])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"id": 99},
+        {"name": "other.tgz"},
+        {"size": 999},
+        {"digest": "sha256:" + "f" * 64},
+        {"digest": None},
+    ],
+)
+def test_draft_asset_drift_after_download_fails(tmp_path, asset, change):
+    result, calls, _ = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release="false",
+        after_download={"assets": {asset: change}},
+    )
+    assert result.returncode != 0
+    assert "identity or asset" in result.stderr
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not (tmp_path / "draft-qualification").exists()
+
+
+def test_draft_release_id_drift_after_download_fails(tmp_path):
+    result, calls, _ = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release="false",
+        after_download={"release": {"id": 99}},
+    )
+    assert result.returncode != 0
+    assert "Draft identity or assets changed" in result.stderr
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not (tmp_path / "draft-qualification").exists()
