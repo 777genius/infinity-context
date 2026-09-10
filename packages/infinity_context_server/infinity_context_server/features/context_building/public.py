@@ -41,6 +41,7 @@ from infinity_context_server.features.context_building.mappers import (
 from infinity_context_server.features.context_building.retrieval_mappers import (
     retrieval_request_to_core,
     retrieval_response_to_contract,
+    retrieval_v3_request_to_core,
 )
 from infinity_context_server.features.context_building.retrieval_service import (
     LocatorRetrievalService,
@@ -75,4 +76,5 @@ __all__ = (
     "create_context_building_router",
     "retrieval_request_to_core",
     "retrieval_response_to_contract",
+    "retrieval_v3_request_to_core",
 )

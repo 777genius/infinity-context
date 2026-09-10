@@ -37,9 +37,6 @@ from infinity_context_server.api.v1.scope_resolution import resolve_existing_sin
 from infinity_context_server.auth_tokens import MEMORY_PERMISSION_ADMIN, MEMORY_PERMISSION_READ
 from infinity_context_server.composition import Container
 from infinity_context_server.features.context_building import public as context_building
-from infinity_context_server.features.context_building.retrieval_mappers import (
-    retrieval_v3_request_to_core,
-)
 from infinity_context_server.retrieval_runtime_lifecycle import complete_despite_cancellation
 
 MAX_RAW_REQUEST_BYTES = 2_097_152
@@ -105,7 +102,7 @@ async def _retrieve_context(http_request: Request, container: Container, *, v3: 
                 http_request,
                 service.execute(
                     (
-                        retrieval_v3_request_to_core(resolved)
+                        context_building.retrieval_v3_request_to_core(resolved)
                         if v3
                         else context_building.retrieval_request_to_core(resolved)
                     ),

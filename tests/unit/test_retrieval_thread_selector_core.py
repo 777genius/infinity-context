@@ -3,20 +3,17 @@
 import asyncio
 import unittest
 from dataclasses import replace
+from unittest.mock import AsyncMock
 
 from infinity_context_adapters.features.context_building.qdrant_candidate_provider import (
     translate_qdrant_locator_filters,
 )
-from infinity_context_core.features.context_building.application.locator_retrieval import (
-    LocatorProviderRegistration,
-    RetrieveLocators,
-    _validated_request_copy,
-)
-from infinity_context_core.features.context_building.domain.locator_retrieval import (
+from infinity_context_core.features.context_building.public import (
     CanonicalLocatorCandidate,
     CanonicalLocatorRead,
     LocatorHardFilters,
     LocatorProviderHit,
+    LocatorProviderRegistration,
     LocatorProviderResult,
     LocatorQueryVariant,
     LocatorRetrievalBounds,
@@ -25,6 +22,7 @@ from infinity_context_core.features.context_building.domain.locator_retrieval im
     LocatorRetrievalScope,
     LocatorSoftPreferences,
     LocatorSourceGeneration,
+    RetrieveLocators,
     candidate_matches_request,
 )
 
@@ -72,7 +70,7 @@ class ThreadSelectorTests(unittest.TestCase):
             (None, "exact", [False, False, True]),
             ("meeting-a", "exact", [True, False, False]),
         ):
-            validated = _validated_request_copy(request(thread, mode))
+            validated = request(thread, mode)
             self.assertEqual(
                 [candidate_matches_request(item, validated) for item in candidates], expected
             )
@@ -98,8 +96,18 @@ class ThreadSelectorTests(unittest.TestCase):
                 request(thread, mode)
         forged = request()
         object.__setattr__(forged.scope, "thread_mode", "unknown")
+        provider = AsyncMock()
+        reader = AsyncMock()
+        engine = RetrieveLocators(
+            (LocatorProviderRegistration("lane", provider, required=True),),
+            reader,
+            LocatorRetrievalCapability("a" * 64, "profile"),
+        )
         with self.assertRaises(ValueError):
-            _validated_request_copy(forged)
+            asyncio.run(engine.execute(forged))
+        provider.retrieve_locator_candidates.assert_not_awaited()
+        reader.hydrate_locator_candidates.assert_not_awaited()
+        reader.hydrate_final_locator_read.assert_not_awaited()
 
     def test_one_global_engine_call_with_neighbors_and_final_hydration_fences(self):
         def row(key, thread, ordinal=10, **changes):
