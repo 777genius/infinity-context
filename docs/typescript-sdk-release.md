@@ -106,7 +106,8 @@ the 0.2.3 assets or move its tag to distribute this fix.
 
 Version 0.2.4 is prepared but not yet published, and no consumer is pinned to its
 release asset. The commands below apply only after the reviewed source is committed
-and the release operator is ready to create the new immutable release.
+and the release operator is ready to qualify a draft. Public publication requires
+explicit approval of the exact SDK version and `publish_release=true`.
 
 Start from the reviewed release commit. Create and push the one protected annotated
 tag; the workflow never creates or moves it:
@@ -125,6 +126,7 @@ gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
   --ref sdk-v0.2.4 \
   -f sdk_tag=sdk-v0.2.4 \
+  -f publish_release=false \
   -f reconcile_only=false
 gh run list --repo 777genius/infinity-context \
   --workflow .github/workflows/typescript-sdk-release.yml --limit 1
@@ -158,7 +160,7 @@ non-resumable. An exact published release follows a read-only reconciliation pat
 Immediately before draft creation and publication, the helper revalidates the exact
 annotated tag object, commit, and active creation/update/deletion ruleset. It creates
 one draft, uploads without `--clobber`, downloads and compares both assets, attempts
-publication once, and then reconciles the server state for at most six observations
+publication once only with `publish_release=true`, and then reconciles the server state for at most six observations
 even when `gh release edit` reports failure. It never recreates or reuploads during
 reconciliation.
 
@@ -181,7 +183,38 @@ fresh pack-once build, semantically verifies the released manifest using its ori
 run ID/attempt, rechecks tag/ruleset state, and requires the release to be published,
 immutable, and structurally exact.
 
+## Draft qualification and explicit publication
+
+`publish_release` is a boolean input defaulting to `false`. Omission or `false`
+never promotes a release. The helper accepts only exact `true` or `false` strings;
+an unset environment value defaults to false, while an empty or invalid value fails
+before any API call. Set `publish_release=true` only after explicit approval of the
+exact version. This is operator authorization, not an independent reviewer gate.
+
+Draft mode keeps all build, protected-tag, immutable-policy, transport and exact
+asset checks. It creates one draft, uploads the two assets without overwrite,
+downloads and byte-compares both, and rechecks draft identity before recording
+`infinity-context-sdk-draft-qualification-receipt.json`. The separate 90-day Actions
+artifact is named `typescript-sdk-draft-qualification-sdk-vX.Y.Z`. It records the
+observed draft URL/ID, asset IDs, downloaded hashes and sizes, source/tag/workflow
+identity and run. It is a mutable observation, never proof of public availability
+or immutable attestation. Drafts can change after observation. No release or asset
+attestation command runs for a draft; the published receipt verifier remains strict.
+Export this artifact into operations custody before expiry.
+
+Existing drafts remain non-resumable in every mode, including explicit publication
+and reconcile-only. This change does not provide trusted same-byte draft promotion:
+redispatch with `publish_release=true` cannot approve/promote an existing draft.
+Investigate and prepare a new reviewed patch version through the release process;
+never overwrite draft assets or move its tag. No version bump is made by this change.
+An existing published release still follows the protected read-only reconciliation
+path even when publication is false. Reconcile-only always forbids mutations and
+rejects absent or draft releases, regardless of `publish_release`.
+
 ## Download, verify, and cold install
+
+The following instructions apply only after explicitly approved public publication.
+
 
 The immutable release URL is a dependency: do not use a branch archive or Actions
 artifact as distribution. Download and verify the exact two assets:

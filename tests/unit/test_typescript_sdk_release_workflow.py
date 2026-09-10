@@ -216,11 +216,13 @@ def _release(state: str, artifact_bytes: bytes, manifest_bytes: bytes) -> dict[s
         "assets": [
             {
                 "id": 51,
+                "size": len(artifact_bytes),
                 "name": ARTIFACT,
                 "digest": f"sha256:{hashlib.sha256(artifact_bytes).hexdigest()}",
             },
             {
                 "id": 52,
+                "size": len(manifest_bytes),
                 "name": MANIFEST,
                 "digest": f"sha256:{hashlib.sha256(manifest_bytes).hexdigest()}",
             },
@@ -250,6 +252,18 @@ def release_for(name):
     if name == "draft":
         value["html_url"] = os.environ["FAKE_DRAFT_URL"]
     value.update(json.loads(os.environ["FAKE_RELEASE_OVERRIDES"]).get(name, {}))
+    calls = [json.loads(line) for line in log_path.read_text().splitlines()]
+    downloads = [call for call in calls if call[:2] == ["release", "download"]]
+    for asset in value["assets"]:
+        asset["download_count"] = sum(
+            call[call.index("--pattern") + 1] == asset["name"] for call in downloads)
+    if downloads:
+        drift = json.loads(os.environ["FAKE_AFTER_DOWNLOAD"])
+        for asset in value["assets"]:
+            asset.update(drift.get("assets", {}).get(asset["name"], {}))
+        value.update(drift.get("release", {}))
+        if drift.get("reverse_assets"):
+            value["assets"].reverse()
     return value
 
 if args[0] == "api":
@@ -331,12 +345,15 @@ def _run_helper(
     tmp_path: Path,
     state: str,
     *,
+    publish_release: str | None = "true",
+    remote_tamper: str | None = None,
     ambiguous: bool = False,
     reconcile_only: bool = False,
     tag_kind: str = "tag",
     verify_fail: bool = False,
     draft_url: str = DRAFT_URL,
     release_overrides: dict[str, dict[str, object]] | None = None,
+    after_download: dict[str, object] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]], Path]:
     artifact_bytes = b"exact pack-once bytes\n"
     manifest_bytes = b'{"build_workflow_run_attempt":2,"build_workflow_run_id":12345}\n'
@@ -354,6 +371,8 @@ def _run_helper(
     (bundle / MANIFEST).write_bytes(transported_manifest)
     (remote / ARTIFACT).write_bytes(artifact_bytes)
     (remote / MANIFEST).write_bytes(manifest_bytes)
+    if remote_tamper:
+        (remote / remote_tamper).write_bytes(b"tampered")
     gh = fake_bin / "gh"
     gh.write_text(_fake_gh_source(), encoding="utf-8")
     gh.chmod(0o755)
@@ -371,6 +390,7 @@ def _run_helper(
         {
             "FAKE_ATTESTATION_JSON": json.dumps(_attestation(artifact_bytes, manifest_bytes)),
             "FAKE_DRAFT_URL": draft_url,
+            "FAKE_AFTER_DOWNLOAD": json.dumps(after_download or {}),
             "FAKE_RELEASE_OVERRIDES": json.dumps(release_overrides or {}),
             "FAKE_EDIT_AMBIGUOUS": str(ambiguous).lower(),
             "FAKE_GH_LOG": str(log_path),
@@ -395,6 +415,9 @@ def _run_helper(
             "WORKFLOW_SHA256": "c" * 64,
         }
     )
+    env.pop("PUBLISH_RELEASE", None)
+    if publish_release is not None:
+        env["PUBLISH_RELEASE"] = publish_release
     result = subprocess.run(
         ["bash", str(PUBLISH_HELPER)],
         cwd=tmp_path,
@@ -441,7 +464,9 @@ def test_publish_executes_hostile_preconditions_before_each_effect(
     assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload", "edit"]
     assert len([call for call in calls[:edit_index] if call[:2] == ["release", "download"]]) == 2
     assert len([call for call in calls if call[:2] == ["release", "verify-asset"]]) == 2
-    assert (tmp_path / "github-output").read_text() == f"url={RELEASE_URL}sdk-v0.2.1\n"
+    assert (
+        tmp_path / "github-output"
+    ).read_text() == f"url={RELEASE_URL}sdk-v0.2.1\nrelease_state=published\n"
 
 
 @pytest.mark.parametrize("state", ["absent", "published"])
@@ -705,3 +730,140 @@ def test_release_files_do_not_reintroduce_service_quality_or_public_api_changes(
     ):
         assert forbidden not in _workflow().lower()
     assert not (ROOT / "scripts/verify_retrieval_release_qualification.py").exists()
+
+
+@pytest.mark.parametrize("publish_release", [None, "false"])
+@pytest.mark.parametrize("reverse_assets", [False, True])
+def test_draft_counter_increase_retains_only_mutable_byte_evidence(
+    tmp_path, publish_release, reverse_assets
+):
+    result, calls, state = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release=publish_release,
+        after_download={"reverse_assets": reverse_assets},
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(state.read_text()) == "draft"
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not any(
+        call[:2] in (["release", "verify"], ["release", "verify-asset"]) for call in calls
+    )
+    receipt = json.loads(
+        (
+            tmp_path / "draft-qualification/infinity-context-sdk-draft-qualification-receipt.json"
+        ).read_text()
+    )
+    assert receipt["release_state"] == "draft"
+    assert receipt["immutable_attestation_verified"] is False
+    assert receipt["source_commit"] == COMMIT
+    assert receipt["tag_object"] == TAG_OBJECT
+    assert receipt["release_id"] == 41
+    assert receipt["observed_draft_url"] == DRAFT_URL
+    for asset in receipt["assets"]:
+        data = (tmp_path / "release-bundle" / asset["name"]).read_bytes()
+        assert asset["sha256"] == hashlib.sha256(data).hexdigest()
+        assert asset["byte_length"] == len(data)
+    assert not (tmp_path / "verification-receipt/release-attestation.json").exists()
+    assert (tmp_path / "github-output").read_text() == "release_state=draft\n"
+
+
+@pytest.mark.parametrize("value", ["", "TRUE", "False", "1", "yes", " true", "false\n"])
+def test_invalid_publish_input_fails_before_any_api_call(tmp_path, value):
+    result, calls, _ = _run_helper(tmp_path, "absent", publish_release=value)
+    assert result.returncode != 0
+    assert "PUBLISH_RELEASE must be true or false" in result.stderr
+    assert calls == []
+
+
+@pytest.mark.parametrize("asset", [ARTIFACT, MANIFEST])
+def test_draft_byte_drift_never_emits_receipt_or_publishes(tmp_path, asset):
+    result, calls, _ = _run_helper(tmp_path, "absent", publish_release="false", remote_tamper=asset)
+    assert result.returncode != 0
+    assert not any(call[:2] == ["release", "edit"] for call in calls)
+    assert not (tmp_path / "draft-qualification").exists()
+
+
+@pytest.mark.parametrize("publish_release", [None, "false", "true"])
+@pytest.mark.parametrize("reconcile_only", [False, True])
+@pytest.mark.parametrize("state", ["published", "draft", "absent"])
+def test_release_mode_reconciliation_matrix(tmp_path, publish_release, reconcile_only, state):
+    result, calls, _ = _run_helper(
+        tmp_path, state, publish_release=publish_release, reconcile_only=reconcile_only
+    )
+    expected_success = state == "published" or (state == "absent" and not reconcile_only)
+    assert (result.returncode == 0) == expected_success, result.stderr
+    if state != "absent" or reconcile_only:
+        assert _effects(calls) == []
+    if state == "published":
+        assert any(call[:2] == ["release", "verify"] for call in calls)
+        assert not (tmp_path / "draft-qualification").exists()
+
+
+def test_workflow_defaults_and_receipt_branches():
+    document = _document()
+    inputs = document.get("on", document.get(True))["workflow_dispatch"]["inputs"]
+    assert inputs["publish_release"]["type"] == "boolean"
+    assert inputs["publish_release"]["default"] is False
+    steps = _steps("publish")
+    effect = next(step for step in steps if step.get("id") == "publish")
+    assert effect["env"]["PUBLISH_RELEASE"] == "${{ inputs.publish_release }}"
+    for step in steps:
+        if step.get("name") in (
+            "Create non-release verification receipt",
+            "Retain verification receipt for Discord and operations custody",
+        ):
+            assert step["if"] == "steps.publish.outputs.release_state == 'published'"
+    draft = next(
+        step for step in steps if step.get("name") == "Retain mutable draft qualification evidence"
+    )
+    assert draft["if"] == "steps.publish.outputs.release_state == 'draft'"
+    assert draft["with"]["retention-days"] == 90
+
+
+def test_published_receipt_verifier_rejects_draft(tmp_path):
+    args, output, _ = _receipt_fixture(tmp_path)
+    path = tmp_path / "evidence/release.json"
+    release = json.loads(path.read_text())
+    release["draft"] = True
+    path.write_text(json.dumps(release))
+    result = subprocess.run(args, check=False, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("asset", [ARTIFACT, MANIFEST])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"id": 99},
+        {"name": "other.tgz"},
+        {"size": 999},
+        {"digest": "sha256:" + "f" * 64},
+        {"digest": None},
+    ],
+)
+def test_draft_asset_drift_after_download_fails(tmp_path, asset, change):
+    result, calls, _ = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release="false",
+        after_download={"assets": {asset: change}},
+    )
+    assert result.returncode != 0
+    assert "identity or asset" in result.stderr
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not (tmp_path / "draft-qualification").exists()
+
+
+def test_draft_release_id_drift_after_download_fails(tmp_path):
+    result, calls, _ = _run_helper(
+        tmp_path,
+        "absent",
+        publish_release="false",
+        after_download={"release": {"id": 99}},
+    )
+    assert result.returncode != 0
+    assert "Draft identity or assets changed" in result.stderr
+    assert [call[1] for call in _effects(calls)] == ["create", "upload", "upload"]
+    assert not (tmp_path / "draft-qualification").exists()
