@@ -108,6 +108,21 @@ def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
     assert "memory_chunks.retrieval_actor_keys_json LIKE" not in statement
 
 
+def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
+    statement = str(
+        _candidate_statement(_request(), "CAFÉ 100% release_candidate").compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+
+    assert "lower(" not in statement
+    assert statement.count("memory_chunks.normalized_text LIKE") == 6
+    assert "café" in statement
+    assert "100/%" in statement
+    assert "release/_candidate" in statement
+    assert "ESCAPE '/'" in statement
+
+
 def test_qdrant_provider_preserves_raw_score_rank_and_version() -> None:
     search = _Search()
     result = asyncio.run(

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 
+import infinity_context_core.features.context_building.public as core
 import pytest
 from infinity_context_adapters.postgres import create_schema
 from infinity_context_adapters.postgres.canonical_keyword_trigram import (
@@ -21,6 +22,7 @@ from infinity_context_adapters.postgres.canonical_retrieval_batching import (
     _keyword_batch_statement,
     _keyword_fragments,
 )
+from infinity_context_adapters.postgres.locator_retrieval import _candidate_statement
 from infinity_context_adapters.postgres.models import MemoryChunkRow, MemoryDocumentRow
 from infinity_context_adapters.postgres.repositories import (
     PostgresChunkRepository,
@@ -121,6 +123,38 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             await session.commit()
         await create_schema(engine)
         async with AsyncSession(engine, expire_on_commit=False) as session:
+            # Build a locator-shaped corpus without emitting profile events. This is a
+            # disposable planner fixture, not a production write-path substitute.
+            await session.execute(text("ALTER TABLE memory_documents DISABLE TRIGGER USER"))
+            await session.execute(text("ALTER TABLE memory_chunks DISABLE TRIGGER USER"))
+            await session.execute(
+                text(
+                    "UPDATE memory_documents SET retrieval_projected = TRUE "
+                    "WHERE id = 'filler-document'"
+                )
+            )
+            await session.execute(
+                text(
+                    """
+                    UPDATE memory_chunks
+                    SET source_external_id = 'filler-source',
+                        normalized_text = CASE WHEN id = 'filler-1'
+                            THEN 'unique locator needle evidence'
+                            ELSE normalized_text END,
+                        retrieval_locator = id,
+                        retrieval_source_key = 'source',
+                        retrieval_projection_generation = 'generation',
+                        retrieval_sequence_ordinal = sequence,
+                        retrieval_kind = 'document',
+                        retrieval_category = 'document'
+                    WHERE document_id = 'filler-document'
+                    """
+                )
+            )
+            await session.execute(text("ALTER TABLE memory_chunks ENABLE TRIGGER USER"))
+            await session.execute(text("ALTER TABLE memory_documents ENABLE TRIGGER USER"))
+            await session.commit()
+            await session.execute(text("ANALYZE memory_chunks"))
             corpus_size = int(
                 (await session.execute(text("SELECT count(*) FROM memory_chunks"))).scalar_one()
             )
@@ -232,6 +266,29 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             assert CANONICAL_KEYWORD_TRIGRAM_INDEX in _plan_index_names(after_batch)
             assert "Bitmap Index Scan" in _plan_node_types(after_scalar)
             assert "Bitmap Index Scan" in _plan_node_types(after_batch)
+
+            locator_request = core.LocatorRetrievalRequest(
+                "context-retrieval.v2",
+                "a" * 64,
+                "profile",
+                core.LocatorRetrievalScope("space-a", "scope-a", None, "any"),
+                (core.LocatorQueryVariant("q1", "NEEDLE"),),
+                core.LocatorHardFilters(
+                    source_generations=(
+                        core.LocatorSourceGeneration("source", "generation"),
+                    )
+                ),
+                core.LocatorSoftPreferences(),
+                core.LocatorRetrievalBounds(candidate_limit=10, result_limit=5),
+            )
+            locator_sql = _literal_postgres_sql(
+                _candidate_statement(locator_request, "NEEDLE").limit(10)
+            )
+            assert "lower(" not in locator_sql
+            await session.execute(text("SET LOCAL enable_seqscan = off"))
+            locator_plan = await _explain(session, locator_sql)
+            assert CANONICAL_KEYWORD_TRIGRAM_INDEX in _plan_index_names(locator_plan)
+            assert "Bitmap Index Scan" in _plan_node_types(locator_plan)
             _LOGGER.info(
                 "canonical keyword plan evidence: %s",
                 {
@@ -481,6 +538,10 @@ async def _explain_analyze(session: AsyncSession, sql: str):
     return (
         await session.execute(text(f"EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) {sql}"))
     ).scalar_one()
+
+
+async def _explain(session: AsyncSession, sql: str):
+    return (await session.execute(text(f"EXPLAIN (FORMAT JSON) {sql}"))).scalar_one()
 
 
 def _plan_index_names(plan) -> set[str]:
