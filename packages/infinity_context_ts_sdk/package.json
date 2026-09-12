@@ -1,6 +1,6 @@
 {
   "name": "@infinity-context/sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Production-grade TypeScript SDK for the Infinity Context memory API.",
   "license": "Apache-2.0",
   "repository": {
