@@ -109,17 +109,20 @@ def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
 
 
 def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
-    statement = str(
-        _candidate_statement(_request(), "CAFÉ 100% release_candidate").compile(
-            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-        )
+    compiled = _candidate_statement(
+        _request(), "CAFÉ 100% release_candidate"
+    ).compile(
+        dialect=postgresql.dialect()
     )
+    statement = str(compiled)
 
     assert "lower(" not in statement
-    assert statement.count("memory_chunks.normalized_text LIKE") == 6
-    assert "café" in statement
-    assert "100/%" in statement
-    assert "release/_candidate" in statement
+    assert statement.count("memory_chunks.normalized_text LIKE") == 9
+    assert [compiled.params[f"normalized_text_{ordinal}"] for ordinal in range(1, 4)] == [
+        "café",
+        "100/%",
+        "release/_candidate",
+    ]
     assert "ESCAPE '/'" in statement
 
 
