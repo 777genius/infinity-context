@@ -38,7 +38,7 @@ def test_projected_ingestion_keeps_source_refs_out_of_canonical_embedding_text()
     title = "mkevidence1." + base64.urlsafe_b64encode(
         hashlib.sha256(b"synthetic-render-audit").digest()
     ).decode().rstrip("=")
-    body = "hello " * 33
+    body = "CAFÉ ΔΈΛΤΑ 100% release_candidate " * 8
     source_refs = [
         {
             "source_type": "transcript",
@@ -87,7 +87,7 @@ def test_projected_ingestion_keeps_source_refs_out_of_canonical_embedding_text()
         )
     )
 
-    expected = title.lower() + " " + body.strip()
+    expected = (title + " " + body.strip()).lower()
     chunk = result.chunks[0]
     row = next(row for row in session.rows if isinstance(row, MemoryChunkRow))
     # Database defaults are assigned explicitly in this provider-free row fixture.

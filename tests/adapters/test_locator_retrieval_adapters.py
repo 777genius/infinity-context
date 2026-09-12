@@ -108,6 +108,24 @@ def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
     assert "memory_chunks.retrieval_actor_keys_json LIKE" not in statement
 
 
+def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
+    compiled = _candidate_statement(
+        _request(), "CAFÉ 100% release_candidate"
+    ).compile(
+        dialect=postgresql.dialect()
+    )
+    statement = str(compiled)
+
+    assert "lower(" not in statement
+    assert statement.count("memory_chunks.normalized_text LIKE") == 9
+    assert [compiled.params[f"normalized_text_{ordinal}"] for ordinal in range(1, 4)] == [
+        "café",
+        "100/%",
+        "release/_candidate",
+    ]
+    assert "ESCAPE '/'" in statement
+
+
 def test_qdrant_provider_preserves_raw_score_rank_and_version() -> None:
     search = _Search()
     result = asyncio.run(

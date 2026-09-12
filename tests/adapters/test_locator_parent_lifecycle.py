@@ -23,6 +23,10 @@ def test_parent_lifecycle_and_binding_are_canonical_for_every_locator_read() -> 
     asyncio.run(_assert_parent_authority())
 
 
+def test_locator_keyword_matching_preserves_case_unicode_and_literal_wildcards() -> None:
+    asyncio.run(_assert_keyword_matching_semantics())
+
+
 async def _assert_parent_authority() -> None:
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as connection:
@@ -63,13 +67,49 @@ async def _assert_parent_authority() -> None:
     await engine.dispose()
 
 
-def _request() -> core.LocatorRetrievalRequest:
+async def _assert_keyword_matching_semantics() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    cases = (
+        ("mixed-unicode", "Café Δέλτα", "café δέλτα"),
+        ("literal-percent", "Budget 100% complete", "budget 100% complete"),
+        ("literal-underscore", "release_candidate ready", "release_candidate ready"),
+        ("percent-decoy", "Budget 1000 complete", "budget 1000 complete"),
+        ("underscore-decoy", "releaseXcandidate ready", "releasexcandidate ready"),
+    )
+    async with sessions.begin() as session:
+        for ordinal, (name, text, normalized_text) in enumerate(cases):
+            session.add(_document(name))
+            session.add(
+                _chunk(
+                    name,
+                    ordinal,
+                    text=text,
+                    normalized_text=normalized_text,
+                )
+            )
+
+    provider = PostgresLocatorCandidateProvider(sessions)
+    expected = {
+        "CAFÉ ΔΈΛΤΑ": ["chunk-mixed-unicode"],
+        "100%": ["chunk-literal-percent"],
+        "release_candidate": ["chunk-literal-underscore"],
+    }
+    for query, identities in expected.items():
+        result = await provider.retrieve_locator_candidates(_request(query))
+        assert [hit.canonical_identity for hit in result.hits] == identities
+    await engine.dispose()
+
+
+def _request(query: str = "evidence") -> core.LocatorRetrievalRequest:
     return core.LocatorRetrievalRequest(
         "context-retrieval.v2",
         "a" * 64,
         "profile",
         core.LocatorRetrievalScope("space", "scope", "thread"),
-        (core.LocatorQueryVariant("q1", "evidence"),),
+        (core.LocatorQueryVariant("q1", query),),
         core.LocatorHardFilters(
             source_generations=(core.LocatorSourceGeneration("source", "generation"),)
         ),

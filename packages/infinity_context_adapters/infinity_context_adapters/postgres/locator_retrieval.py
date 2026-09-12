@@ -13,7 +13,7 @@ from infinity_context_core.features.context_building.public import (
     LocatorProviderResult,
     LocatorRetrievalRequest,
 )
-from sqlalchemy import case, cast, func, not_, or_, select, text
+from sqlalchemy import case, cast, not_, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -103,7 +103,7 @@ class PostgresCanonicalLocatorReader:
 def _candidate_statement(request: LocatorRetrievalRequest, query: str):
     terms = tuple(dict.fromkeys(term.casefold() for term in query.split() if term))
     matches = tuple(
-        func.lower(MemoryChunkRow.normalized_text).contains(term, autoescape=True) for term in terms
+        MemoryChunkRow.normalized_text.contains(term, autoescape=True) for term in terms
     )
     relevance = sum((case((match, 1), else_=0) for match in matches), start=0)
     conditions = list(_hard_sql_conditions(request))
