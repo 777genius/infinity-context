@@ -42,6 +42,14 @@ _MIGRATIONS = (
 )
 MIGRATION = _MIGRATIONS / "0022_canonical_keyword_trigram.sql"
 _LOGGER = logging.getLogger(__name__)
+_LOCATOR_SEMANTIC_IDS = (
+    "locator-unicode-all",
+    "locator-literal-percent",
+    "locator-literal-underscore",
+    "locator-percent-decoy",
+    "locator-underscore-decoy",
+    "locator-no-match-decoy",
+)
 
 
 def test_migration_and_runtime_installer_share_the_partial_trigram_contract() -> None:
@@ -130,7 +138,7 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             await session.execute(
                 text(
                     "UPDATE memory_documents SET retrieval_projected = TRUE "
-                    "WHERE id = 'filler-document'"
+                    "WHERE id = 'filler-document' OR id LIKE 'document-locator-%'"
                 )
             )
             await session.execute(
@@ -150,6 +158,21 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
                     WHERE document_id = 'filler-document'
                     """
                 )
+            )
+            await session.execute(
+                text(
+                    """
+                    UPDATE memory_chunks
+                    SET retrieval_locator = id,
+                        retrieval_source_key = 'semantic-source',
+                        retrieval_projection_generation = 'generation',
+                        retrieval_sequence_ordinal = sequence,
+                        retrieval_kind = 'document',
+                        retrieval_category = 'document'
+                    WHERE id = ANY(:fixture_ids)
+                    """
+                ),
+                {"fixture_ids": list(_LOCATOR_SEMANTIC_IDS)},
             )
             await session.execute(text("ALTER TABLE memory_chunks ENABLE TRIGGER USER"))
             await session.execute(text("ALTER TABLE memory_documents ENABLE TRIGGER USER"))
@@ -188,6 +211,8 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
                 "turn-global",
                 "turn-thread-a",
             ]
+
+            await _assert_locator_semantic_parity(session)
 
             index_definition = (
                 await session.execute(
@@ -287,8 +312,25 @@ async def _assert_real_postgres_access_path(database_url: str) -> None:
             assert "lower(" not in locator_sql
             await session.execute(text("SET LOCAL enable_seqscan = off"))
             locator_plan = await _explain(session, locator_sql)
-            assert CANONICAL_KEYWORD_TRIGRAM_INDEX in _plan_index_names(locator_plan)
-            assert "Bitmap Index Scan" in _plan_node_types(locator_plan)
+            locator_index_conditions = _named_bitmap_index_conditions(
+                locator_plan,
+                CANONICAL_KEYWORD_TRIGRAM_INDEX,
+            )
+            assert len(locator_index_conditions) == 1
+            assert "normalized_text" in locator_index_conditions[0]
+            assert "~~" in locator_index_conditions[0]
+            assert "needle" in locator_index_conditions[0]
+
+            old_locator_sql = locator_sql.replace(
+                "memory_chunks.normalized_text LIKE",
+                "lower(memory_chunks.normalized_text) LIKE",
+            )
+            assert "lower(memory_chunks.normalized_text) LIKE" in old_locator_sql
+            old_locator_plan = await _explain(session, old_locator_sql)
+            assert not _named_bitmap_index_conditions(
+                old_locator_plan,
+                CANONICAL_KEYWORD_TRIGRAM_INDEX,
+            )
             _LOGGER.info(
                 "canonical keyword plan evidence: %s",
                 {
@@ -441,7 +483,7 @@ def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:
         ("restricted", "scope-a", None, "active", "restricted", 0, "manual", "turn-private"),
         ("deleted", "scope-a", None, "deleted", "internal", 0, "manual", "turn-deleted"),
     )
-    return [
+    ordinary_rows = [
         MemoryChunkRow(
             id=item_id,
             space_id="space-a",
@@ -476,6 +518,97 @@ def _semantic_rows(now: datetime) -> list[MemoryChunkRow]:
             source_external_id,
         ) in values
     ]
+    locator_values = (
+        ("locator-unicode-all", "café 100% release_candidate", 70_001),
+        ("locator-literal-percent", "café 100% candidate", 70_002),
+        ("locator-literal-underscore", "café release_candidate candidate", 70_003),
+        ("locator-percent-decoy", "café 1000 candidate", 70_004),
+        ("locator-underscore-decoy", "café releasexcandidate", 70_005),
+        ("locator-no-match-decoy", "cafe 1000 releasexcandidate", 70_006),
+    )
+    return ordinary_rows + [
+        MemoryChunkRow(
+            id=item_id,
+            space_id="space-a",
+            memory_scope_id="scope-a",
+            thread_id=None,
+            document_id=f"document-{item_id}",
+            episode_id=None,
+            source_type="manual",
+            source_external_id=f"source-{item_id}",
+            source_hash=f"hash-{item_id}",
+            kind="document_section",
+            text=normalized_text,
+            normalized_text=normalized_text,
+            status="active",
+            sequence=sequence,
+            char_start=0,
+            char_end=len(normalized_text),
+            token_estimate=4,
+            classification="internal",
+            created_at=now + timedelta(seconds=sequence),
+            updated_at=now + timedelta(seconds=sequence),
+            metadata_json={"source_identity": f"source-{item_id}"},
+        )
+        for item_id, normalized_text, sequence in locator_values
+    ]
+
+
+async def _assert_locator_semantic_parity(session: AsyncSession) -> None:
+    request = core.LocatorRetrievalRequest(
+        "context-retrieval.v2",
+        "b" * 64,
+        "profile",
+        core.LocatorRetrievalScope("space-a", "scope-a", None, "any"),
+        (core.LocatorQueryVariant("semantic-query", "CAFÉ 100% RELEASE_CANDIDATE"),),
+        core.LocatorHardFilters(
+            source_generations=(
+                core.LocatorSourceGeneration("semantic-source", "generation"),
+            )
+        ),
+        core.LocatorSoftPreferences(),
+        core.LocatorRetrievalBounds(candidate_limit=10, result_limit=10),
+    )
+    statement = _candidate_statement(request, request.queries[0].query).limit(10)
+    raw_rows = [
+        (str(row.id), int(row.relevance))
+        for row in (await session.execute(statement)).all()
+    ]
+    expected = [
+        ("locator-unicode-all", 3),
+        ("locator-literal-percent", 2),
+        ("locator-literal-underscore", 2),
+        ("locator-percent-decoy", 1),
+        ("locator-underscore-decoy", 1),
+    ]
+    assert raw_rows == expected
+    assert [
+        (str(row.id), int(row.relevance))
+        for row in (await session.execute(statement)).all()
+    ] == expected
+
+    lowercase_mismatches = (
+        await session.execute(
+            text(
+                "SELECT id FROM memory_chunks "
+                "WHERE id = ANY(:fixture_ids) AND lower(normalized_text) <> normalized_text"
+            ),
+            {"fixture_ids": list(_LOCATOR_SEMANTIC_IDS)},
+        )
+    ).all()
+    assert lowercase_mismatches == []
+
+    raw_sql = _literal_postgres_sql(statement)
+    old_lower_sql = raw_sql.replace(
+        "memory_chunks.normalized_text LIKE",
+        "lower(memory_chunks.normalized_text) LIKE",
+    )
+    assert "lower(memory_chunks.normalized_text) LIKE" in old_lower_sql
+    old_lower_rows = [
+        (str(row.id), int(row.relevance))
+        for row in (await session.execute(text(old_lower_sql))).all()
+    ]
+    assert old_lower_rows == raw_rows
 
 
 def _document_rows(
@@ -525,7 +658,7 @@ def _normalize_sql(value: str) -> str:
 def _literal_postgres_sql(statement) -> str:
     compiled = str(
         statement.compile(
-            dialect=postgresql.dialect(),
+            dialect=postgresql.dialect(paramstyle="named"),
             compile_kwargs={"literal_binds": True},
         )
     )
@@ -550,6 +683,16 @@ def _plan_index_names(plan) -> set[str]:
 
 def _plan_node_types(plan) -> set[str]:
     return {str(node["Node Type"]) for node in _plan_nodes(plan) if "Node Type" in node}
+
+
+def _named_bitmap_index_conditions(plan, index_name: str) -> tuple[str, ...]:
+    return tuple(
+        str(node["Index Cond"])
+        for node in _plan_nodes(plan)
+        if node.get("Node Type") == "Bitmap Index Scan"
+        and node.get("Index Name") == index_name
+        and "Index Cond" in node
+    )
 
 
 def _plan_summary(plan) -> dict[str, object]:
