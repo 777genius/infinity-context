@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import uuid4
 
+from infinity_context_core.application.normalize import normalize_text
 from infinity_context_core.features.context_building.public import (
     CanonicalHydrationInvariantError,
     CanonicalLocatorCandidate,
@@ -101,7 +102,10 @@ class PostgresCanonicalLocatorReader:
 
 
 def _candidate_statement(request: LocatorRetrievalRequest, query: str):
-    terms = tuple(dict.fromkeys(term.casefold() for term in query.split() if term))
+    # Canonical chunk text is persisted with ``normalize_text``.  Apply that exact
+    # normalization to the query as well: casefolding is not interchangeable with
+    # lowercasing for Unicode text (for example, capital sharp-S).
+    terms = tuple(dict.fromkeys(normalize_text(query).split()))
     matches = tuple(
         MemoryChunkRow.normalized_text.contains(term, autoescape=True) for term in terms
     )

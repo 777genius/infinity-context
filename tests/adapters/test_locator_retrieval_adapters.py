@@ -126,6 +126,17 @@ def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
     assert "ESCAPE '/'" in statement
 
 
+def test_postgres_keyword_query_uses_canonical_text_normalization() -> None:
+    compiled = _candidate_statement(_request(), "STRAẞE evidence").compile(
+        dialect=postgresql.dialect()
+    )
+
+    assert [compiled.params[f"normalized_text_{ordinal}"] for ordinal in range(1, 3)] == [
+        "straße",
+        "evidence",
+    ]
+
+
 def test_qdrant_provider_preserves_raw_score_rank_and_version() -> None:
     search = _Search()
     result = asyncio.run(

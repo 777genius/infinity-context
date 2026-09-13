@@ -74,6 +74,8 @@ async def _assert_keyword_matching_semantics() -> None:
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     cases = (
         ("mixed-unicode", "Café Δέλτα", "café δέλτα"),
+        ("capital-sharp-s", "A STRAẞE landmark", "a straße landmark"),
+        ("generic-landmark", "A generic landmark", "a generic landmark"),
         ("literal-percent", "Budget 100% complete", "budget 100% complete"),
         ("literal-underscore", "release_candidate ready", "release_candidate ready"),
         ("percent-decoy", "Budget 1000 complete", "budget 1000 complete"),
@@ -94,6 +96,7 @@ async def _assert_keyword_matching_semantics() -> None:
     provider = PostgresLocatorCandidateProvider(sessions)
     expected = {
         "CAFÉ ΔΈΛΤΑ": ["chunk-mixed-unicode"],
+        "STRAẞE": ["chunk-capital-sharp-s"],
         "100%": ["chunk-literal-percent"],
         "release_candidate": ["chunk-literal-underscore"],
     }
