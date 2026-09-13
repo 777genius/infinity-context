@@ -110,16 +110,19 @@ def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
 
 
 def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
-    compiled = _candidate_statement(_request(), "CAFÉ, roadmap! release_candidate").compile(
-        dialect=postgresql.dialect()
-    )
+    compiled = _candidate_statement(
+        _request(), "CAFÉ, roadmap! 100% release_candidate"
+    ).compile(dialect=postgresql.dialect())
     statement = str(compiled)
 
     assert "lower(" not in statement
-    assert statement.count("memory_chunks.normalized_text LIKE") == 6
-    assert [compiled.params[f"normalized_text_{ordinal}"] for ordinal in range(1, 4)] == [
+    # Each predicate appears in the indexable OR prefilter and the summed CASE
+    # qualification.  Bound values remain escaped rather than interpolated.
+    assert statement.count("memory_chunks.normalized_text LIKE") == 12
+    assert [compiled.params[f"normalized_text_{ordinal}"] for ordinal in range(1, 5)] == [
         "café",
         "roadmap",
+        "100/%",
         "release/_candidate",
     ]
     assert "ESCAPE '/'" in statement
@@ -139,6 +142,21 @@ def test_keyword_terms_remove_generic_english_and_russian_scaffolding() -> None:
         ("roadmap",),
     )
     assert _keyword_terms("Что известно о релизе, и roadmap?") == (("релизе",), ("roadmap",))
+
+
+def test_keyword_terms_preserve_literal_percent_and_reject_contraction_scaffolding() -> None:
+    assert _keyword_terms("Was it 100% or 1000?") == (("100%",), ("1000",))
+    assert _keyword_terms("I tell you what's it") == ()
+    assert _keyword_terms("you've roadmap") == (("roadmap",),)
+
+
+def test_single_informative_keyword_still_builds_a_lexical_lane() -> None:
+    compiled = _candidate_statement(_request(), "I know the roadmap").compile(
+        dialect=postgresql.dialect()
+    )
+
+    assert "memory_chunks.normalized_text LIKE" in str(compiled)
+    assert "false" not in str(compiled).lower()
 
 
 def test_qdrant_provider_preserves_raw_score_rank_and_version() -> None:

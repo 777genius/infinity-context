@@ -101,10 +101,12 @@ async def _assert_keyword_matching_semantics() -> None:
     expected = {
         "CAFÉ, ΔΈΛΤΑ!": ["chunk-mixed-unicode"],
         "STRAẞE": ["chunk-capital-sharp-s"],
+        "100%": ["chunk-literal-percent"],
         "release_candidate": ["chunk-literal-underscore"],
         "Please tell me information about the PostgreSQL roadmap?": ["chunk-english-strong"],
         "Что известно о релиз, и roadmap?": ["chunk-russian-strong"],
         "Please, what is this about?": [],
+        "I tell you what's this?": [],
         "Где и что это?": [],
     }
     for query, identities in expected.items():

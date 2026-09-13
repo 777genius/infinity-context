@@ -578,8 +578,6 @@ async def _assert_locator_semantic_parity(session: AsyncSession) -> None:
         ("locator-unicode-all", 3),
         ("locator-literal-percent", 2),
         ("locator-literal-underscore", 2),
-        ("locator-percent-decoy", 1),
-        ("locator-underscore-decoy", 1),
     ]
     assert raw_rows == expected
     assert [

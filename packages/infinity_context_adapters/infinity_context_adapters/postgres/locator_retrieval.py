@@ -25,7 +25,7 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
 )
 from infinity_context_adapters.postgres.models import MemoryChunkRow
 
-_WORD_RE = re.compile(r"\w+", re.UNICODE)
+_WORD_RE = re.compile(r"\w+%?", re.UNICODE)
 
 # These words carry little retrieval intent on their own.  Keep this deliberately
 # small and language-generic: the lexical lane should remove query scaffolding,
@@ -33,8 +33,8 @@ _WORD_RE = re.compile(r"\w+", re.UNICODE)
 _LOW_INFORMATION_WORDS = frozenset(
     # English function words and common request scaffolding.
     """a about an and are as at be by can did do does for from has have how in
-    info information is it know me of on or please tell that the this to was what
-    when where which who why with would""".split()  # noqa: SIM905
+    d i info information is it know ll m me of on or please re s t tell that the
+    this to ve was what when where which who why with would you""".split()  # noqa: SIM905
     # Russian equivalents.
     + """а без был была в во вы где для до есть и из или известно информация как
     к когда кто ли мне мы на но о об от по почему при про расскажи с сведения со то
@@ -128,6 +128,10 @@ def _candidate_statement(request: LocatorRetrievalRequest, query: str):
     relevance = sum((case((match, 1), else_=0) for match in matches), start=literal_column("0"))
     conditions = list(_hard_sql_conditions(request))
     if matches:
+        # Keep the disjunction explicit as an indexable prefilter.  PostgreSQL can
+        # use each LIKE arm with the normalized_text trigram index before applying
+        # the stricter summed minimum-match qualification.
+        conditions.append(or_(*matches))
         # For a one-keyword query, that keyword is necessarily the whole lexical
         # intent.  For longer queries, require two distinct informative words so
         # one incidental overlap cannot lend an RRF contribution to a dense hit.
@@ -151,7 +155,7 @@ def _candidate_statement(request: LocatorRetrievalRequest, query: str):
 
 
 def _keyword_terms(query: str) -> tuple[tuple[str, ...], ...]:
-    """Return stable logical words with canonical and Unicode-folded aliases."""
+    """Return stable logical signals with canonical and Unicode-folded aliases."""
 
     words: list[tuple[str, ...]] = []
     seen: set[str] = set()
