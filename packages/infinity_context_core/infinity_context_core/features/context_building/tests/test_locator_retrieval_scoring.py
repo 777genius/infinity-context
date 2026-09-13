@@ -1,5 +1,7 @@
 """Exact integer scoring boundary tests for Retrieval."""
 
+import asyncio
+
 import pytest
 
 from infinity_context_core.features.context_building.application.locator_retrieval import (
@@ -15,7 +17,12 @@ from infinity_context_core.features.context_building.public import (
 )
 from infinity_context_core.features.context_building.tests.test_locator_retrieval import (
     FINGERPRINT,
+    _canonical,
+    _hit,
+    _Hydrator,
     _Provider,
+    _request,
+    _retrieve,
 )
 
 
@@ -43,6 +50,42 @@ def test_provider_weights_require_exact_bounded_integer_micros(value: object) ->
 def test_integer_rrf_exact_halves_use_round_half_even() -> None:
     assert _rrf_contribution_score_picos(100_001, 100_000, 100_000, 68) == 781_257_812
     assert _rrf_contribution_score_picos(100_005, 100_000, 100_000, 324) == 260_429_688
+
+
+def test_empty_lexical_lane_preserves_dense_only_results_and_strong_hits_fuse() -> None:
+    dense = _Provider((_hit("dense-only", rank=1), _hit("shared", rank=2)))
+    canonical = _Hydrator((_canonical("dense-only"), _canonical("shared")))
+    registrations = (
+        LocatorProviderRegistration("dense", dense),
+        LocatorProviderRegistration("lexical", _Provider(())),
+    )
+
+    dense_only = asyncio.run(_retrieve(registrations, canonical).execute(_request()))
+    assert tuple(item.canonical_identity for item in dense_only.candidates) == (
+        "dense-only",
+        "shared",
+    )
+    assert all(
+        tuple(value.provider_id for value in item.contributions) == ("dense",)
+        for item in dense_only.candidates
+    )
+
+    fused = asyncio.run(
+        _retrieve(
+            (
+                registrations[0],
+                LocatorProviderRegistration(
+                    "lexical", _Provider((_hit("shared", provider="lexical"),))
+                ),
+            ),
+            canonical,
+        ).execute(_request())
+    )
+    assert fused.candidates[0].canonical_identity == "shared"
+    assert tuple(value.provider_id for value in fused.candidates[0].contributions) == (
+        "dense",
+        "lexical",
+    )
 
 
 def test_preference_evidence_rejects_cross_dimension_weight_swap() -> None:

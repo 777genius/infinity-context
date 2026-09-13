@@ -23,7 +23,7 @@ def test_parent_lifecycle_and_binding_are_canonical_for_every_locator_read() -> 
     asyncio.run(_assert_parent_authority())
 
 
-def test_locator_keyword_matching_preserves_case_unicode_and_literal_wildcards() -> None:
+def test_locator_keyword_matching_normalizes_words_and_rejects_weak_hits() -> None:
     asyncio.run(_assert_keyword_matching_semantics())
 
 
@@ -74,6 +74,12 @@ async def _assert_keyword_matching_semantics() -> None:
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     cases = (
         ("mixed-unicode", "Café Δέλτα", "café δέλτα"),
+        ("capital-sharp-s", "A STRAẞE landmark", "a straße landmark"),
+        ("generic-landmark", "A generic landmark", "a generic landmark"),
+        ("english-strong", "PostgreSQL roadmap accepted", "postgresql roadmap accepted"),
+        ("english-weak", "PostgreSQL unrelated note", "postgresql unrelated note"),
+        ("russian-strong", "Релиз roadmap утвержден", "релиз roadmap утвержден"),
+        ("russian-weak", "Релиз перенесен", "релиз перенесен"),
         ("literal-percent", "Budget 100% complete", "budget 100% complete"),
         ("literal-underscore", "release_candidate ready", "release_candidate ready"),
         ("percent-decoy", "Budget 1000 complete", "budget 1000 complete"),
@@ -93,9 +99,15 @@ async def _assert_keyword_matching_semantics() -> None:
 
     provider = PostgresLocatorCandidateProvider(sessions)
     expected = {
-        "CAFÉ ΔΈΛΤΑ": ["chunk-mixed-unicode"],
+        "CAFÉ, ΔΈΛΤΑ!": ["chunk-mixed-unicode"],
+        "STRAẞE": ["chunk-capital-sharp-s"],
         "100%": ["chunk-literal-percent"],
         "release_candidate": ["chunk-literal-underscore"],
+        "Please tell me information about the PostgreSQL roadmap?": ["chunk-english-strong"],
+        "Что известно о релиз, и roadmap?": ["chunk-russian-strong"],
+        "Please, what is this about?": [],
+        "I tell you what's this?": [],
+        "Где и что это?": [],
     }
     for query, identities in expected.items():
         result = await provider.retrieve_locator_candidates(_request(query))

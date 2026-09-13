@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from dataclasses import dataclass
 from uuid import uuid4
 
+from infinity_context_core.application.normalize import normalize_text
 from infinity_context_core.features.context_building.public import (
     CanonicalHydrationInvariantError,
     CanonicalLocatorCandidate,
@@ -13,7 +16,7 @@ from infinity_context_core.features.context_building.public import (
     LocatorProviderResult,
     LocatorRetrievalRequest,
 )
-from sqlalchemy import case, cast, not_, or_, select, text
+from sqlalchemy import case, cast, false, literal_column, not_, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,6 +24,22 @@ from infinity_context_adapters.postgres.locator_profile_mapping import (
     parent_eligible_condition,
 )
 from infinity_context_adapters.postgres.models import MemoryChunkRow
+
+_WORD_RE = re.compile(r"\w+%?", re.UNICODE)
+
+# These words carry little retrieval intent on their own.  Keep this deliberately
+# small and language-generic: the lexical lane should remove query scaffolding,
+# not attempt stemming or language-specific semantic analysis.
+_LOW_INFORMATION_WORDS = frozenset(
+    # English function words and common request scaffolding.
+    """a about an and are as at be by can did do does for from has have how in
+    d i info information is it know ll m me of on or please re s t tell that the
+    this to ve was what when where which who why with would you""".split()  # noqa: SIM905
+    # Russian equivalents.
+    + """а без был была в во вы где для до есть и из или известно информация как
+    к когда кто ли мне мы на но о об от по почему при про расскажи с сведения со то
+    у что это я""".split()  # noqa: SIM905
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,27 +120,55 @@ class PostgresCanonicalLocatorReader:
 
 
 def _candidate_statement(request: LocatorRetrievalRequest, query: str):
-    terms = tuple(dict.fromkeys(term.casefold() for term in query.split() if term))
+    terms = _keyword_terms(query)
     matches = tuple(
-        MemoryChunkRow.normalized_text.contains(term, autoescape=True) for term in terms
+        or_(*(MemoryChunkRow.normalized_text.contains(alias, autoescape=True) for alias in aliases))
+        for aliases in terms
     )
-    relevance = sum((case((match, 1), else_=0) for match in matches), start=0)
+    relevance = sum((case((match, 1), else_=0) for match in matches), start=literal_column("0"))
     conditions = list(_hard_sql_conditions(request))
     if matches:
+        # Keep the disjunction explicit as an indexable prefilter.  PostgreSQL can
+        # use each LIKE arm with the normalized_text trigram index before applying
+        # the stricter summed minimum-match qualification.
         conditions.append(or_(*matches))
+        # For a one-keyword query, that keyword is necessarily the whole lexical
+        # intent.  For longer queries, require two distinct informative words so
+        # one incidental overlap cannot lend an RRF contribution to a dense hit.
+        conditions.append(relevance >= min(2, len(matches)))
+    else:
+        conditions.append(false())
+    labeled_relevance = relevance.label("relevance")
     return (
         select(
             MemoryChunkRow.id.label("id"),
             MemoryChunkRow.retrieval_version.label("retrieval_version"),
-            relevance.label("relevance"),
+            labeled_relevance,
         )
         .where(*conditions)
         .order_by(
-            relevance.desc(),
+            labeled_relevance.desc(),
             MemoryChunkRow.retrieval_sequence_ordinal,
             MemoryChunkRow.id,
         )
     )
+
+
+def _keyword_terms(query: str) -> tuple[tuple[str, ...], ...]:
+    """Return stable logical signals with canonical and Unicode-folded aliases."""
+
+    words: list[tuple[str, ...]] = []
+    seen: set[str] = set()
+    for canonical_word in _WORD_RE.findall(normalize_text(query)):
+        folded = unicodedata.normalize("NFKC", canonical_word).casefold()
+        if not folded or folded in _LOW_INFORMATION_WORDS or folded in seen:
+            continue
+        seen.add(folded)
+        # Existing canonical rows use normalize_text (lower), while casefold/NFKC
+        # is needed for deterministic Unicode query equivalence.  Query both forms
+        # as one logical word so aliases never inflate relevance.
+        words.append(tuple(dict.fromkeys((canonical_word, folded))))
+    return tuple(words)
 
 
 def _hard_sql_conditions(request: LocatorRetrievalRequest) -> tuple[object, ...]:
