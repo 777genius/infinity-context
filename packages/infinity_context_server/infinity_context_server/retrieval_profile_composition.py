@@ -118,6 +118,7 @@ class ProfileAwareLocatorRetrievalService:
     ) -> ActiveReconciliationResult:
         """Renew the active lease from a bounded, restart-safe physical observation."""
 
+        reconciliation_started = monotonic()
         owner = self.runtime_owner
         if not isinstance(owner, RuntimeFenceOwner):
             raise RuntimeError("retrieval_profile_reconciliation_runtime_identity_missing")
@@ -203,9 +204,10 @@ class ProfileAwareLocatorRetrievalService:
         operation = await self.registry.reconciliation_operation(
             active.profile_id, runtime_owner=owner
         )
+        lease_now = now + timedelta(seconds=max(0.0, monotonic() - reconciliation_started))
         evidence = await self.registry.activation_evidence(
             active.profile_id,
-            now=now,
+            now=lease_now,
             reconciliation_operation=operation,
             runtime_owner=owner,
         )
@@ -215,8 +217,8 @@ class ProfileAwareLocatorRetrievalService:
             evidence,
             operation=operation,
             runtime_owner=owner,
-            now=now,
-            expires_at=now + lease_ttl,
+            now=lease_now,
+            expires_at=lease_now + lease_ttl,
             drifted=not decision.accepted,
             mutation_epoch=mutation_epoch,
         )

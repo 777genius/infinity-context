@@ -65,6 +65,25 @@ def test_active_reconciliation_binds_exact_runtime_release_and_lifecycle_identit
     assert observed_operations == ["reconcile-1", "reconcile-3"]
 
 
+def test_active_reconciliation_starts_lease_after_slow_attestation(monkeypatch) -> None:
+    owner = _owner("generation-current")
+    registry = _Registry(owner)
+    service = _service(owner, registry)
+    _accept_attestation(monkeypatch)
+    ticks = iter((100.0, 140.0))
+    monkeypatch.setattr(
+        "infinity_context_server.retrieval_profile_composition.monotonic",
+        lambda: next(ticks),
+    )
+
+    result = asyncio.run(service.reconcile_active(now=NOW))
+
+    assert result.complete is True
+    assert result.renewed is True
+    assert registry.lease.issued_at == NOW + timedelta(seconds=40)
+    assert registry.lease.expires_at == NOW + timedelta(seconds=70)
+
+
 def test_runtime_start_and_clean_restart_are_generation_aware() -> None:
     first_owner = _owner("generation-first")
     registry = _Registry(None)
