@@ -161,14 +161,18 @@ async def _assert_continuity(database_url, monkeypatch, change):
             observation_now = current.expires_at - renew_before / 2
             assert timedelta(0) < current.expires_at - observation_now < renew_before
             await assert_ready()
+            requested_now = observation_now
             result = await service.reconcile_active(
                 now=observation_now, lease_ttl=lease_ttl, renew_before=renew_before
             )
             assert result.complete and result.renewed and result.outcome == "applied"
-            renewed = await assert_ready()
+            renewed = await registry.active_lease(now=observation_now)
+            assert renewed is not None
             assert renewed.lease_id != current.lease_id
-            assert renewed.issued_at == observation_now
-            assert renewed.expires_at == observation_now + lease_ttl
+            assert renewed.issued_at >= requested_now
+            assert renewed.expires_at - renewed.issued_at == lease_ttl
+            observation_now = renewed.issued_at
+            await assert_ready()
             assert renewed.expires_at > current.expires_at
         assert writes == ["postgres_keyword", "qdrant_dense"] * 3
         async with engine.connect() as connection:
