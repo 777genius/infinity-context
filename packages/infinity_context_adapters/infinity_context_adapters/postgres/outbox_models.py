@@ -34,7 +34,7 @@ class MemoryOutboxRow(Base):
     message_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     event_type: Mapped[str] = mapped_column(String(120), nullable=False)
     aggregate_type: Mapped[str] = mapped_column(String(80), nullable=False)
-    aggregate_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    aggregate_id: Mapped[str] = mapped_column(String(120), nullable=False)
     aggregate_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     workload_class: Mapped[str] = mapped_column(String(80), nullable=False, default="projection")
     fairness_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
