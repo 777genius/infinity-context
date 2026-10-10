@@ -473,7 +473,7 @@ async def create_full_postgres_harness(database_url: str, work_dir: Path) -> Ful
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0059_locator_parent_lifecycle"
+            assert result.current == "0060_memory_outbox_aggregate_id_width"
         finally:
             await engine.dispose()
         context, authority, pages, operations = build_strict_v4_material()
