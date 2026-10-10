@@ -407,6 +407,10 @@ def build_container(
             runtime_lifecycle=retrieval_runtime_lifecycle,
             service_revision=serving_profile.service_revision,
             sdk_revision=serving_profile.service_revision,
+            postgres_keyword_weight_micros=(
+                resolved_settings.retrieval_postgres_keyword_weight_micros
+            ),
+            qdrant_dense_weight_micros=resolved_settings.retrieval_qdrant_dense_weight_micros,
             diagnostics=runtime_metrics,
             runtime_owner=retrieval_profile_outbox.projection.runtime_owner,
         )

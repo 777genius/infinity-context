@@ -139,6 +139,12 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_collection: str = "infinity_context_chunks_v1"
     retrieval_profile_max_retained: int = Field(default=2, ge=0, le=100)
+    retrieval_postgres_keyword_weight_micros: int = Field(
+        default=1_000_000, ge=100_000, le=10_000_000
+    )
+    retrieval_qdrant_dense_weight_micros: int = Field(
+        default=1_000_000, ge=100_000, le=10_000_000
+    )
     retrieval_runtime_launch_identity_json: str | None = None
     retrieval_supervisor_trust_registry_path: str | None = None
     retrieval_supervisor_trust_root_sha256: str | None = None
