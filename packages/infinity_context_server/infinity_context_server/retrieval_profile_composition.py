@@ -67,6 +67,8 @@ class ProfileAwareLocatorRetrievalService:
     sessions: object
     query_embeddings: object
     service_revision: str
+    postgres_keyword_weight_micros: int = 1_000_000
+    qdrant_dense_weight_micros: int = 1_000_000
     runtime_lifecycle: RetrievalRuntimeLifecycle | None = None
     sdk_revision: str | None = None
     supports_neighbors: bool = True
@@ -306,12 +308,14 @@ class ProfileAwareLocatorRetrievalService:
                     PostgresLocatorCandidateProvider(self.sessions),
                     postgres_health,
                     True,
+                    weight_micros=self.postgres_keyword_weight_micros,
                 ),
                 RetrievalLaneRuntime(
                     "qdrant_dense",
                     QdrantContextCandidateProvider(adapter, self.query_embeddings),
                     qdrant_health,
                     True,
+                    weight_micros=self.qdrant_dense_weight_micros,
                     profile_qualification=qdrant_health,
                 ),
             ),
