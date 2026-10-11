@@ -110,9 +110,9 @@ def test_postgres_array_filters_compile_to_jsonb_containment() -> None:
 
 
 def test_postgres_keyword_match_targets_the_indexed_normalized_column() -> None:
-    compiled = _candidate_statement(
-        _request(), "CAFÉ, roadmap! 100% release_candidate"
-    ).compile(dialect=postgresql.dialect())
+    compiled = _candidate_statement(_request(), "CAFÉ, roadmap! 100% release_candidate").compile(
+        dialect=postgresql.dialect()
+    )
     statement = str(compiled)
 
     assert "lower(" not in statement
@@ -141,7 +141,10 @@ def test_keyword_terms_remove_generic_english_and_russian_scaffolding() -> None:
         ("postgresql",),
         ("roadmap",),
     )
-    assert _keyword_terms("Что известно о релизе, и roadmap?") == (("релизе",), ("roadmap",))
+    assert _keyword_terms("Что известно о релизе, и roadmap?") == (
+        ("релизе", "релиз", "релиза"),
+        ("roadmap",),
+    )
 
 
 def test_keyword_terms_preserve_literal_percent_and_reject_contraction_scaffolding() -> None:

@@ -26,7 +26,6 @@ from infinity_context_core.application.context_collectors import (
     VectorContextCollector,
 )
 from infinity_context_core.application.context_diagnostics import (
-    diagnostic_retrieval_sources,
     normalize_context_bundle_diagnostics,
 )
 from infinity_context_core.application.context_distinct_set_selection import (
@@ -37,6 +36,7 @@ from infinity_context_core.application.context_evidence_priority import (
     apply_context_evidence_priority,
 )
 from infinity_context_core.application.context_hydration import ContextHydrator
+from infinity_context_core.application.context_keyword_admission import admit_keyword_chunk
 from infinity_context_core.application.context_link_expansion import ApprovedContextLinkExpander
 from infinity_context_core.application.context_packer import ContextPacker
 from infinity_context_core.application.context_policy import (
@@ -54,7 +54,6 @@ from infinity_context_core.application.context_query_intent import (
     build_query_anchor_intent,
     match_query_anchor_intent,
     query_anchor_intent_conflicts,
-    query_anchor_intent_text_conflicts,
     query_anchor_lookup_keys,
 )
 from infinity_context_core.application.context_ranking import (
@@ -70,7 +69,6 @@ from infinity_context_core.application.context_ranking import (
 from infinity_context_core.application.context_relevance import (
     QueryRelevance,
     has_project_identity_mismatch,
-    is_chunk_candidate_relevance_sufficient,
     is_query_relevance_sufficient,
     score_query_relevance,
 )
@@ -131,7 +129,6 @@ from infinity_context_core.application.use_cases.build_context_keyword_aggregati
     _context_item_aggregation_source_groups,
     _dedupe_chunks_by_id,
     _keyword_aggregation_chunk_items,
-    _keyword_anchor_conflict_allowed,
     _prioritized_chunks_for_source_groups,
     _ranked_keyword_chunk_scores,
     _selected_keyword_prompt_items,
@@ -141,6 +138,10 @@ from infinity_context_core.application.use_cases.build_context_keyword_aggregati
 )
 from infinity_context_core.application.use_cases.build_context_keyword_aggregation_seeds import (
     aggregation_admission_seed_chunks as _aggregation_admission_seed_chunks,
+)
+from infinity_context_core.application.use_cases.build_context_requirement_guard import (
+    _is_primary_postgres_fact_item,  # noqa: F401 - compatibility seam
+    _trim_primary_fact_items,
 )
 from infinity_context_core.application.use_cases.build_context_source_selection import (
     _apply_temporal_relation_signals,
@@ -159,6 +160,8 @@ from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
 
 _ScoredKeywordPromptItem = tuple[int, int, int, float, float, int, str, ContextItem]
+
+
 class BuildContextUseCase:
     def __init__(
         self,
@@ -252,6 +255,9 @@ class BuildContextUseCase:
             "keyword_query_count": canonical.keyword_query_count,
             "keyword_query_reasons": list(canonical.keyword_query_reasons),
             "keyword_chunks_dropped_by_relevance": 0,
+            "keyword_chunks_dropped_by_project_identity": 0,
+            "keyword_chunks_dropped_by_anchor_conflict": 0,
+            "keyword_chunks_dropped_by_insufficient_relevance": 0,
             "keyword_neighbor_chunks_considered": 0,
             "keyword_neighbor_chunks_used": 0,
             "keyword_neighbor_chunks_skipped": 0,
@@ -460,33 +466,28 @@ class BuildContextUseCase:
                 text=chunk.text,
                 metadata=chunk.metadata,
             )
-            if has_project_identity_mismatch(query=query.query, text=chunk_text):
-                diagnostics["keyword_chunks_dropped_by_relevance"] = (
-                    int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
-                )
-                continue
-            expansion_query, expansion_reason, relevance = _best_query_relevance_cached(
-                query_expansion_plan,
+            admission = admit_keyword_chunk(
+                query=query.query,
                 text=chunk_text,
-                cache=query_relevance_cache,
+                anchor_intent=query_anchor_intent,
+                best_query=lambda text=chunk_text: _best_query_relevance_cached(
+                    query_expansion_plan,
+                    text=text,
+                    cache=query_relevance_cache,
+                ),
             )
-            if query_anchor_intent_text_conflicts(
-                query_anchor_intent,
-                chunk_text,
-            ) and not _keyword_anchor_conflict_allowed(
-                expansion_reason=expansion_reason,
-                relevance=relevance,
-                text=chunk_text,
-            ):
+            if admission.reason != "admitted":
+                counter = f"keyword_chunks_dropped_by_{admission.reason}"
+                diagnostics[counter] = int(diagnostics[counter]) + 1
                 diagnostics["keyword_chunks_dropped_by_relevance"] = (
                     int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
                 )
+            if admission.best_query is None:
                 continue
-            if not is_chunk_candidate_relevance_sufficient(
-                query=expansion_query,
-                text=chunk_text,
-                relevance=relevance,
-            ):
+            expansion_query, expansion_reason, relevance = admission.best_query
+            if admission.reason == "anchor_conflict":
+                continue
+            if admission.reason == "insufficient_relevance":
                 if (
                     _related_turn_anchor_evidence(relevance=relevance, text=chunk_text)
                     or _source_sibling_answer_evidence_query_match(
@@ -498,9 +499,6 @@ class BuildContextUseCase:
                     is not None
                 ):
                     sibling_anchor_chunks.append(chunk)
-                diagnostics["keyword_chunks_dropped_by_relevance"] = (
-                    int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
-                )
                 continue
             score = keyword_chunk_score(
                 relevance,
@@ -552,7 +550,12 @@ class BuildContextUseCase:
                     keyword_item,
                 )
             )
-        items.extend(_selected_keyword_prompt_items(scored_keyword_items, limit=query.max_chunks))
+        items.extend(
+            _selected_keyword_prompt_items(
+                scored_keyword_items,
+                limit=query.max_chunks,
+            )
+        )
         _record_stage_timing(diagnostics, "keyword_chunk_rank", stage_started_at)
         stage_started_at = perf_counter()
         aggregation_items, aggregation_diagnostics = _keyword_aggregation_chunk_items(
@@ -752,9 +755,10 @@ class BuildContextUseCase:
             query=query,
             memory_scope_ids=memory_scope_ids,
         )
-        linked_temporal_diagnostics["temporal_replacements_applied"] = int(
-            linked_temporal_diagnostics.get("temporal_replacements_applied", 0)
-        ) + linked_context.temporal_replacements_applied
+        linked_temporal_diagnostics["temporal_replacements_applied"] = (
+            int(linked_temporal_diagnostics.get("temporal_replacements_applied", 0))
+            + linked_context.temporal_replacements_applied
+        )
         _record_stage_timing(diagnostics, "linked_temporal_relations", stage_started_at)
         enrichment_finished_at = perf_counter()
         record_context_stage_interval(
@@ -895,7 +899,8 @@ class BuildContextUseCase:
         guarded_items, requirement_guard_diagnostics = _apply_explicit_requirement_guard(
             query=query.query,
             query_anchor_intent=query_anchor_intent,
-            items=candidate_items, project_anchor_policy=query.project_anchor_policy,
+            items=candidate_items,
+            project_anchor_policy=query.project_anchor_policy,
         )
         diagnostics.update(requirement_guard_diagnostics)
         diagnostics.update(
@@ -953,32 +958,6 @@ class BuildContextUseCase:
             token_estimate=result.bundle.token_estimate,
             diagnostics=bundle_diagnostics,
         )
-
-
-def _trim_primary_fact_items(
-    items: tuple[ContextItem, ...],
-    *,
-    max_facts: int,
-) -> tuple[ContextItem, ...]:
-    if max_facts <= 0:
-        return tuple(item for item in items if not _is_primary_postgres_fact_item(item))
-    primary_fact_count = 0
-    selected: list[ContextItem] = []
-    for item in items:
-        if not _is_primary_postgres_fact_item(item):
-            selected.append(item)
-            continue
-        if primary_fact_count >= max_facts:
-            continue
-        primary_fact_count += 1
-        selected.append(item)
-    return tuple(selected)
-
-
-def _is_primary_postgres_fact_item(item: ContextItem) -> bool:
-    return item.item_type == "fact" and diagnostic_retrieval_sources(item.diagnostics) == (
-        "postgres_facts",
-    )
 
 
 _COMPATIBILITY_HELPER_MODULES = (
