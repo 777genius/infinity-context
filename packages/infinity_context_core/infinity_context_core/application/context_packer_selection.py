@@ -384,7 +384,6 @@ def reserve_ranked_source_heads(
         source = canonical_source_family(item)
         if not source or source in attempted:
             continue
-        attempted.add(source)
         if _try_select_item(
             state,
             item=item,
@@ -392,6 +391,7 @@ def reserve_ranked_source_heads(
             char_budget=char_budget,
             mark_answer_support_family=False,
         ):
+            attempted.add(source)
             represented.add(source)
             selected_count += 1
     return selected_count

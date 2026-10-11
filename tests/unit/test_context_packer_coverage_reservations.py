@@ -363,6 +363,22 @@ def test_source_head_bound_counts_existing_sources_and_canonical_siblings() -> N
     assert head.score == 0.99 and sibling.score == 0.98
 
 
+def test_source_head_retries_fitting_canonical_sibling_after_failed_admission() -> None:
+    oversized = replace(
+        _head_item("oversized", "shared:pair:1", score=1.0), text="Long. " * 1000,
+    )
+    sibling = _head_item("fitting-sibling", "shared:pair:2", score=0.9)
+    other = _head_item("other", "other-source", score=0.8)
+    for budget, char_budget in ((64, 18000), (10000, 700)):
+        state = _source_head_state()
+        assert reserve_ranked_source_heads(
+            state, items=[oversized, sibling, other],
+            budget=budget, char_budget=char_budget,
+        ) == 2
+        assert state.selected == [sibling, other]
+        assert state.used_tokens <= budget
+
+
 def test_source_heads_obey_safety_and_both_packing_budgets() -> None:
     safe = _head_item("safe", "safe-source", score=0.1)
     unsafe = [
