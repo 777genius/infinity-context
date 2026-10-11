@@ -130,7 +130,9 @@ def _candidate_statement(request: LocatorRetrievalRequest, query: str):
             *(
                 and_(
                     MemoryChunkRow.normalized_text.contains(alias, autoescape=True),
-                    MemoryChunkRow.normalized_text.op("~")(rf"\m{re.escape(alias)}\M"),
+                    MemoryChunkRow.normalized_text.regexp_match(
+                        rf"(^|\W){re.escape(alias)}($|\W)"
+                    ),
                 )
                 if alias in generated_keyword_aliases(aliases[0])
                 else MemoryChunkRow.normalized_text.contains(alias, autoescape=True)
