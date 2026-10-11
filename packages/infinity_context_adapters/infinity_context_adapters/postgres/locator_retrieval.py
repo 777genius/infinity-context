@@ -16,10 +16,14 @@ from infinity_context_core.features.context_building.public import (
     LocatorProviderResult,
     LocatorRetrievalRequest,
 )
-from sqlalchemy import case, cast, false, literal_column, not_, or_, select, text
+from sqlalchemy import and_, case, cast, false, literal_column, not_, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from infinity_context_adapters.postgres.locator_keyword_aliases import (
+    generated_keyword_aliases,
+    keyword_family_key,
+)
 from infinity_context_adapters.postgres.locator_profile_mapping import (
     parent_eligible_condition,
 )
@@ -122,7 +126,19 @@ class PostgresCanonicalLocatorReader:
 def _candidate_statement(request: LocatorRetrievalRequest, query: str):
     terms = _keyword_terms(query)
     matches = tuple(
-        or_(*(MemoryChunkRow.normalized_text.contains(alias, autoescape=True) for alias in aliases))
+        or_(
+            *(
+                and_(
+                    MemoryChunkRow.normalized_text.contains(alias, autoescape=True),
+                    MemoryChunkRow.normalized_text.regexp_match(
+                        rf"(^|[^\wА-Яа-яЁё]){re.escape(alias)}($|[^\wА-Яа-яЁё])"
+                    ),
+                )
+                if alias in generated_keyword_aliases(aliases[0])
+                else MemoryChunkRow.normalized_text.contains(alias, autoescape=True)
+                for alias in aliases
+            )
+        )
         for aliases in terms
     )
     relevance = sum((case((match, 1), else_=0) for match in matches), start=literal_column("0"))
@@ -161,13 +177,24 @@ def _keyword_terms(query: str) -> tuple[tuple[str, ...], ...]:
     seen: set[str] = set()
     for canonical_word in _WORD_RE.findall(normalize_text(query)):
         folded = unicodedata.normalize("NFKC", canonical_word).casefold()
-        if not folded or folded in _LOW_INFORMATION_WORDS or folded in seen:
+        family_key = keyword_family_key(folded)
+        if not folded or folded in _LOW_INFORMATION_WORDS or family_key in seen:
             continue
-        seen.add(folded)
+        seen.add(family_key)
         # Existing canonical rows use normalize_text (lower), while casefold/NFKC
         # is needed for deterministic Unicode query equivalence.  Query both forms
         # as one logical word so aliases never inflate relevance.
-        words.append(tuple(dict.fromkeys((canonical_word, folded))))
+        words.append(
+            tuple(
+                dict.fromkeys(
+                    (
+                        canonical_word,
+                        folded,
+                        *generated_keyword_aliases(canonical_word),
+                    )
+                )
+            )[:4]
+        )
     return tuple(words)
 
 

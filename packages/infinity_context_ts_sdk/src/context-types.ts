@@ -73,6 +73,9 @@ export interface ContextDiagnostics extends JsonObject {
   readonly facts_used?: number;
   readonly anchors_considered?: number;
   readonly keyword_chunks_considered?: number;
+  readonly keyword_chunks_dropped_by_project_identity?: number;
+  readonly keyword_chunks_dropped_by_anchor_conflict?: number;
+  readonly keyword_chunks_dropped_by_insufficient_relevance?: number;
   readonly hybrid_items_used?: number;
   readonly vector_candidate_count?: number;
   readonly vector_hydrated_count?: number;

@@ -428,6 +428,62 @@ def test_count_continuity_does_not_displace_four_strong_ordinary_items() -> None
     assert promoted == ()
 
 
+@pytest.mark.parametrize("retain_sibling", [True, False])
+def test_keyword_drop_aggregate_excludes_retained_sibling_seeds(
+    monkeypatch: pytest.MonkeyPatch, retain_sibling: bool
+) -> None:
+    candidate = _chunk("low-relevance", "The weather is pleasant.")
+    use_case = BuildContextUseCase(
+        uow_factory=lambda: None,  # type: ignore[arg-type,return-value]
+        ids=_Ids(),  # type: ignore[arg-type]
+        vector_index=object(),  # type: ignore[arg-type]
+        graph_index=object(),  # type: ignore[arg-type]
+        embedder=object(),  # type: ignore[arg-type]
+        packer=_RecordingPacker(),
+    )
+    use_case._canonical_collector = _CanonicalCollector(candidate)  # type: ignore[assignment]
+    use_case._hydrator = _Hydrator()  # type: ignore[assignment]
+    use_case._artifact_evidence_collector = _ArtifactCollector()  # type: ignore[assignment]
+    use_case._context_link_expander = _LinkExpander()  # type: ignore[assignment]
+    sibling_seeds = []
+
+    async def empty_selection(**_kwargs):
+        return (), {}
+
+    async def siblings(*, seed_chunks, **_kwargs):
+        sibling_seeds.extend(seed_chunks)
+        return (), {}
+
+    async def canonical_seeds(*, canonical_chunks, **_kwargs):
+        return canonical_chunks, {}
+
+    async def empty_items(**_kwargs):
+        return ()
+
+    async def temporal_passthrough(*, items, **_kwargs):
+        return items, {}
+
+    monkeypatch.setattr(build_context_module, "_aggregation_admission_seed_chunks", canonical_seeds)
+    monkeypatch.setattr(build_context_module, "_keyword_neighbor_chunk_items", empty_selection)
+    monkeypatch.setattr(build_context_module, "_keyword_source_sibling_chunk_items", siblings)
+    monkeypatch.setattr(build_context_module, "_pending_conflict_items", empty_items)
+    monkeypatch.setattr(
+        build_context_module, "_apply_temporal_relation_signals", temporal_passthrough
+    )
+    monkeypatch.setattr(
+        build_context_module, "_related_turn_anchor_evidence", lambda **_kwargs: retain_sibling
+    )
+    monkeypatch.setattr(
+        build_context_module, "_source_sibling_answer_evidence_query_match", lambda **_kwargs: None
+    )
+
+    result = asyncio.run(use_case.execute(_query("What did Alice decide for rollout?")))
+
+    assert result.diagnostics["keyword_chunks_dropped_by_insufficient_relevance"] == 1
+    assert result.diagnostics["keyword_chunks_dropped_by_relevance"] == int(not retain_sibling)
+    assert (candidate in sibling_seeds) == retain_sibling
+
+
 def test_relaxed_aggregation_evidence_reaches_the_pre_pack_pool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

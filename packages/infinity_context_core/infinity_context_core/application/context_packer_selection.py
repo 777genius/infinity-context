@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
 from infinity_context_core.application.context_diagnostics import context_rank_key
 from infinity_context_core.application.context_evidence_priority import (
+    _MAX_PRIORITY_ITEMS,
+    _evidence_priority_tier,
     has_unresolved_rerank_rejection,
+)
+from infinity_context_core.application.context_evidence_reservation_safety import (
+    evidence_reservation_candidate_is_eligible,
 )
 from infinity_context_core.application.context_packer_answer_support import (
     _answer_object_rank,
@@ -48,9 +54,11 @@ from infinity_context_core.application.context_packer_source_policy import (
 from infinity_context_core.application.context_packer_source_policy import (
     source_group_cap as _source_group_cap,
 )
+from infinity_context_core.application.context_query_identity_terms import raw_query_tokens
 from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
     reserve_paired_evidence_head,
 )
+from infinity_context_core.application.context_source_family import canonical_source_family
 from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.features.context_building.application.coverage_reservation_selector import (  # noqa: E501
@@ -346,6 +354,91 @@ class CoverageReservationDiagnostics:
     claims_considered: int
     reservations_selected: int
     selected_obligation_ids: tuple[str, ...]
+
+
+def reserve_ranked_source_heads(
+    state: _SelectionState,
+    *,
+    items: list[ContextItem],
+    budget: int,
+    char_budget: int,
+    query: str = "",
+) -> int:
+    """Reserve whole source heads before specialized passes consume the budget.
+
+    Producer-supported priority evidence and query-matched excerpts may use early slots.
+    Existing reservations count toward the bounded source head allocation.
+    Later passes remain free to admit complementary evidence from those sources.
+    """
+
+    represented = {
+        source for item in state.selected if (source := canonical_source_family(item))
+    }
+    attempted = set(represented)
+    selected_count = 0
+    for item in _rank_source_heads(items, query=query):
+        if len(represented) >= _MAX_PRIORITY_ITEMS:
+            break
+        if not _source_head_is_eligible(item):
+            continue
+        source = canonical_source_family(item)
+        if not source or source in attempted:
+            continue
+        if _try_select_item(
+            state,
+            item=item,
+            budget=budget,
+            char_budget=char_budget,
+            mark_answer_support_family=False,
+        ):
+            attempted.add(source)
+            represented.add(source)
+            selected_count += 1
+    return selected_count
+
+
+def _source_head_is_eligible(item: ContextItem) -> bool:
+    snippet_hits = diagnostic_value(item, "query_snippet_unique_term_hits")
+    has_query_excerpt = (
+        item.item_type == "chunk"
+        and isinstance(snippet_hits, int)
+        and not isinstance(snippet_hits, bool)
+        and snippet_hits >= 2
+    )
+    return (
+        _evidence_priority_tier(item) is not None or has_query_excerpt
+    ) and evidence_reservation_candidate_is_eligible(item)
+
+
+def _rank_source_heads(items: list[ContextItem], *, query: str) -> list[ContextItem]:
+    """Rank allocation by request-local rarity, counting each scoped source once."""
+
+    query_terms = set(raw_query_tokens(query))
+    if not query_terms:
+        return sorted(items, key=context_rank_key)
+
+    def matches(item: ContextItem) -> set[str]:
+        return set(raw_query_tokens(item.text)) & query_terms
+
+    source_terms: dict[str, set[str]] = {}
+    for item in items:
+        source_terms.setdefault(canonical_source_family(item), set()).update(matches(item))
+    if not any(matches(item) and _source_head_is_eligible(item) for item in items):
+        return sorted(items, key=context_rank_key)
+    n = len(source_terms)
+    weights = {
+        term: math.log((n + 0.5) / (sum(term in ts for ts in source_terms.values()) + 0.5))
+        for term in query_terms
+    }
+
+    def rank(item: ContextItem) -> tuple[object, ...]:
+        return (
+            0 if _evidence_priority_tier(item) is not None else 1,
+            -sum(weights[term] for term in sorted(matches(item))),
+            context_rank_key(item),
+        )
+
+    return sorted(items, key=rank)
 
 
 def reserve_coverage_items(

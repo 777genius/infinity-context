@@ -280,6 +280,9 @@ class ContextBundleDiagnostics:
     ranked_evidence_source_dedupe_drop_count: int = 0
     ranked_evidence_temporal_interval_reservation_count: int = 0
     ranked_evidence_paired_reservation_count: int = 0
+    keyword_chunks_dropped_by_project_identity: int = 0
+    keyword_chunks_dropped_by_anchor_conflict: int = 0
+    keyword_chunks_dropped_by_insufficient_relevance: int = 0
 
 
 def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
@@ -449,6 +452,15 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         ),
         anchor_relation_items_used=_non_negative_int(payload.get("anchor_relation_items_used")),
         keyword_chunks_considered=_non_negative_int(payload.get("keyword_chunks_considered")),
+        keyword_chunks_dropped_by_project_identity=_non_negative_int(
+            payload.get("keyword_chunks_dropped_by_project_identity")
+        ),
+        keyword_chunks_dropped_by_anchor_conflict=_non_negative_int(
+            payload.get("keyword_chunks_dropped_by_anchor_conflict")
+        ),
+        keyword_chunks_dropped_by_insufficient_relevance=_non_negative_int(
+            payload.get("keyword_chunks_dropped_by_insufficient_relevance")
+        ),
         keyword_chunks_dropped_by_relevance=_non_negative_int(
             payload.get("keyword_chunks_dropped_by_relevance")
         ),

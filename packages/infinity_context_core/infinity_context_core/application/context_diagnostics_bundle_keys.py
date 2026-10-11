@@ -22,6 +22,9 @@ _BUNDLE_COUNTER_KEYS = (
     "keyword_chunks_considered",
     "keyword_query_count",
     "keyword_chunks_dropped_by_relevance",
+    "keyword_chunks_dropped_by_project_identity",
+    "keyword_chunks_dropped_by_anchor_conflict",
+    "keyword_chunks_dropped_by_insufficient_relevance",
     "keyword_neighbor_chunks_considered",
     "keyword_neighbor_chunks_used",
     "keyword_neighbor_chunks_skipped",
@@ -228,6 +231,9 @@ _BUNDLE_COUNTER_DEFAULTS = {
     "keyword_chunks_considered": 0,
     "keyword_query_count": 0,
     "keyword_chunks_dropped_by_relevance": 0,
+    "keyword_chunks_dropped_by_project_identity": 0,
+    "keyword_chunks_dropped_by_anchor_conflict": 0,
+    "keyword_chunks_dropped_by_insufficient_relevance": 0,
     "keyword_neighbor_chunks_considered": 0,
     "keyword_neighbor_chunks_used": 0,
     "keyword_neighbor_chunks_skipped": 0,
@@ -390,18 +396,10 @@ _BUNDLE_PROVIDER_STATUS_FLOAT_KEYS = (
     "graph_deadline_seconds",
     "rag_deadline_seconds",
 )
-_BUNDLE_QUERY_ANCHOR_TEXT_KEYS = (
-    "query_anchor_intent_status",
-)
-_BUNDLE_QUERY_ANCHOR_LIST_KEYS = (
-    "query_anchor_hint_reasons",
-)
-_BUNDLE_KEYWORD_AGGREGATION_TEXT_KEYS = (
-    "keyword_aggregation_query_kind",
-)
-_BUNDLE_KEYWORD_AGGREGATION_MAPPING_KEYS = (
-    "keyword_aggregation_admission_reasons",
-)
+_BUNDLE_QUERY_ANCHOR_TEXT_KEYS = ("query_anchor_intent_status",)
+_BUNDLE_QUERY_ANCHOR_LIST_KEYS = ("query_anchor_hint_reasons",)
+_BUNDLE_KEYWORD_AGGREGATION_TEXT_KEYS = ("keyword_aggregation_query_kind",)
+_BUNDLE_KEYWORD_AGGREGATION_MAPPING_KEYS = ("keyword_aggregation_admission_reasons",)
 _BUNDLE_QUERY_PLAN_TEXT_KEYS = (
     "query_expansion_status",
     "query_decomposition_status",
@@ -415,9 +413,7 @@ _BUNDLE_QUERY_PLAN_LIST_KEYS = (
     "query_expansion_reasons",
     "query_decomposition_reasons",
 )
-_BUNDLE_TEMPORAL_QUERY_TEXT_KEYS = (
-    "temporal_query_intent_status",
-)
+_BUNDLE_TEMPORAL_QUERY_TEXT_KEYS = ("temporal_query_intent_status",)
 _BUNDLE_TEMPORAL_QUERY_BOOL_KEYS = (
     "temporal_query_prefers_current",
     "temporal_query_requests_previous",

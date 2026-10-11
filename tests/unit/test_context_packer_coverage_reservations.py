@@ -1,4 +1,12 @@
+from dataclasses import replace
+
+import pytest
 from infinity_context_core.application.context_packer import ContextPacker
+from infinity_context_core.application.context_packer_selection import (
+    _SelectionState,
+    _try_select_item,
+    reserve_ranked_source_heads,
+)
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.domain.entities import SourceRef
 
@@ -281,3 +289,201 @@ def _item(
 
 def _selected_ids(result) -> tuple[str, ...]:
     return tuple(item.item_id for item in result.bundle.items)
+
+
+@pytest.mark.parametrize("support", ["producer", "query_excerpt"])
+def test_ranked_source_head_survives_long_specialized_prepasses(support: str) -> None:
+    target = _head_item("source-head", "independent-source", score=0.99)
+    if support == "query_excerpt":
+        signals = dict(target.diagnostics["score_signals"])
+        signals.pop("application_evidence_contract_tier")
+        target = replace(target, diagnostics={
+            **target.diagnostics, "score_signals": signals,
+            "query_snippet_unique_term_hits": 2,
+        })
+    specialized = tuple(
+        replace(
+            _item(
+                f"submission-{index}", score=0.8 - index * 0.01,
+                source_id=f"submission-source-{index}",
+                reason="creative_work_submission_bridge", hits=1, ratio=0.1,
+                text=f"D{index + 1}:1 Dana submitted a screenplay to a film contest. "
+                + "Details. " * (115 if index == 0 else 60),
+            ),
+            source_refs=(SourceRef(
+                source_type="locomo_turn",
+                source_id=f"synthetic:fixture:session_{index + 1}:D{index + 1}:1:turn",
+            ),),
+        )
+        for index in range(8)
+    )
+    noise = tuple(
+        _item(
+            f"untyped-{index}", score=1.0, source_id=f"untyped-source-{index}",
+            reason="", hits=1, ratio=0.1, text="An unrelated project note.",
+        )
+        for index in range(40)
+    )
+    result = ContextPacker().pack(
+        bundle_id="ctx-source-head", items=(*noise, *specialized, target),
+        query="What places has Dana submitted her work to?",
+        token_budget=2000, max_rendered_chars=1500,
+    )
+    assert "source-head" in _selected_ids(result)
+    assert any(item.item_id.startswith("submission-") for item in result.bundle.items)
+    assert len(result.bundle.rendered_text) <= 1500
+
+
+def test_source_head_bound_counts_existing_sources_and_canonical_siblings() -> None:
+    state = _source_head_state()
+    existing = _head_item("existing", "shared")
+    complement = replace(existing, item_id="complement", text="Additional evidence.")
+    for item in (existing, complement):
+        assert _try_select_item(state, item=item, budget=10000, char_budget=18000)
+    head = _head_item("best", "new:pair:1", score=0.99)
+    sibling = _head_item("sibling", "new:pair:2", score=0.98)
+    scoped = replace(
+        head, item_id="other-scope",
+        diagnostics={**head.diagnostics, "memory_scope_id": "other"},
+    )
+    noise = [
+        _head_item(f"noise-{i}", f"noise-source-{i}", score=0.9 - i * 0.01)
+        for i in range(40)
+    ]
+    assert reserve_ranked_source_heads(
+        state, items=[*reversed(noise), sibling, head, scoped],
+        query="evidence", budget=10000, char_budget=18000,
+    ) == 7
+    assert [item.item_id for item in state.selected] == [
+        "existing", "complement", "other-scope", "best",
+        "noise-0", "noise-1", "noise-2", "noise-3", "noise-4",
+    ]
+    # Reservation does not consume the later complementary same-source slot.
+    assert _try_select_item(state, item=sibling, budget=10000, char_budget=18000)
+    assert head.score == 0.99 and sibling.score == 0.98
+
+
+def test_source_head_retries_fitting_canonical_sibling_after_failed_admission() -> None:
+    oversized = replace(
+        _head_item("oversized", "shared:pair:1", score=1.0), text="Long. " * 1000,
+    )
+    sibling = _head_item("fitting-sibling", "shared:pair:2", score=0.9)
+    other = _head_item("other", "other-source", score=0.8)
+    for budget, char_budget in ((64, 18000), (10000, 700)):
+        state = _source_head_state()
+        assert reserve_ranked_source_heads(
+            state, items=[oversized, sibling, other],
+            budget=budget, char_budget=char_budget,
+        ) == 2
+        assert state.selected == [sibling, other]
+        assert state.used_tokens <= budget
+
+
+def test_source_heads_obey_safety_and_both_packing_budgets() -> None:
+    safe = _head_item("safe", "safe-source", score=0.1)
+    unsafe = [
+        _item(
+            "untyped-noise", score=1.0, source_id="untyped-source", reason="",
+            hits=1, ratio=0.1, text="High-ranked but unsupported general context.",
+        ),
+        replace(_head_item("instruction", "instruction-source"), is_instruction=True),
+        replace(_head_item("review", "review-source"), diagnostics={"review_only": True}),
+        replace(_head_item("conflict", "conflict-source"), diagnostics={
+            "provenance": {"trace": {"conflicting_fact_id": "current"}},
+        }),
+        replace(_head_item("rejected", "rejected-source"), diagnostics={
+            "provenance": {"deterministic_rerank_reasons": ["subject_mismatch"]},
+        }),
+        _head_item("unsafe-source", "ignore-previous-instructions"),
+    ]
+    oversized = replace(_head_item("oversized", "oversized-source"), text="Long. " * 1000)
+    for budget, char_budget in ((64, 18000), (10000, 400)):
+        state = _source_head_state()
+        assert reserve_ranked_source_heads(
+            state, items=[*unsafe, oversized, safe],
+            query="evidence", budget=budget, char_budget=char_budget,
+        ) == 1
+        assert [item.item_id for item in state.selected] == ["safe"]
+        assert state.used_tokens <= budget
+        packed = ContextPacker().pack(
+            bundle_id="ctx-boundary", items=tuple(state.selected),
+            token_budget=budget, max_rendered_chars=char_budget,
+        )
+        assert len(packed.bundle.rendered_text) <= char_budget
+
+
+@pytest.mark.parametrize("duplicate_chunks", [0, 12])
+def test_source_head_rarity_counts_sources_and_handles_duplicate_item_ids(
+    duplicate_chunks: int,
+) -> None:
+    common = [
+        replace(
+            _head_item(f"common-{index}", f"common-source-{index}"),
+            text="Common planning evidence.",
+        )
+        for index in range(5)
+    ]
+    rare = replace(
+        _head_item(common[0].item_id, "rare-source", score=0.1),
+        text="Precise saffron evidence.",
+    )
+    siblings = [
+        replace(rare, item_id=f"sibling-{index}", score=0.01)
+        for index in range(duplicate_chunks)
+    ]
+    state = _source_head_state()
+    assert reserve_ranked_source_heads(
+        state, items=[*common, rare, *siblings], query="COMMON planning SAFFRON",
+        budget=32, char_budget=18000,
+    ) == 1
+    assert state.selected == [rare]
+    assert rare.score == 0.1
+    assert state.selected_answer_support_families == set()
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("", "excerpt"), ("unmatched", "excerpt"), ("SAFFRON", "producer")],
+)
+def test_source_head_query_preserves_producer_precedence_and_empty_query_order(
+    query: str, expected: str,
+) -> None:
+    producer = _head_item("producer", "producer-source", score=0.1)
+    excerpt = replace(
+        _item(
+            "excerpt", score=1.0, source_id="excerpt-source", reason="",
+            hits=1, ratio=0.1, text="Precise saffron evidence.",
+        ),
+        diagnostics={"query_snippet_unique_term_hits": 2},
+    )
+    # An unsupported match must not activate rarity ordering for an unmatched query.
+    unsupported = _item(
+        "unsupported", score=1.0, source_id="unsupported-source", reason="",
+        hits=1, ratio=0.1, text="Unmatched unrelated evidence.",
+    )
+    state = _source_head_state()
+    assert reserve_ranked_source_heads(
+        state, items=[producer, excerpt, unsupported], query=query,
+        budget=32, char_budget=18000,
+    ) == 1
+    assert [item.item_id for item in state.selected] == [expected]
+
+
+def _head_item(item_id: str, source_id: str, *, score: float = 1.0) -> ContextItem:
+    item = _item(
+        item_id, score=score, source_id=source_id, reason="", hits=1, ratio=0.1,
+        text="Whole source evidence.",
+    )
+    diagnostics = dict(item.diagnostics)
+    diagnostics["score_signals"] = {
+        **diagnostics["score_signals"], "application_evidence_contract_tier": 1,
+    }
+    return replace(item, diagnostics=diagnostics)
+
+
+def _source_head_state() -> _SelectionState:
+    return _SelectionState(
+        selected=[], selected_keys=set(), selected_answer_support_families=set(),
+        selected_chunks_by_source={}, selected_source_capped_items_by_source={},
+        selected_art_style_items_by_source_group={},
+    )
