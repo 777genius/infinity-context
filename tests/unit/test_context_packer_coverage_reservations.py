@@ -352,7 +352,7 @@ def test_source_head_bound_counts_existing_sources_and_canonical_siblings() -> N
     ]
     assert reserve_ranked_source_heads(
         state, items=[*reversed(noise), sibling, head, scoped],
-        budget=10000, char_budget=18000,
+        query="evidence", budget=10000, char_budget=18000,
     ) == 7
     assert [item.item_id for item in state.selected] == [
         "existing", "complement", "other-scope", "best",
@@ -385,7 +385,7 @@ def test_source_heads_obey_safety_and_both_packing_budgets() -> None:
         state = _source_head_state()
         assert reserve_ranked_source_heads(
             state, items=[*unsafe, oversized, safe],
-            budget=budget, char_budget=char_budget,
+            query="evidence", budget=budget, char_budget=char_budget,
         ) == 1
         assert [item.item_id for item in state.selected] == ["safe"]
         assert state.used_tokens <= budget
@@ -394,6 +394,63 @@ def test_source_heads_obey_safety_and_both_packing_budgets() -> None:
             token_budget=budget, max_rendered_chars=char_budget,
         )
         assert len(packed.bundle.rendered_text) <= char_budget
+
+
+@pytest.mark.parametrize("duplicate_chunks", [0, 12])
+def test_source_head_rarity_counts_sources_and_handles_duplicate_item_ids(
+    duplicate_chunks: int,
+) -> None:
+    common = [
+        replace(
+            _head_item(f"common-{index}", f"common-source-{index}"),
+            text="Common planning evidence.",
+        )
+        for index in range(5)
+    ]
+    rare = replace(
+        _head_item(common[0].item_id, "rare-source", score=0.1),
+        text="Precise saffron evidence.",
+    )
+    siblings = [
+        replace(rare, item_id=f"sibling-{index}", score=0.01)
+        for index in range(duplicate_chunks)
+    ]
+    state = _source_head_state()
+    assert reserve_ranked_source_heads(
+        state, items=[*common, rare, *siblings], query="COMMON planning SAFFRON",
+        budget=32, char_budget=18000,
+    ) == 1
+    assert state.selected == [rare]
+    assert rare.score == 0.1
+    assert state.selected_answer_support_families == set()
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [("", "excerpt"), ("unmatched", "excerpt"), ("SAFFRON", "producer")],
+)
+def test_source_head_query_preserves_producer_precedence_and_empty_query_order(
+    query: str, expected: str,
+) -> None:
+    producer = _head_item("producer", "producer-source", score=0.1)
+    excerpt = replace(
+        _item(
+            "excerpt", score=1.0, source_id="excerpt-source", reason="",
+            hits=1, ratio=0.1, text="Precise saffron evidence.",
+        ),
+        diagnostics={"query_snippet_unique_term_hits": 2},
+    )
+    # An unsupported match must not activate rarity ordering for an unmatched query.
+    unsupported = _item(
+        "unsupported", score=1.0, source_id="unsupported-source", reason="",
+        hits=1, ratio=0.1, text="Unmatched unrelated evidence.",
+    )
+    state = _source_head_state()
+    assert reserve_ranked_source_heads(
+        state, items=[producer, excerpt, unsupported], query=query,
+        budget=32, char_budget=18000,
+    ) == 1
+    assert [item.item_id for item in state.selected] == [expected]
 
 
 def _head_item(item_id: str, source_id: str, *, score: float = 1.0) -> ContextItem:

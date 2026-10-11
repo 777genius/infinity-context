@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -53,6 +54,7 @@ from infinity_context_core.application.context_packer_source_policy import (
 from infinity_context_core.application.context_packer_source_policy import (
     source_group_cap as _source_group_cap,
 )
+from infinity_context_core.application.context_query_identity_terms import raw_query_tokens
 from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
     reserve_paired_evidence_head,
 )
@@ -360,6 +362,7 @@ def reserve_ranked_source_heads(
     items: list[ContextItem],
     budget: int,
     char_budget: int,
+    query: str = "",
 ) -> int:
     """Reserve whole source heads before specialized passes consume the budget.
 
@@ -373,20 +376,10 @@ def reserve_ranked_source_heads(
     }
     attempted = set(represented)
     selected_count = 0
-    for item in sorted(items, key=context_rank_key):
+    for item in _rank_source_heads(items, query=query):
         if len(represented) >= _MAX_PRIORITY_ITEMS:
             break
-        snippet_hits = diagnostic_value(item, "query_snippet_unique_term_hits")
-        has_query_excerpt = (
-            item.item_type == "chunk"
-            and isinstance(snippet_hits, int)
-            and not isinstance(snippet_hits, bool)
-            and snippet_hits >= 2
-        )
-        if (
-            (_evidence_priority_tier(item) is None and not has_query_excerpt)
-            or not evidence_reservation_candidate_is_eligible(item)
-        ):
+        if not _source_head_is_eligible(item):
             continue
         source = canonical_source_family(item)
         if not source or source in attempted:
@@ -402,6 +395,50 @@ def reserve_ranked_source_heads(
             represented.add(source)
             selected_count += 1
     return selected_count
+
+
+def _source_head_is_eligible(item: ContextItem) -> bool:
+    snippet_hits = diagnostic_value(item, "query_snippet_unique_term_hits")
+    has_query_excerpt = (
+        item.item_type == "chunk"
+        and isinstance(snippet_hits, int)
+        and not isinstance(snippet_hits, bool)
+        and snippet_hits >= 2
+    )
+    return (
+        _evidence_priority_tier(item) is not None or has_query_excerpt
+    ) and evidence_reservation_candidate_is_eligible(item)
+
+
+def _rank_source_heads(items: list[ContextItem], *, query: str) -> list[ContextItem]:
+    """Rank allocation by request-local rarity, counting each scoped source once."""
+
+    query_terms = set(raw_query_tokens(query))
+    if not query_terms:
+        return sorted(items, key=context_rank_key)
+
+    def matches(item: ContextItem) -> set[str]:
+        return set(raw_query_tokens(item.text)) & query_terms
+
+    source_terms: dict[str, set[str]] = {}
+    for item in items:
+        source_terms.setdefault(canonical_source_family(item), set()).update(matches(item))
+    if not any(matches(item) and _source_head_is_eligible(item) for item in items):
+        return sorted(items, key=context_rank_key)
+    n = len(source_terms)
+    weights = {
+        term: math.log((n + 0.5) / (sum(term in ts for ts in source_terms.values()) + 0.5))
+        for term in query_terms
+    }
+
+    def rank(item: ContextItem) -> tuple[object, ...]:
+        return (
+            0 if _evidence_priority_tier(item) is not None else 1,
+            -sum(weights[term] for term in sorted(matches(item))),
+            context_rank_key(item),
+        )
+
+    return sorted(items, key=rank)
 
 
 def reserve_coverage_items(

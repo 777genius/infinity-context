@@ -249,6 +249,7 @@ class ContextPacker:
                 for item in selectable_items
                 if _selection_key(item) in raw_paired_evidence_eligible_keys
             ],
+            query=query,
             budget=budget,
             char_budget=char_budget,
         )
