@@ -36,8 +36,8 @@ def test_generated_aliases_require_word_boundary_and_indexable_prefilter():
     assert "ESCAPE '/'" in sql
     assert " ~ " in sql and " AND " in sql
     values = list(compiled.params.values())
-    assert r"\mрелизе\M" in values and r"\mрелиза\M" in values
-    assert r"\mрелиз\M" not in values
+    assert r"(^|\W)релизе($|\W)" in values and r"(^|\W)релиза($|\W)" in values
+    assert r"(^|\W)релиз($|\W)" not in values
     assert "100/%" in values and "release/_candidate" in values
     assert _keyword_terms("Alice abc_42 100% неизвестное") == (
         ("alice",),
