@@ -479,9 +479,10 @@ class BuildContextUseCase:
             if admission.reason != "admitted":
                 counter = f"keyword_chunks_dropped_by_{admission.reason}"
                 diagnostics[counter] = int(diagnostics[counter]) + 1
-                diagnostics["keyword_chunks_dropped_by_relevance"] = (
-                    int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
-                )
+                if admission.reason != "insufficient_relevance":
+                    diagnostics["keyword_chunks_dropped_by_relevance"] = (
+                        int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
+                    )
             if admission.best_query is None:
                 continue
             expansion_query, expansion_reason, relevance = admission.best_query
@@ -499,6 +500,10 @@ class BuildContextUseCase:
                     is not None
                 ):
                     sibling_anchor_chunks.append(chunk)
+                else:
+                    diagnostics["keyword_chunks_dropped_by_relevance"] = (
+                        int(diagnostics["keyword_chunks_dropped_by_relevance"]) + 1
+                    )
                 continue
             score = keyword_chunk_score(
                 relevance,

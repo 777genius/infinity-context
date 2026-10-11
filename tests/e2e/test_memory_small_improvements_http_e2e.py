@@ -106,7 +106,7 @@ def test_legacy_temporal_tcp_evidence_and_bounds(tmp_path, limit):
         assert {"garden-note-0", "garden-note-1"} <= sources
         assert len(data["rendered_text"]) <= 6000
         counters = data["diagnostics"]
-        assert counters["keyword_chunks_dropped_by_relevance"] == sum(
+        assert counters["keyword_chunks_dropped_by_relevance"] <= sum(
             counters[f"keyword_chunks_dropped_by_{reason}"]
             for reason in ("project_identity", "anchor_conflict", "insufficient_relevance")
         )
