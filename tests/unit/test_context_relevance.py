@@ -92,6 +92,37 @@ def test_terms_aware_query_relevance_matches_public_scoring() -> None:
     ) == score_query_relevance(query=query, text=text)
 
 
+def test_distinctive_hits_reuse_each_term_frequency_without_rescanning(monkeypatch) -> None:
+    terms = query_terms("project otter telephone")
+    # Duplicate terms must remain additive; generic terms must stay non-distinctive.
+    terms = (*terms, terms[-1])
+    real_frequency = context_relevance_module.query_term_frequency
+    calls = []
+
+    def counted_frequency(term, counts):
+        calls.append(term)
+        return real_frequency(term, counts)
+
+    monkeypatch.setattr(context_relevance_module, "query_term_frequency", counted_frequency)
+    for text, expected_hits, expected_frequency in (
+        ("Project otter telephone telephone.", 4, 6),
+        ("Project otter telephine telephine.", 4, 6),
+        ("Project otter unrelated.", 2, 2),
+    ):
+        calls.clear()
+        counts, sequence = text_variant_profile(text)
+        result = score_query_terms_relevance_against_profile(
+            terms=terms, text_counts=counts, text_variants=sequence, max_boost=0.07,
+        )
+        assert calls == list(terms)
+        assert result.query_term_count == 4
+        assert result.unique_term_hits == expected_hits
+        assert result.capped_frequency_hits == expected_frequency
+        assert result.distinctive_term_count == 3
+        assert result.distinctive_term_hits == expected_hits - 1
+        assert result.score_boost <= 0.09
+
+
 def test_query_relevance_matches_cross_language_relative_event_terms() -> None:
     russian_query = "Что Алекс сказал час назад по проекту Атлас?"
     english_text = "Alex said one hour ago that Project Atlas billing was approved."
