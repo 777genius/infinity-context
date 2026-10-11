@@ -7,7 +7,12 @@ from dataclasses import dataclass
 
 from infinity_context_core.application.context_diagnostics import context_rank_key
 from infinity_context_core.application.context_evidence_priority import (
+    _MAX_PRIORITY_ITEMS,
+    _evidence_priority_tier,
     has_unresolved_rerank_rejection,
+)
+from infinity_context_core.application.context_evidence_reservation_safety import (
+    evidence_reservation_candidate_is_eligible,
 )
 from infinity_context_core.application.context_packer_answer_support import (
     _answer_object_rank,
@@ -51,6 +56,7 @@ from infinity_context_core.application.context_packer_source_policy import (
 from infinity_context_core.application.context_ranked_evidence_coverage_reservation import (
     reserve_paired_evidence_head,
 )
+from infinity_context_core.application.context_source_family import canonical_source_family
 from infinity_context_core.application.dto import ContextBundle, ContextItem
 from infinity_context_core.application.normalize import estimate_tokens
 from infinity_context_core.features.context_building.application.coverage_reservation_selector import (  # noqa: E501
@@ -346,6 +352,56 @@ class CoverageReservationDiagnostics:
     claims_considered: int
     reservations_selected: int
     selected_obligation_ids: tuple[str, ...]
+
+
+def reserve_ranked_source_heads(
+    state: _SelectionState,
+    *,
+    items: list[ContextItem],
+    budget: int,
+    char_budget: int,
+) -> int:
+    """Reserve whole source heads before specialized passes consume the budget.
+
+    Producer-supported priority evidence and query-matched excerpts may use early slots.
+    Existing reservations count toward the bounded source head allocation.
+    Later passes remain free to admit complementary evidence from those sources.
+    """
+
+    represented = {
+        source for item in state.selected if (source := canonical_source_family(item))
+    }
+    attempted = set(represented)
+    selected_count = 0
+    for item in sorted(items, key=context_rank_key):
+        if len(represented) >= _MAX_PRIORITY_ITEMS:
+            break
+        snippet_hits = diagnostic_value(item, "query_snippet_unique_term_hits")
+        has_query_excerpt = (
+            item.item_type == "chunk"
+            and isinstance(snippet_hits, int)
+            and not isinstance(snippet_hits, bool)
+            and snippet_hits >= 2
+        )
+        if (
+            (_evidence_priority_tier(item) is None and not has_query_excerpt)
+            or not evidence_reservation_candidate_is_eligible(item)
+        ):
+            continue
+        source = canonical_source_family(item)
+        if not source or source in attempted:
+            continue
+        attempted.add(source)
+        if _try_select_item(
+            state,
+            item=item,
+            budget=budget,
+            char_budget=char_budget,
+            mark_answer_support_family=False,
+        ):
+            represented.add(source)
+            selected_count += 1
+    return selected_count
 
 
 def reserve_coverage_items(
