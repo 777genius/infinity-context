@@ -411,10 +411,14 @@ class ContextHydrator:
                     metadata=chunk.metadata,
                 )
                 preserve_existing_evidence = _should_preserve_chunk_item_evidence(item)
+                # Build the citation snippet over the clean chunk body (not the
+                # enriched retrieval text) so the emitted char range maps back to
+                # the source via chunk.char_start and the preview carries evidence,
+                # not the prepended title / retrieval hints.
                 snippet = (
                     None
                     if preserve_existing_evidence
-                    else query_focused_snippet(query=query.query, text=chunk_text)
+                    else query_focused_snippet(query=query.query, text=chunk.text)
                 )
                 if preserve_existing_evidence and item.text.strip():
                     evidence_text = item.text
@@ -439,6 +443,7 @@ class ContextHydrator:
                                     ),
                                     snippet,
                                     include_char_range=True,
+                                    source_char_base=chunk.char_start or 0,
                                 ),
                                 is_instruction=item.is_instruction,
                                 diagnostics=item.diagnostics,
