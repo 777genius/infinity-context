@@ -814,10 +814,23 @@ def _rag_chunk_item(
     chunk_text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
     snippet = query_focused_snippet(query=query_text, text=chunk_text)
     evidence_text = snippet.text if snippet is not None else chunk_text
+    # Citations quote the clean chunk body and map to source coordinates; the
+    # enriched snippet above stays the retrieval projection rendered as text.
+    cite_snippet = query_focused_snippet(query=query_text, text=chunk.text)
+    chunk_char_base = chunk.char_start or 0
     source_refs = source_refs_with_query_snippet(
-        chunk_source_refs(chunk, text_preview=(snippet.text if snippet else chunk_text)),
-        snippet,
+        chunk_source_refs(
+            chunk,
+            text_preview=(
+                cite_snippet.text if cite_snippet else chunk.text.strip()
+            ),
+        ),
+        cite_snippet,
         include_char_range=True,
+        source_char_base=chunk_char_base,
+    )
+    query_snippet_diag = query_snippet_diagnostics(
+        cite_snippet, source_char_base=chunk_char_base
     )
     return enrich_context_item_with_media_time(
         ContextItem(
@@ -836,7 +849,9 @@ def _rag_chunk_item(
                     "retrieval_channel": "rag_recall",
                     "rag_query_reason": query_reason,
                     "source_ref_count": len(source_refs),
-                    **query_snippet_score_signals(snippet),
+                    **query_snippet_score_signals(
+                        cite_snippet, source_char_base=chunk_char_base
+                    ),
                 },
                 "provenance": {
                     "retrieval_sources": ["rag_recall"],
@@ -845,11 +860,11 @@ def _rag_chunk_item(
                     "adapter_name": _safe_adapter_name(candidate.adapter_name),
                     "chunk_id": str(chunk.id),
                     **source_ref_location_summary(source_refs),
-                    **query_snippet_diagnostics(snippet),
+                    **query_snippet_diag,
                 },
                 "adapter_name": _safe_adapter_name(candidate.adapter_name),
                 **source_ref_location_summary(source_refs),
-                **query_snippet_diagnostics(snippet),
+                **query_snippet_diag,
                 **_safe_recall_metadata(candidate.metadata),
             },
         ),

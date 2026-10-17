@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from infinity_context_core.application.context_dialogue_authority import (
@@ -177,14 +178,68 @@ def query_snippet_diagnostics(
     }
 
 
-def query_snippet_score_signals(snippet: QuerySnippet | None) -> dict[str, object]:
+def query_snippet_score_signals(
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
     if snippet is None:
         return {}
     return {
-        "query_snippet_char_start": snippet.char_start,
-        "query_snippet_char_end": snippet.char_end,
+        "query_snippet_char_start": snippet.char_start + source_char_base,
+        "query_snippet_char_end": snippet.char_end + source_char_base,
         "query_snippet_unique_term_hits": snippet.unique_term_hits,
     }
+
+
+_QUERY_SNIPPET_CHAR_RANGE_KEYS = ("query_snippet_char_start", "query_snippet_char_end")
+
+
+def align_query_snippet_diagnostics(
+    diagnostics: Mapping[str, object] | None,
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
+    """Keep every stored query-snippet copy in the citation's char frame.
+
+    The offsets only mean something next to the citation char range, so the
+    top-level keys, the provenance copy, and the score-signals copy are rewritten
+    together. When the snippet cannot be resolved against the source the char
+    ranges are dropped rather than left pointing into retrieval metadata. Items
+    without a query-snippet diagnostic keep their diagnostics untouched.
+    """
+    result = dict(diagnostics or {})
+    if "query_snippet" not in result:
+        return result
+    if snippet is not None:
+        aligned = query_snippet_diagnostics(snippet, source_char_base=source_char_base)
+        aligned_scores = query_snippet_score_signals(
+            snippet, source_char_base=source_char_base
+        )
+        result.update(aligned)
+    else:
+        aligned = {}
+        aligned_scores = {}
+        for key in _QUERY_SNIPPET_CHAR_RANGE_KEYS:
+            result.pop(key, None)
+    for container_key, extra in (
+        ("provenance", aligned),
+        ("score_signals", aligned_scores),
+    ):
+        container = result.get(container_key)
+        if not isinstance(container, Mapping):
+            continue
+        updated = dict(container)
+        if not any(key.startswith("query_snippet") for key in updated):
+            continue
+        if snippet is not None:
+            updated.update(extra)
+        else:
+            for key in _QUERY_SNIPPET_CHAR_RANGE_KEYS:
+                updated.pop(key, None)
+        result[container_key] = updated
+    return result
 
 
 def _should_prefer_inline_structured_snippet(

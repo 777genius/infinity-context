@@ -12,6 +12,7 @@ from infinity_context_core.application.context_policy import (
     is_graph_fact_visible,
 )
 from infinity_context_core.application.context_snippets import (
+    align_query_snippet_diagnostics,
     query_focused_snippet,
     query_snippet_diagnostics,
     query_snippet_score_signals,
@@ -437,26 +438,28 @@ class ContextHydrator:
                     if preserve_existing_evidence and item.source_refs
                     else chunk_source_refs(
                         chunk,
+                        # The preview is source evidence, so it falls back to the
+                        # clean chunk body, never the enriched retrieval text.
                         text_preview=(
-                            cite_snippet.text
-                            if cite_snippet
-                            else (snippet.text if snippet else chunk_text)
+                            cite_snippet.text if cite_snippet else chunk.text.strip()
                         ),
                     ),
                     cite_snippet,
                     include_char_range=True,
                     source_char_base=chunk_char_base,
                 )
-                chunk_diagnostics = dict(item.diagnostics or {})
-                if cite_snippet is not None and "query_snippet" in chunk_diagnostics:
-                    # Keep an existing query-snippet diagnostic in the same source
-                    # frame as the citation char range so the quote is resolvable
-                    # in place; do not fabricate one the collector never set.
-                    chunk_diagnostics.update(
-                        query_snippet_diagnostics(
-                            cite_snippet,
-                            source_char_base=chunk_char_base,
-                        )
+                if preserve_existing_evidence:
+                    chunk_diagnostics = dict(item.diagnostics or {})
+                else:
+                    # Keep every existing query-snippet diagnostic copy in the
+                    # same source frame as the citation char range so the quote
+                    # is resolvable in place; never fabricate one the collector
+                    # did not set, and drop char ranges that would point into
+                    # retrieval metadata instead of the source.
+                    chunk_diagnostics = align_query_snippet_diagnostics(
+                        item.diagnostics,
+                        cite_snippet,
+                        source_char_base=chunk_char_base,
                     )
                 visible_items.append(
                     enrich_context_item_with_media_time(

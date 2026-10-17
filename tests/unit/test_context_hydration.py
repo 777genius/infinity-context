@@ -273,8 +273,17 @@ def test_hydrator_keeps_non_anchor_fact_and_chunk_hydration_behavior() -> None:
 
 
 def test_hydrator_aligns_existing_query_snippet_diagnostic_to_citation_range() -> None:
-    chunks = _BatchChunkRepo(chunks={"chunk_1": _chunk("chunk_1")})
+    # char_start != 0 pins the source-frame wiring; the seeded diagnostic is a
+    # stale retrieval-frame window, so alignment must visibly rewrite it.
+    source_chunk = replace(_chunk("chunk_1"), char_start=500, char_end=529)
+    chunks = _BatchChunkRepo(chunks={"chunk_1": source_chunk})
     uow_factory = _FakeUowFactory(facts=_BatchOnlyFactRepo(facts={}), chunks=chunks)
+    stale_diag = {
+        "query_snippet": "Stale enriched window.",
+        "query_snippet_char_start": 100,
+        "query_snippet_char_end": 123,
+        "query_snippet_unique_term_hits": 1,
+    }
     chunk_item = ContextItem(
         item_id="chunk_1",
         item_type="chunk",
@@ -284,9 +293,16 @@ def test_hydrator_aligns_existing_query_snippet_diagnostic_to_citation_range() -
         is_instruction=True,
         diagnostics={
             "retrieval_source": "test_chunk",
-            "query_snippet": "Canonical visible chunk text.",
-            "query_snippet_char_start": 0,
-            "query_snippet_char_end": 29,
+            **stale_diag,
+            "provenance": {"chunk_id": "chunk_1", **stale_diag},
+            "score_signals": {
+                "base_score": 0.63,
+                **{
+                    key: value
+                    for key, value in stale_diag.items()
+                    if key != "query_snippet"
+                },
+            },
         },
     )
 
@@ -300,9 +316,78 @@ def test_hydrator_aligns_existing_query_snippet_diagnostic_to_citation_range() -
 
     hydrated = result[0]
     ref = hydrated.source_refs[0]
+    assert (ref.char_start, ref.char_end) == (500, 529)
     assert hydrated.diagnostics["query_snippet_char_start"] == ref.char_start
     assert hydrated.diagnostics["query_snippet_char_end"] == ref.char_end
     assert hydrated.diagnostics["query_snippet"] == ref.quote_preview
+    assert hydrated.diagnostics["provenance"]["query_snippet_char_start"] == ref.char_start
+    assert hydrated.diagnostics["provenance"]["query_snippet_char_end"] == ref.char_end
+    assert hydrated.diagnostics["score_signals"]["query_snippet_char_start"] == ref.char_start
+    assert hydrated.diagnostics["score_signals"]["query_snippet_char_end"] == ref.char_end
+    assert hydrated.diagnostics["query_snippet_char_start"] != 100
+
+
+def test_hydrator_drops_unresolvable_query_snippet_ranges_and_quotes_clean_body() -> None:
+    # The query only matches retrieval metadata (title), so no clean-body window
+    # exists: the quote must fall back to verbatim chunk text and the stale
+    # enriched-frame offsets must not survive as false precision.
+    titled_chunk = replace(
+        _chunk("chunk_1"),
+        text="Unrelated body text.",
+        normalized_text="unrelated body text.",
+        char_start=500,
+        char_end=520,
+        metadata={"title": "Export Runbook"},
+    )
+    chunks = _BatchChunkRepo(chunks={"chunk_1": titled_chunk})
+    uow_factory = _FakeUowFactory(facts=_BatchOnlyFactRepo(facts={}), chunks=chunks)
+    chunk_item = ContextItem(
+        item_id="chunk_1",
+        item_type="chunk",
+        text="Stale chunk text.",
+        score=0.5,
+        source_refs=(),
+        is_instruction=False,
+        diagnostics={
+            "retrieval_source": "test_chunk",
+            "query_snippet": "Export Runbook",
+            "query_snippet_char_start": 0,
+            "query_snippet_char_end": 14,
+            "provenance": {
+                "query_snippet": "Export Runbook",
+                "query_snippet_char_start": 0,
+                "query_snippet_char_end": 14,
+            },
+            "score_signals": {
+                "query_snippet_char_start": 0,
+                "query_snippet_char_end": 14,
+            },
+        },
+    )
+    query = BuildContextQuery(
+        space_id=SpaceId("space_1"),
+        memory_scope_ids=(MemoryScopeId("scope_1"),),
+        query="export runbook",
+        token_budget=512,
+    )
+
+    result = asyncio.run(
+        ContextHydrator(uow_factory=uow_factory).revalidate_visible_items(
+            (chunk_item,),
+            query=query,
+            memory_scope_ids=("scope_1",),
+        )
+    )
+
+    hydrated = result[0]
+    ref = hydrated.source_refs[0]
+    assert ref.quote_preview == "Unrelated body text."
+    assert "Export Runbook" not in ref.quote_preview
+    assert "Retrieval hints" not in ref.quote_preview
+    assert "query_snippet_char_start" not in hydrated.diagnostics
+    assert "query_snippet_char_end" not in hydrated.diagnostics
+    assert "query_snippet_char_start" not in hydrated.diagnostics["provenance"]
+    assert "query_snippet_char_start" not in hydrated.diagnostics["score_signals"]
 
 
 def test_hydrator_hydrates_graph_facts_with_single_batch_lookup() -> None:

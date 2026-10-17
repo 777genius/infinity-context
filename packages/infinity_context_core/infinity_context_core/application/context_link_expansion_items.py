@@ -122,10 +122,23 @@ def _linked_chunk_context_item(
     text = document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata)
     snippet = query_focused_snippet(query=query_text, text=text)
     evidence_text = snippet.text if snippet is not None else text
+    # Citations quote the clean chunk body and map to source coordinates; the
+    # enriched snippet above stays the retrieval projection rendered as text.
+    cite_snippet = query_focused_snippet(query=query_text, text=chunk.text)
+    chunk_char_base = chunk.char_start or 0
     source_refs = source_refs_with_query_snippet(
-        chunk_source_refs(chunk, text_preview=snippet.text if snippet else text[:200]),
-        snippet,
+        chunk_source_refs(
+            chunk,
+            text_preview=(
+                cite_snippet.text if cite_snippet else chunk.text.strip()[:200]
+            ),
+        ),
+        cite_snippet,
         include_char_range=True,
+        source_char_base=chunk_char_base,
+    )
+    query_snippet_diag = query_snippet_diagnostics(
+        cite_snippet, source_char_base=chunk_char_base
     )
     return enrich_context_item_with_media_time(
         ContextItem(
@@ -140,7 +153,9 @@ def _linked_chunk_context_item(
                 memory_scope_id=str(chunk.memory_scope_id),
                 score=score,
                 source_ref_count=len(source_refs),
-                score_signals_extra=query_snippet_score_signals(snippet),
+                score_signals_extra=query_snippet_score_signals(
+                    cite_snippet, source_char_base=chunk_char_base
+                ),
                 extra_provenance={
                     "source_type": chunk.source_type,
                     "source_id": chunk.source_external_id,
@@ -149,7 +164,7 @@ def _linked_chunk_context_item(
                     "char_start": chunk.char_start,
                     "char_end": chunk.char_end,
                     **source_ref_location_summary(source_refs),
-                    **query_snippet_diagnostics(snippet),
+                    **query_snippet_diag,
                 },
                 extra_diagnostics={
                     "source_type": chunk.source_type,
@@ -158,7 +173,7 @@ def _linked_chunk_context_item(
                     "char_start": chunk.char_start,
                     "char_end": chunk.char_end,
                     **source_ref_location_summary(source_refs),
-                    **query_snippet_diagnostics(snippet),
+                    **query_snippet_diag,
                 },
             ),
         ),
