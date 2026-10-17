@@ -388,6 +388,11 @@ def test_hydrator_drops_unresolvable_query_snippet_ranges_and_quotes_clean_body(
     assert "query_snippet_char_end" not in hydrated.diagnostics
     assert "query_snippet_char_start" not in hydrated.diagnostics["provenance"]
     assert "query_snippet_char_start" not in hydrated.diagnostics["score_signals"]
+    # The stale enriched quote (metadata title) must not survive next to a ref
+    # quoting the clean body.
+    assert "query_snippet" not in hydrated.diagnostics
+    assert "query_snippet" not in hydrated.diagnostics["provenance"]
+    assert "query_snippet_unique_term_hits" not in hydrated.diagnostics["score_signals"]
 
 
 def test_hydrator_hydrates_graph_facts_with_single_batch_lookup() -> None:

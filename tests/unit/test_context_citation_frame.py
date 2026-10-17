@@ -10,6 +10,9 @@ instead of the verbatim evidence.
 from datetime import UTC, datetime
 
 from infinity_context_core.application.context_collectors import _rag_chunk_item
+from infinity_context_core.application.context_link_expansion_items import (
+    _linked_chunk_context_item,
+)
 from infinity_context_core.application.context_ranking import dedupe_rank_items
 from infinity_context_core.application.context_snippets import (
     QuerySnippet,
@@ -21,6 +24,7 @@ from infinity_context_core.application.document_text import document_chunk_retri
 from infinity_context_core.application.use_cases.build_context_item_projection import (
     _chunk_context_item,
 )
+from infinity_context_core.domain.assets import MemoryContextLink, MemoryContextLinkId
 from infinity_context_core.domain.entities import (
     MemoryChunk,
     MemoryChunkId,
@@ -146,20 +150,130 @@ def test_chunk_collectors_share_one_citation_frame_so_dedupe_merges_one_ref() ->
         query_text=query,
     )
 
+    linked_item = _linked_chunk_context_item(
+        chunk,
+        link=MemoryContextLink.create(
+            link_id=MemoryContextLinkId("context_link_1"),
+            space_id=SpaceId("space_1"),
+            memory_scope_id=MemoryScopeId("scope_1"),
+            source_type="anchor",
+            source_id="anchor_1",
+            target_type="chunk",
+            target_id=str(chunk.id),
+            relation_type="evidence_of",
+            confidence="high",
+            reason="test link",
+            now=datetime(2026, 6, 18, tzinfo=UTC),
+        ),
+        query_text=query,
+    )
+
     keyword_ref = keyword_item.source_refs[0]
     rag_ref = rag_item.source_refs[0]
+    linked_ref = linked_item.source_refs[0]
     assert (keyword_ref.quote_preview, keyword_ref.char_start, keyword_ref.char_end) == (
         rag_ref.quote_preview,
         rag_ref.char_start,
         rag_ref.char_end,
     )
+    assert (keyword_ref.quote_preview, keyword_ref.char_start, keyword_ref.char_end) == (
+        linked_ref.quote_preview,
+        linked_ref.char_start,
+        linked_ref.char_end,
+    )
     assert "Retrieval hints" not in (keyword_ref.quote_preview or "")
     assert "Export Runbook" not in (keyword_ref.quote_preview or "")
     assert "retry budget" in (keyword_ref.quote_preview or "")
     assert keyword_ref.char_start is not None
+    assert keyword_ref.char_end is not None
     assert keyword_ref.char_start >= _CHUNK_CHAR_START
+    # The emitted char range indexes the clean chunk body in source coordinates,
+    # so a doubled source_char_base would point outside the matched evidence.
+    cited = _CHUNK_BODY[
+        keyword_ref.char_start - _CHUNK_CHAR_START : keyword_ref.char_end - _CHUNK_CHAR_START
+    ]
+    assert "retry budget" in cited
 
-    merged = dedupe_rank_items((keyword_item, rag_item))
+    merged = dedupe_rank_items((keyword_item, rag_item, linked_item))
     assert len(merged) == 1
     assert len(merged[0].source_refs) == 1
     assert merged[0].diagnostics["provenance"]["source_ref_count"] == 1
+
+
+def test_chunk_collectors_share_fallback_preview_without_snippet() -> None:
+    # No clean-body window exists for this query, so the quote falls back to the
+    # plain body preview. All collectors must pass the identical preview into
+    # chunk_source_refs, otherwise dialogue-turn refs diverge past char 200 and
+    # dedupe keeps multiple refs for one chunk.
+    body = (
+        "user: D1:1 hello there\n"
+        + "The team reviewed unrelated roadmap items and staffing notes. " * 4
+        + "assistant: D1:2 the follow-up lands beyond the two hundred char cap."
+    )
+    chunk = MemoryChunk.create(
+        chunk_id=MemoryChunkId("chunk_1"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("scope_1"),
+        document_id=MemoryDocumentId("document_1"),
+        source_type="document",
+        source_external_id="thread:session_1",
+        source_hash="hash_1",
+        kind=MemoryChunkKind.DOCUMENT_SECTION,
+        text=body,
+        normalized_text=body.casefold(),
+        sequence=1,
+        char_start=0,
+        char_end=len(body),
+        token_estimate=40,
+        now=datetime(2026, 6, 18, tzinfo=UTC),
+        metadata={"title": "Export Runbook"},
+    )
+    query = "nonexistent term xyzzy"
+    keyword_item = _chunk_context_item(
+        chunk=chunk,
+        text=document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata),
+        retrieval_source="keyword_chunks",
+        base_score=0.5,
+        score=0.6,
+        relevance=None,
+        query_text=query,
+    )
+    rag_item = _rag_chunk_item(
+        CapabilityRecallCandidate(
+            item_id=str(chunk.id),
+            item_type="chunk",
+            text="provider text must not render",
+            score=0.7,
+            source_refs=(),
+            capability=MemoryCapability.RAG_RECALL,
+            adapter_name="test-adapter",
+        ),
+        chunk,
+        query_text=query,
+    )
+    linked_item = _linked_chunk_context_item(
+        chunk,
+        link=MemoryContextLink.create(
+            link_id=MemoryContextLinkId("context_link_1"),
+            space_id=SpaceId("space_1"),
+            memory_scope_id=MemoryScopeId("scope_1"),
+            source_type="anchor",
+            source_id="anchor_1",
+            target_type="chunk",
+            target_id=str(chunk.id),
+            relation_type="evidence_of",
+            confidence="high",
+            reason="test link",
+            now=datetime(2026, 6, 18, tzinfo=UTC),
+        ),
+        query_text=query,
+    )
+
+    expected_refs = keyword_item.source_refs
+    assert len(expected_refs) >= 2  # fallback ref + dialogue-turn refs
+    assert rag_item.source_refs == expected_refs
+    assert linked_item.source_refs == expected_refs
+
+    merged = dedupe_rank_items((keyword_item, rag_item, linked_item))
+    assert len(merged) == 1
+    assert len(merged[0].source_refs) == len(expected_refs)

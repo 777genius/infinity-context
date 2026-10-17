@@ -129,9 +129,7 @@ def _linked_chunk_context_item(
     source_refs = source_refs_with_query_snippet(
         chunk_source_refs(
             chunk,
-            text_preview=(
-                cite_snippet.text if cite_snippet else chunk.text.strip()[:200]
-            ),
+            text_preview=(cite_snippet.text if cite_snippet else chunk.text.strip()),
         ),
         cite_snippet,
         include_char_range=True,

@@ -192,7 +192,12 @@ def query_snippet_score_signals(
     }
 
 
-_QUERY_SNIPPET_CHAR_RANGE_KEYS = ("query_snippet_char_start", "query_snippet_char_end")
+_QUERY_SNIPPET_DIAGNOSTIC_PREFIX = "query_snippet"
+
+
+def _drop_query_snippet_diagnostics(target: dict[str, object]) -> None:
+    for key in [key for key in target if key.startswith(_QUERY_SNIPPET_DIAGNOSTIC_PREFIX)]:
+        target.pop(key, None)
 
 
 def align_query_snippet_diagnostics(
@@ -205,8 +210,8 @@ def align_query_snippet_diagnostics(
 
     The offsets only mean something next to the citation char range, so the
     top-level keys, the provenance copy, and the score-signals copy are rewritten
-    together. When the snippet cannot be resolved against the source the char
-    ranges are dropped rather than left pointing into retrieval metadata. Items
+    together. When the snippet cannot be resolved against the source the stored
+    snippet copies are dropped rather than left quoting retrieval metadata. Items
     without a query-snippet diagnostic keep their diagnostics untouched.
     """
     result = dict(diagnostics or {})
@@ -221,8 +226,7 @@ def align_query_snippet_diagnostics(
     else:
         aligned = {}
         aligned_scores = {}
-        for key in _QUERY_SNIPPET_CHAR_RANGE_KEYS:
-            result.pop(key, None)
+        _drop_query_snippet_diagnostics(result)
     for container_key, extra in (
         ("provenance", aligned),
         ("score_signals", aligned_scores),
@@ -236,8 +240,7 @@ def align_query_snippet_diagnostics(
         if snippet is not None:
             updated.update(extra)
         else:
-            for key in _QUERY_SNIPPET_CHAR_RANGE_KEYS:
-                updated.pop(key, None)
+            _drop_query_snippet_diagnostics(updated)
         result[container_key] = updated
     return result
 
