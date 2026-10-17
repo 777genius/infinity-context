@@ -16,6 +16,10 @@ from infinity_context_core.application.context_relevance import (
     is_query_relevance_sufficient,
     score_query_relevance,
 )
+from infinity_context_core.application.context_snippets import (
+    query_focused_snippet,
+    source_refs_with_query_snippet,
+)
 from infinity_context_core.application.context_source_siblings import (
     _ObligationEvidenceProjection,
     project_source_sibling_obligation_evidence,
@@ -27,7 +31,7 @@ from infinity_context_core.application.use_cases.build_context_item_projection i
     _best_query_relevance_cached,
 )
 from infinity_context_core.domain.aggregation_admission import AggregationAdmissionCandidate
-from infinity_context_core.domain.entities import MemoryChunk
+from infinity_context_core.domain.entities import MemoryChunk, SourceRef
 
 _MAX_DISTINCT_MEMBER_SOURCE_REFS = 8
 _SOURCE_GROUP_SUFFIXES = frozenset({"events", "observation", "summary"})
@@ -38,6 +42,33 @@ class _KeywordAggregationProvenanceCandidate(Protocol):
     chunk: MemoryChunk
     member_ids: tuple[str, ...]
     member_evidence_text: str
+    aggregation_query: str
+
+
+def _member_citation_source_refs(
+    candidate: _KeywordAggregationProvenanceCandidate,
+) -> tuple[SourceRef, ...]:
+    """Build refs in the shared citation frame for a duplicate member chunk.
+
+    Mirrors ``_chunk_context_item``: quotes come from the clean chunk body and
+    char ranges map to source coordinates, so dedupe merges these refs with the
+    ones the member's own collector emitted.
+    """
+    cite_snippet = query_focused_snippet(
+        query=candidate.aggregation_query,
+        text=candidate.chunk.text,
+    )
+    return source_refs_with_query_snippet(
+        chunk_source_refs(
+            candidate.chunk,
+            text_preview=(
+                cite_snippet.text if cite_snippet else candidate.chunk.text.strip()
+            ),
+        ),
+        cite_snippet,
+        include_char_range=True,
+        source_char_base=candidate.chunk.char_start or 0,
+    )
 
 
 def _with_duplicate_member_source_refs(
@@ -61,7 +92,7 @@ def _with_duplicate_member_source_refs(
             or not set(other.member_ids).issubset(selected_members)
         ):
             continue
-        for ref in chunk_source_refs(other.chunk, text_preview=other.member_evidence_text):
+        for ref in _member_citation_source_refs(other):
             if ref in refs:
                 continue
             refs.append(ref)

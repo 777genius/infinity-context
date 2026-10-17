@@ -8,6 +8,7 @@ instead of the verbatim evidence.
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from infinity_context_core.application.context_collectors import _rag_chunk_item
 from infinity_context_core.application.context_link_expansion_items import (
@@ -21,8 +22,12 @@ from infinity_context_core.application.context_snippets import (
     source_refs_with_query_snippet,
 )
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
+from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.application.use_cases.build_context_item_projection import (
     _chunk_context_item,
+)
+from infinity_context_core.application.use_cases.build_context_keyword_aggregation_support import (
+    _with_duplicate_member_source_refs,
 )
 from infinity_context_core.domain.assets import MemoryContextLink, MemoryContextLinkId
 from infinity_context_core.domain.entities import (
@@ -277,3 +282,106 @@ def test_chunk_collectors_share_fallback_preview_without_snippet() -> None:
     merged = dedupe_rank_items((keyword_item, rag_item, linked_item))
     assert len(merged) == 1
     assert len(merged[0].source_refs) == len(expected_refs)
+
+
+def test_duplicate_member_merge_reuses_shared_citation_frame() -> None:
+    # The keyword-aggregation duplicate-member merge renders member evidence over
+    # the enriched retrieval text (title + retrieval hints). Quoting that render
+    # would emit refs that diverge from the member chunk's own collector refs, so
+    # dedupe keeps duplicates quoting retrieval metadata instead of the body.
+    member_chunk = MemoryChunk.create(
+        chunk_id=MemoryChunkId("chunk_member"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("scope_1"),
+        document_id=MemoryDocumentId("document_1"),
+        source_type="document",
+        source_external_id="source_1",
+        source_hash="hash_1",
+        kind=MemoryChunkKind.DOCUMENT_SECTION,
+        text=_CHUNK_BODY,
+        normalized_text=_CHUNK_BODY.casefold(),
+        sequence=2,
+        char_start=_CHUNK_CHAR_START,
+        char_end=_CHUNK_CHAR_START + len(_CHUNK_BODY),
+        token_estimate=20,
+        now=datetime(2026, 6, 18, tzinfo=UTC),
+        metadata={"title": "Export Runbook"},
+    )
+    enriched_member_text = document_chunk_retrieval_text(
+        text=member_chunk.text,
+        metadata=member_chunk.metadata,
+    )
+
+    def _candidate(chunk: MemoryChunk, candidate_id: str, member_ids: tuple[str, ...]):
+        return SimpleNamespace(
+            admission=SimpleNamespace(candidate_id=candidate_id),
+            chunk=chunk,
+            member_ids=member_ids,
+            member_evidence_text=enriched_member_text,
+            aggregation_query="retry budget",
+        )
+
+    owner = _candidate(member_chunk, "owner", ("m1", "m2"))
+    duplicate = _candidate(member_chunk, "duplicate", ("m1",))
+    item = ContextItem(
+        item_id="owner",
+        item_type="chunk",
+        text="owner aggregation item",
+        score=0.985,
+        source_refs=(),
+        is_instruction=False,
+        diagnostics={},
+    )
+
+    merged_item = _with_duplicate_member_source_refs(
+        item,
+        candidate=owner,
+        candidates=(owner, duplicate),
+        provenance_admitted_ids=frozenset({"duplicate"}),
+    )
+
+    expected_refs = _chunk_context_item(
+        chunk=member_chunk,
+        text=enriched_member_text,
+        retrieval_source="keyword_aggregation_chunks",
+        base_score=0.78,
+        score=0.985,
+        relevance=None,
+        query_text="retry budget",
+    ).source_refs
+    assert merged_item.source_refs == expected_refs
+    ref = merged_item.source_refs[0]
+    assert "Retrieval hints" not in (ref.quote_preview or "")
+    assert "Export Runbook" not in (ref.quote_preview or "")
+    assert "retry budget" in (ref.quote_preview or "")
+    assert ref.char_start is not None and ref.char_end is not None
+    cited = _CHUNK_BODY[
+        ref.char_start - _CHUNK_CHAR_START : ref.char_end - _CHUNK_CHAR_START
+    ]
+    assert "retry budget" in cited
+
+    # Without a resolvable query snippet the merge must still match the member's
+    # own fallback refs (clean body preview), not quote the enriched render.
+    fallback_duplicate = SimpleNamespace(
+        admission=SimpleNamespace(candidate_id="duplicate"),
+        chunk=member_chunk,
+        member_ids=("m1",),
+        member_evidence_text=enriched_member_text,
+        aggregation_query="nonexistent term xyzzy",
+    )
+    fallback_expected = _chunk_context_item(
+        chunk=member_chunk,
+        text=enriched_member_text,
+        retrieval_source="keyword_aggregation_chunks",
+        base_score=0.78,
+        score=0.985,
+        relevance=None,
+        query_text="nonexistent term xyzzy",
+    ).source_refs
+    fallback_merged = _with_duplicate_member_source_refs(
+        item,
+        candidate=owner,
+        candidates=(owner, fallback_duplicate),
+        provenance_admitted_ids=frozenset({"duplicate"}),
+    )
+    assert fallback_merged.source_refs == fallback_expected
