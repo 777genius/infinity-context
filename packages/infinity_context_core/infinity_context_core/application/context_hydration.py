@@ -448,9 +448,10 @@ class ContextHydrator:
                     source_char_base=chunk_char_base,
                 )
                 chunk_diagnostics = dict(item.diagnostics or {})
-                if cite_snippet is not None:
-                    # Keep the query-snippet diagnostic in the same source frame as
-                    # the citation char range so the quote is resolvable in-place.
+                if cite_snippet is not None and "query_snippet" in chunk_diagnostics:
+                    # Keep an existing query-snippet diagnostic in the same source
+                    # frame as the citation char range so the quote is resolvable
+                    # in place; do not fabricate one the collector never set.
                     chunk_diagnostics.update(
                         query_snippet_diagnostics(
                             cite_snippet,
