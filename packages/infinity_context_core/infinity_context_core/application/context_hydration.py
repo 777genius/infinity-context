@@ -416,12 +416,48 @@ class ContextHydrator:
                     if preserve_existing_evidence
                     else query_focused_snippet(query=query.query, text=chunk_text)
                 )
+                # The citation is built over the clean chunk body so the quote is
+                # verbatim evidence and its char range maps to the source via
+                # chunk.char_start; the enriched snippet above stays the retrieval
+                # projection rendered as the item text.
+                cite_snippet = (
+                    None
+                    if preserve_existing_evidence
+                    else query_focused_snippet(query=query.query, text=chunk.text)
+                )
                 if preserve_existing_evidence and item.text.strip():
                     evidence_text = item.text
                 elif snippet is not None:
                     evidence_text = snippet.text
                 else:
                     evidence_text = chunk_text
+                chunk_char_base = chunk.char_start or 0
+                chunk_refs = source_refs_with_query_snippet(
+                    item.source_refs
+                    if preserve_existing_evidence and item.source_refs
+                    else chunk_source_refs(
+                        chunk,
+                        text_preview=(
+                            cite_snippet.text
+                            if cite_snippet
+                            else (snippet.text if snippet else chunk_text)
+                        ),
+                    ),
+                    cite_snippet,
+                    include_char_range=True,
+                    source_char_base=chunk_char_base,
+                )
+                chunk_diagnostics = dict(item.diagnostics or {})
+                if cite_snippet is not None and "query_snippet" in chunk_diagnostics:
+                    # Keep an existing query-snippet diagnostic in the same source
+                    # frame as the citation char range so the quote is resolvable
+                    # in place; do not fabricate one the collector never set.
+                    chunk_diagnostics.update(
+                        query_snippet_diagnostics(
+                            cite_snippet,
+                            source_char_base=chunk_char_base,
+                        )
+                    )
                 visible_items.append(
                     enrich_context_item_with_media_time(
                         _with_application_evidence_contract(
@@ -430,18 +466,9 @@ class ContextHydrator:
                                 item_type=item.item_type,
                                 text=evidence_text,
                                 score=item.score,
-                                source_refs=source_refs_with_query_snippet(
-                                    item.source_refs
-                                    if preserve_existing_evidence and item.source_refs
-                                    else chunk_source_refs(
-                                        chunk,
-                                        text_preview=snippet.text if snippet else chunk_text,
-                                    ),
-                                    snippet,
-                                    include_char_range=True,
-                                ),
+                                source_refs=chunk_refs,
                                 is_instruction=item.is_instruction,
-                                diagnostics=item.diagnostics,
+                                diagnostics=chunk_diagnostics,
                             ),
                             query_text=query.query,
                         ),

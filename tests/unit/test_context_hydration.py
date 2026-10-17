@@ -272,6 +272,39 @@ def test_hydrator_keeps_non_anchor_fact_and_chunk_hydration_behavior() -> None:
     assert facts.get_by_ids_calls == [("fact_1",)]
 
 
+def test_hydrator_aligns_existing_query_snippet_diagnostic_to_citation_range() -> None:
+    chunks = _BatchChunkRepo(chunks={"chunk_1": _chunk("chunk_1")})
+    uow_factory = _FakeUowFactory(facts=_BatchOnlyFactRepo(facts={}), chunks=chunks)
+    chunk_item = ContextItem(
+        item_id="chunk_1",
+        item_type="chunk",
+        text="Stale chunk text.",
+        score=0.63,
+        source_refs=(),
+        is_instruction=True,
+        diagnostics={
+            "retrieval_source": "test_chunk",
+            "query_snippet": "Canonical visible chunk text.",
+            "query_snippet_char_start": 0,
+            "query_snippet_char_end": 29,
+        },
+    )
+
+    result = asyncio.run(
+        ContextHydrator(uow_factory=uow_factory).revalidate_visible_items(
+            (chunk_item,),
+            query=_query(),
+            memory_scope_ids=("scope_1",),
+        )
+    )
+
+    hydrated = result[0]
+    ref = hydrated.source_refs[0]
+    assert hydrated.diagnostics["query_snippet_char_start"] == ref.char_start
+    assert hydrated.diagnostics["query_snippet_char_end"] == ref.char_end
+    assert hydrated.diagnostics["query_snippet"] == ref.quote_preview
+
+
 def test_hydrator_hydrates_graph_facts_with_single_batch_lookup() -> None:
     repo = _BatchOnlyFactRepo(
         facts={

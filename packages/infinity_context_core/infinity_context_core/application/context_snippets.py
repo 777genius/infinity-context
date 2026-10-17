@@ -138,6 +138,7 @@ def source_refs_with_query_snippet(
     snippet: QuerySnippet | None,
     *,
     include_char_range: bool = False,
+    source_char_base: int = 0,
 ) -> tuple[SourceRef, ...]:
     if snippet is None or not source_refs:
         return source_refs
@@ -145,20 +146,32 @@ def source_refs_with_query_snippet(
         replace(
             ref,
             quote_preview=snippet.text if index == 0 else ref.quote_preview,
-            char_start=snippet.char_start if include_char_range and index == 0 else ref.char_start,
-            char_end=snippet.char_end if include_char_range and index == 0 else ref.char_end,
+            char_start=(
+                snippet.char_start + source_char_base
+                if include_char_range and index == 0
+                else ref.char_start
+            ),
+            char_end=(
+                snippet.char_end + source_char_base
+                if include_char_range and index == 0
+                else ref.char_end
+            ),
         )
         for index, ref in enumerate(source_refs)
     )
 
 
-def query_snippet_diagnostics(snippet: QuerySnippet | None) -> dict[str, object]:
+def query_snippet_diagnostics(
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
     if snippet is None:
         return {}
     return {
         "query_snippet": snippet.text,
-        "query_snippet_char_start": snippet.char_start,
-        "query_snippet_char_end": snippet.char_end,
+        "query_snippet_char_start": snippet.char_start + source_char_base,
+        "query_snippet_char_end": snippet.char_end + source_char_base,
         "query_snippet_matched_terms": list(snippet.matched_terms),
         "query_snippet_unique_term_hits": snippet.unique_term_hits,
     }
