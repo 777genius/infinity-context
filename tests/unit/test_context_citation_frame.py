@@ -10,6 +10,7 @@ instead of the verbatim evidence.
 from infinity_context_core.application.context_snippets import (
     QuerySnippet,
     query_focused_snippet,
+    query_snippet_diagnostics,
     source_refs_with_query_snippet,
 )
 from infinity_context_core.domain.entities import SourceRef
@@ -70,3 +71,13 @@ def test_citation_preview_is_verbatim_evidence_not_retrieval_hints() -> None:
     assert "Retrieval hints" not in ref.quote_preview
     assert ref.quote_preview == snippet.text
     assert "retry budget" in ref.quote_preview
+
+
+def test_query_snippet_diagnostic_matches_citation_char_range() -> None:
+    snippet, ref = _cite(_CHUNK_BODY, "What is the retry budget for the export job?")
+    diagnostics = query_snippet_diagnostics(
+        snippet,
+        source_char_base=_CHUNK_CHAR_START,
+    )
+    assert diagnostics["query_snippet_char_start"] == ref.char_start
+    assert diagnostics["query_snippet_char_end"] == ref.char_end

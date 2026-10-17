@@ -161,13 +161,17 @@ def source_refs_with_query_snippet(
     )
 
 
-def query_snippet_diagnostics(snippet: QuerySnippet | None) -> dict[str, object]:
+def query_snippet_diagnostics(
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
     if snippet is None:
         return {}
     return {
         "query_snippet": snippet.text,
-        "query_snippet_char_start": snippet.char_start,
-        "query_snippet_char_end": snippet.char_end,
+        "query_snippet_char_start": snippet.char_start + source_char_base,
+        "query_snippet_char_end": snippet.char_end + source_char_base,
         "query_snippet_matched_terms": list(snippet.matched_terms),
         "query_snippet_unique_term_hits": snippet.unique_term_hits,
     }
