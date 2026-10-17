@@ -7,13 +7,33 @@ into the wrong coordinate space and/or quotes retrieval metadata (title / hints)
 instead of the verbatim evidence.
 """
 
+from datetime import UTC, datetime
+
+from infinity_context_core.application.context_collectors import _rag_chunk_item
+from infinity_context_core.application.context_ranking import dedupe_rank_items
 from infinity_context_core.application.context_snippets import (
     QuerySnippet,
     query_focused_snippet,
     query_snippet_diagnostics,
     source_refs_with_query_snippet,
 )
-from infinity_context_core.domain.entities import SourceRef
+from infinity_context_core.application.document_text import document_chunk_retrieval_text
+from infinity_context_core.application.use_cases.build_context_item_projection import (
+    _chunk_context_item,
+)
+from infinity_context_core.domain.entities import (
+    MemoryChunk,
+    MemoryChunkId,
+    MemoryChunkKind,
+    MemoryDocumentId,
+    MemoryScopeId,
+    SourceRef,
+    SpaceId,
+)
+from infinity_context_core.ports.capabilities import (
+    CapabilityRecallCandidate,
+    MemoryCapability,
+)
 
 _CHUNK_BODY = (
     "user: What is the retry budget for the export job?\n"
@@ -81,3 +101,65 @@ def test_query_snippet_diagnostic_matches_citation_char_range() -> None:
     )
     assert diagnostics["query_snippet_char_start"] == ref.char_start
     assert diagnostics["query_snippet_char_end"] == ref.char_end
+
+
+def test_chunk_collectors_share_one_citation_frame_so_dedupe_merges_one_ref() -> None:
+    chunk = MemoryChunk.create(
+        chunk_id=MemoryChunkId("chunk_1"),
+        space_id=SpaceId("space_1"),
+        memory_scope_id=MemoryScopeId("scope_1"),
+        document_id=MemoryDocumentId("document_1"),
+        source_type="document",
+        source_external_id="source_1",
+        source_hash="hash_1",
+        kind=MemoryChunkKind.DOCUMENT_SECTION,
+        text=_CHUNK_BODY,
+        normalized_text=_CHUNK_BODY.casefold(),
+        sequence=1,
+        char_start=_CHUNK_CHAR_START,
+        char_end=_CHUNK_CHAR_START + len(_CHUNK_BODY),
+        token_estimate=20,
+        now=datetime(2026, 6, 18, tzinfo=UTC),
+        metadata={"title": "Export Runbook"},
+    )
+    query = "retry budget"
+    keyword_item = _chunk_context_item(
+        chunk=chunk,
+        text=document_chunk_retrieval_text(text=chunk.text, metadata=chunk.metadata),
+        retrieval_source="keyword_chunks",
+        base_score=0.5,
+        score=0.6,
+        relevance=None,
+        query_text=query,
+    )
+    rag_item = _rag_chunk_item(
+        CapabilityRecallCandidate(
+            item_id=str(chunk.id),
+            item_type="chunk",
+            text="provider text must not render",
+            score=0.7,
+            source_refs=(),
+            capability=MemoryCapability.RAG_RECALL,
+            adapter_name="test-adapter",
+        ),
+        chunk,
+        query_text=query,
+    )
+
+    keyword_ref = keyword_item.source_refs[0]
+    rag_ref = rag_item.source_refs[0]
+    assert (keyword_ref.quote_preview, keyword_ref.char_start, keyword_ref.char_end) == (
+        rag_ref.quote_preview,
+        rag_ref.char_start,
+        rag_ref.char_end,
+    )
+    assert "Retrieval hints" not in (keyword_ref.quote_preview or "")
+    assert "Export Runbook" not in (keyword_ref.quote_preview or "")
+    assert "retry budget" in (keyword_ref.quote_preview or "")
+    assert keyword_ref.char_start is not None
+    assert keyword_ref.char_start >= _CHUNK_CHAR_START
+
+    merged = dedupe_rank_items((keyword_item, rag_item))
+    assert len(merged) == 1
+    assert len(merged[0].source_refs) == 1
+    assert merged[0].diagnostics["provenance"]["source_ref_count"] == 1

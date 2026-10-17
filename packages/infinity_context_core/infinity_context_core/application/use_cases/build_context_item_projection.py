@@ -653,18 +653,29 @@ def _chunk_context_item(
 ) -> ContextItem:
     snippet = query_focused_snippet(query=query_text, text=text) if use_query_snippet else None
     evidence_text = snippet.text if snippet is not None else text
-    source_refs = source_refs_with_query_snippet(
-        chunk_source_refs(chunk, text_preview=(snippet.text if snippet else text[:200])),
-        snippet,
-        include_char_range=True,
+    # Citations quote the clean chunk body and map to source coordinates; the
+    # enriched snippet above stays the retrieval projection rendered as text.
+    cite_snippet = (
+        query_focused_snippet(query=query_text, text=chunk.text) if use_query_snippet else None
     )
+    chunk_char_base = chunk.char_start or 0
+    source_refs = source_refs_with_query_snippet(
+        chunk_source_refs(
+            chunk,
+            text_preview=(cite_snippet.text if cite_snippet else chunk.text.strip()),
+        ),
+        cite_snippet,
+        include_char_range=True,
+        source_char_base=chunk_char_base,
+    )
+    query_snippet_diag = query_snippet_diagnostics(cite_snippet, source_char_base=chunk_char_base)
     score_signals = {
         "base_score": base_score,
         "final_score": score,
         "retrieval_channel": retrieval_source,
         "source_type": chunk.source_type,
         "source_ref_count": len(source_refs),
-        **query_snippet_score_signals(snippet),
+        **query_snippet_score_signals(cite_snippet, source_char_base=chunk_char_base),
     }
     if relevance is not None:
         score_signals.update(query_relevance_score_signals(relevance))
@@ -699,7 +710,7 @@ def _chunk_context_item(
                     "char_start": chunk.char_start,
                     "char_end": chunk.char_end,
                     **source_ref_location_summary(source_refs),
-                    **query_snippet_diagnostics(snippet),
+                    **query_snippet_diag,
                     "query_expansion_reason": query_expansion_reason,
                 },
                 "source_type": chunk.source_type,
@@ -708,7 +719,7 @@ def _chunk_context_item(
                 "char_start": chunk.char_start,
                 "char_end": chunk.char_end,
                 **source_ref_location_summary(source_refs),
-                **query_snippet_diagnostics(snippet),
+                **query_snippet_diag,
             },
         ),
         query_text=query_text,
