@@ -411,11 +411,16 @@ class ContextHydrator:
                     metadata=chunk.metadata,
                 )
                 preserve_existing_evidence = _should_preserve_chunk_item_evidence(item)
-                # Build the citation snippet over the clean chunk body (not the
-                # enriched retrieval text) so the emitted char range maps back to
-                # the source via chunk.char_start and the preview carries evidence,
-                # not the prepended title / retrieval hints.
                 snippet = (
+                    None
+                    if preserve_existing_evidence
+                    else query_focused_snippet(query=query.query, text=chunk_text)
+                )
+                # The citation is built over the clean chunk body so the quote is
+                # verbatim evidence and its char range maps to the source via
+                # chunk.char_start; the enriched snippet above stays the retrieval
+                # projection rendered as the item text.
+                cite_snippet = (
                     None
                     if preserve_existing_evidence
                     else query_focused_snippet(query=query.query, text=chunk.text)
@@ -439,9 +444,13 @@ class ContextHydrator:
                                     if preserve_existing_evidence and item.source_refs
                                     else chunk_source_refs(
                                         chunk,
-                                        text_preview=snippet.text if snippet else chunk_text,
+                                        text_preview=(
+                                            cite_snippet.text
+                                            if cite_snippet
+                                            else (snippet.text if snippet else chunk_text)
+                                        ),
                                     ),
-                                    snippet,
+                                    cite_snippet,
                                     include_char_range=True,
                                     source_char_base=chunk.char_start or 0,
                                 ),
