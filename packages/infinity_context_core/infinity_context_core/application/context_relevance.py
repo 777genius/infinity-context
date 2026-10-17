@@ -184,10 +184,12 @@ def score_query_terms_relevance_against_profile(
     unique_hits = sum(1 for frequency in frequencies if frequency > 0)
     capped_frequency_hits = sum(min(frequency, 3) for frequency in frequencies)
     hit_ratio = unique_hits / len(terms)
-    distinctive_terms = tuple(term for term in terms if _is_distinctive_term(term))
-    distinctive_hits = sum(
-        1 for term in distinctive_terms if query_term_frequency(term, text_counts) > 0
+    distinctive_frequencies = tuple(
+        frequency
+        for term, frequency in zip(terms, frequencies, strict=True)
+        if _is_distinctive_term(term)
     )
+    distinctive_hits = sum(frequency > 0 for frequency in distinctive_frequencies)
     phrase_bigram_count = max(0, len(terms) - 1)
     phrase_bigram_hits = _phrase_bigram_hits(
         terms=terms,
@@ -209,7 +211,7 @@ def score_query_terms_relevance_against_profile(
         unique_term_hits=unique_hits,
         capped_frequency_hits=capped_frequency_hits,
         hit_ratio=round(hit_ratio, 4),
-        distinctive_term_count=len(distinctive_terms),
+        distinctive_term_count=len(distinctive_frequencies),
         distinctive_term_hits=distinctive_hits,
         phrase_bigram_count=phrase_bigram_count,
         phrase_bigram_hits=phrase_bigram_hits,

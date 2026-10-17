@@ -12,14 +12,14 @@ MIGRATION = (
 
 def test_parent_lifecycle_repair_is_the_next_forward_only_migration() -> None:
     migrations = migration_runner._load_migrations()
-    assert migrations[-1].migration_id == "0059_locator_parent_lifecycle"
+    assert migrations[-2].migration_id == "0059_locator_parent_lifecycle"
     assert sum(item.migration_id == "0059_locator_parent_lifecycle" for item in migrations) == 1
 
 
 def test_pre_0059_binary_rejects_the_forward_only_history_row() -> None:
     migrations = migration_runner._load_migrations()
-    old_binary_migrations = migrations[:-1]
-    history = {item.migration_id: item.checksum for item in migrations}
+    old_binary_migrations = migrations[:-2]
+    history = {item.migration_id: item.checksum for item in migrations[:-1]}
 
     with pytest.raises(RuntimeError, match="Unknown applied PostgreSQL migration: 0059"):
         migration_runner._validate_history(old_binary_migrations, history)

@@ -41,7 +41,10 @@ async def _assert_parent_retraction(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             upgraded = await upgrade_schema(engine)
-            assert upgraded.applied == ("0059_locator_parent_lifecycle",)
+            assert upgraded.applied == (
+                "0059_locator_parent_lifecycle",
+                "0060_memory_outbox_aggregate_id_width",
+            )
             await _assert_coordinate_edit_egress(engine)
             await _assert_classification_tightening(engine, asyncpg)
             await _assert_owner_retraction(engine, asyncpg)

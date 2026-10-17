@@ -19,6 +19,7 @@ project knowledge as well as team, project, and thread-scoped memory.
 - [Quickstart](#quickstart)
 - [Integration entry points](#integration-entry-points)
 - [Capability positioning](#capability-positioning)
+- [Memory evaluation snapshot](#memory-evaluation-snapshot)
 - [Status and limitations](#status-and-limitations)
 - [Documentation](#documentation)
 
@@ -202,6 +203,37 @@ acts on stale, out-of-scope, or silently invented project state.
 See the detailed [agent memory capability comparison](docs/competitive/agent-memory-capability-comparison.md)
 for lifecycle, retrieval, temporal behavior, review, isolation, deployment, and
 scenario tradeoffs.
+
+## Memory evaluation snapshot
+
+Recorded on **2026-10-14**, using diagnostic measurements from **2026-10-13**.
+The measured baseline includes [PR #75](https://github.com/777genius/infinity-context/pull/75)
+at commit `c238bc9f84f80a7effe83140825ab3a6e576719b`.
+
+| Diagnostic set | Questions with all required sources in the context | Required sources covered |
+| --- | --- | --- |
+| Frozen 100 questions | **90/100 (90.0%)** | 201/216 |
+| Separate frozen 48 questions | **38/48 (79.2%)** | 90/104 |
+
+These results measure **source coverage**, not LLM answer accuracy. Both sets have
+now been used for diagnosis; the 48-question set is no longer an untouched holdout.
+They are not a full LongMemEval result, a production qualification, or a matched
+comparison with competing memory systems. Broader quality still needs a fresh
+holdout and end-to-end answer evaluation.
+
+PR #75 reduced median context latency from **6.334 s to 5.586 s (11.8%)** in
+three alternating ASGI before/after pairs on **one query**. This is a small paired
+measurement, not an overall p95 latency estimate.
+
+A subsequent, **unpublished** remediation separates retrieval hints from prompt
+evidence, preserves focused canonical excerpts, and avoids assigning precise
+snippet offsets to text with added titles. It passed **137 focused and server
+checks**. A real ASGI check on the same SQLite corpus returned HTTP 200 and
+preserved all **19 selected source identities and their order**; the changed
+quote used a range within its canonical source chunk. This validates that tested
+path only. Independent review and a larger quality rerun remain pending; **no
+additional recall or answer-quality improvement has been measured**. These
+remediation checks do not mean the implementation is available on `main`.
 
 ## Status and limitations
 

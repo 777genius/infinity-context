@@ -134,6 +134,7 @@ from infinity_context_core.application.context_packer_selection import (
     replace_selected_item,
     reserve_coverage_items,
     reserve_paired_evidence_items,
+    reserve_ranked_source_heads,
 )
 from infinity_context_core.application.context_packer_source_policy import (
     MAX_ITEMS_PER_SOURCE as _MAX_ITEMS_PER_SOURCE,
@@ -240,6 +241,17 @@ class ContextPacker:
         coverage_reserved_keys = frozenset(state.selected_keys) - paired_evidence_reserved_keys
         protected_reservation_keys = (
             paired_evidence_reserved_keys | coverage_reserved_keys
+        )
+        reserve_ranked_source_heads(
+            state,
+            items=[
+                item
+                for item in selectable_items
+                if _selection_key(item) in raw_paired_evidence_eligible_keys
+            ],
+            query=query,
+            budget=budget,
+            char_budget=char_budget,
         )
         distinct_set_selection = select_distinct_set_member_items(
             items=selectable_items,
@@ -601,7 +613,7 @@ class ContextPacker:
         diversity_families = _diversity_candidates(selectable_items)
         for family in _ordered_diversity_families(diversity_families):
             item = diversity_families[family]
-            if _selection_key(item) in protected_reservation_keys:
+            if _selection_key(item) in state.selected_keys:
                 diversity_items_used += 1
                 continue
             if _try_select_item(
