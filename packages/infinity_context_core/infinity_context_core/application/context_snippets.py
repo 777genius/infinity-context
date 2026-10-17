@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from infinity_context_core.application.context_dialogue_authority import (
@@ -138,6 +139,7 @@ def source_refs_with_query_snippet(
     snippet: QuerySnippet | None,
     *,
     include_char_range: bool = False,
+    source_char_base: int = 0,
 ) -> tuple[SourceRef, ...]:
     if snippet is None or not source_refs:
         return source_refs
@@ -145,33 +147,102 @@ def source_refs_with_query_snippet(
         replace(
             ref,
             quote_preview=snippet.text if index == 0 else ref.quote_preview,
-            char_start=snippet.char_start if include_char_range and index == 0 else ref.char_start,
-            char_end=snippet.char_end if include_char_range and index == 0 else ref.char_end,
+            char_start=(
+                snippet.char_start + source_char_base
+                if include_char_range and index == 0
+                else ref.char_start
+            ),
+            char_end=(
+                snippet.char_end + source_char_base
+                if include_char_range and index == 0
+                else ref.char_end
+            ),
         )
         for index, ref in enumerate(source_refs)
     )
 
 
-def query_snippet_diagnostics(snippet: QuerySnippet | None) -> dict[str, object]:
+def query_snippet_diagnostics(
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
     if snippet is None:
         return {}
     return {
         "query_snippet": snippet.text,
-        "query_snippet_char_start": snippet.char_start,
-        "query_snippet_char_end": snippet.char_end,
+        "query_snippet_char_start": snippet.char_start + source_char_base,
+        "query_snippet_char_end": snippet.char_end + source_char_base,
         "query_snippet_matched_terms": list(snippet.matched_terms),
         "query_snippet_unique_term_hits": snippet.unique_term_hits,
     }
 
 
-def query_snippet_score_signals(snippet: QuerySnippet | None) -> dict[str, object]:
+def query_snippet_score_signals(
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
     if snippet is None:
         return {}
     return {
-        "query_snippet_char_start": snippet.char_start,
-        "query_snippet_char_end": snippet.char_end,
+        "query_snippet_char_start": snippet.char_start + source_char_base,
+        "query_snippet_char_end": snippet.char_end + source_char_base,
         "query_snippet_unique_term_hits": snippet.unique_term_hits,
     }
+
+
+_QUERY_SNIPPET_DIAGNOSTIC_PREFIX = "query_snippet"
+
+
+def _drop_query_snippet_diagnostics(target: dict[str, object]) -> None:
+    for key in [key for key in target if key.startswith(_QUERY_SNIPPET_DIAGNOSTIC_PREFIX)]:
+        target.pop(key, None)
+
+
+def align_query_snippet_diagnostics(
+    diagnostics: Mapping[str, object] | None,
+    snippet: QuerySnippet | None,
+    *,
+    source_char_base: int = 0,
+) -> dict[str, object]:
+    """Keep every stored query-snippet copy in the citation's char frame.
+
+    The offsets only mean something next to the citation char range, so the
+    top-level keys, the provenance copy, and the score-signals copy are rewritten
+    together. When the snippet cannot be resolved against the source the stored
+    snippet copies are dropped rather than left quoting retrieval metadata. Items
+    without a query-snippet diagnostic keep their diagnostics untouched.
+    """
+    result = dict(diagnostics or {})
+    if "query_snippet" not in result:
+        return result
+    if snippet is not None:
+        aligned = query_snippet_diagnostics(snippet, source_char_base=source_char_base)
+        aligned_scores = query_snippet_score_signals(
+            snippet, source_char_base=source_char_base
+        )
+        result.update(aligned)
+    else:
+        aligned = {}
+        aligned_scores = {}
+        _drop_query_snippet_diagnostics(result)
+    for container_key, extra in (
+        ("provenance", aligned),
+        ("score_signals", aligned_scores),
+    ):
+        container = result.get(container_key)
+        if not isinstance(container, Mapping):
+            continue
+        updated = dict(container)
+        if not any(key.startswith("query_snippet") for key in updated):
+            continue
+        if snippet is not None:
+            updated.update(extra)
+        else:
+            _drop_query_snippet_diagnostics(updated)
+        result[container_key] = updated
+    return result
 
 
 def _should_prefer_inline_structured_snippet(

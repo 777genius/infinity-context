@@ -12,6 +12,7 @@ from infinity_context_core.application.context_policy import (
     is_graph_fact_visible,
 )
 from infinity_context_core.application.context_snippets import (
+    align_query_snippet_diagnostics,
     query_focused_snippet,
     query_snippet_diagnostics,
     query_snippet_score_signals,
@@ -416,12 +417,50 @@ class ContextHydrator:
                     if preserve_existing_evidence
                     else query_focused_snippet(query=query.query, text=chunk_text)
                 )
+                # The citation is built over the clean chunk body so the quote is
+                # verbatim evidence and its char range maps to the source via
+                # chunk.char_start; the enriched snippet above stays the retrieval
+                # projection rendered as the item text.
+                cite_snippet = (
+                    None
+                    if preserve_existing_evidence
+                    else query_focused_snippet(query=query.query, text=chunk.text)
+                )
                 if preserve_existing_evidence and item.text.strip():
                     evidence_text = item.text
                 elif snippet is not None:
                     evidence_text = snippet.text
                 else:
                     evidence_text = chunk_text
+                chunk_char_base = chunk.char_start or 0
+                chunk_refs = source_refs_with_query_snippet(
+                    item.source_refs
+                    if preserve_existing_evidence and item.source_refs
+                    else chunk_source_refs(
+                        chunk,
+                        # The preview is source evidence, so it falls back to the
+                        # clean chunk body, never the enriched retrieval text.
+                        text_preview=(
+                            cite_snippet.text if cite_snippet else chunk.text.strip()
+                        ),
+                    ),
+                    cite_snippet,
+                    include_char_range=True,
+                    source_char_base=chunk_char_base,
+                )
+                if preserve_existing_evidence:
+                    chunk_diagnostics = dict(item.diagnostics or {})
+                else:
+                    # Keep every existing query-snippet diagnostic copy in the
+                    # same source frame as the citation char range so the quote
+                    # is resolvable in place; never fabricate one the collector
+                    # did not set, and drop char ranges that would point into
+                    # retrieval metadata instead of the source.
+                    chunk_diagnostics = align_query_snippet_diagnostics(
+                        item.diagnostics,
+                        cite_snippet,
+                        source_char_base=chunk_char_base,
+                    )
                 visible_items.append(
                     enrich_context_item_with_media_time(
                         _with_application_evidence_contract(
@@ -430,18 +469,9 @@ class ContextHydrator:
                                 item_type=item.item_type,
                                 text=evidence_text,
                                 score=item.score,
-                                source_refs=source_refs_with_query_snippet(
-                                    item.source_refs
-                                    if preserve_existing_evidence and item.source_refs
-                                    else chunk_source_refs(
-                                        chunk,
-                                        text_preview=snippet.text if snippet else chunk_text,
-                                    ),
-                                    snippet,
-                                    include_char_range=True,
-                                ),
+                                source_refs=chunk_refs,
                                 is_instruction=item.is_instruction,
-                                diagnostics=item.diagnostics,
+                                diagnostics=chunk_diagnostics,
                             ),
                             query_text=query.query,
                         ),

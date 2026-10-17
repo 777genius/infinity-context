@@ -208,7 +208,9 @@ scenario tradeoffs.
 
 Recorded on **2026-10-14**, using diagnostic measurements from **2026-10-13**.
 The measured baseline includes [PR #75](https://github.com/777genius/infinity-context/pull/75)
-at commit `c238bc9f84f80a7effe83140825ab3a6e576719b`.
+at commit `c238bc9f84f80a7effe83140825ab3a6e576719b`. The table reproduced
+exactly on **2026-10-18** when the frozen diagnostic inputs were re-measured
+against PR #76.
 
 | Diagnostic set | Questions with all required sources in the context | Required sources covered |
 | --- | --- | --- |
@@ -225,15 +227,19 @@ PR #75 reduced median context latency from **6.334 s to 5.586 s (11.8%)** in
 three alternating ASGI before/after pairs on **one query**. This is a small paired
 measurement, not an overall p95 latency estimate.
 
-A subsequent, **unpublished** remediation separates retrieval hints from prompt
-evidence, preserves focused canonical excerpts, and avoids assigning precise
-snippet offsets to text with added titles. It passed **137 focused and server
-checks**. A real ASGI check on the same SQLite corpus returned HTTP 200 and
-preserved all **19 selected source identities and their order**; the changed
-quote used a range within its canonical source chunk. This validates that tested
-path only. Independent review and a larger quality rerun remain pending; **no
-additional recall or answer-quality improvement has been measured**. These
-remediation checks do not mean the implementation is available on `main`.
+The citation remediation is [PR #76](https://github.com/777genius/infinity-context/pull/76):
+quote previews and query-snippet diagnostics now quote the verbatim chunk body
+instead of retrieval metadata, and snippet offsets map to source coordinates.
+Focused citation and hydration checks, the provider-consistency and context-sweep
+suites, and full CI pass. On the same seeded LongMemEval corpus the real ASGI
+`/v1/context` path returned HTTP 200 before and after: 18 of 19 selected items
+kept identical text and scores with corrected citations, one near-tie item
+(0.7982 vs 0.7975) swapped at the token-budget margin, and quote previews
+embedding retrieval hints dropped from 2 selected items to 0. Two independent
+review passes approved after two review findings were fixed. The frozen-148
+rerun on 2026-10-18 found packed items, scores, and source sets bit-identical
+before and after and the coverage table unchanged — **no recall gain and no
+recall regression**. Answer-quality impact remains unmeasured.
 
 ## Status and limitations
 
