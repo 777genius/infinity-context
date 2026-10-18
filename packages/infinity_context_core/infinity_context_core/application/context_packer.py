@@ -123,6 +123,7 @@ from infinity_context_core.application.context_packer_rendering import (
     unsafe_source_identity_part_count as _unsafe_source_identity_part_count,
 )
 from infinity_context_core.application.context_packer_selection import (
+    _MAX_NEW_SOURCE_DISPLACEMENTS,
     PackResult,
     _adds_answer_support_source_coverage,
     _context_render_rank_key,
@@ -130,6 +131,7 @@ from infinity_context_core.application.context_packer_selection import (
     _rendered_char_count,
     _select_item,
     _SelectionState,
+    _try_new_source_displacement,
     _try_select_item,
     replace_selected_item,
     reserve_coverage_items,
@@ -195,6 +197,7 @@ class ContextPacker:
         dropped_by_source_group_cap = 0
         dropped_by_budget = 0
         dropped_by_char_cap = 0
+        new_source_displacements = 0
         inference_reservation_attempted = False
         inference_reservations_selected = 0
         inference_generic_displacements = 0
@@ -714,6 +717,18 @@ class ContextPacker:
                 dropped_by_budget += 1
                 continue
             if _rendered_char_count((*state.selected, item)) > char_budget:
+                if (
+                    new_source_displacements < _MAX_NEW_SOURCE_DISPLACEMENTS
+                    and _try_new_source_displacement(
+                        state,
+                        item=item,
+                        budget=budget,
+                        char_budget=char_budget,
+                        protected_keys=protected_reservation_keys,
+                    )
+                ):
+                    new_source_displacements += 1
+                    continue
                 dropped_by_char_cap += 1
                 if not inference_reservation_attempted:
                     reservation = inference_reservation_for_char_pressure(
