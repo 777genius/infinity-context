@@ -311,7 +311,7 @@ def _try_new_source_displacement(
     char_budget: int,
     protected_keys: frozenset[tuple[str, str]],
 ) -> bool:
-    """Swap in an item covering an unseen source, dropping duplicates of covered ones.
+    """Swap in an item covering an unseen source, dropping rank-worse covered items.
 
     Dropped items keep every source id covered by a strictly better-ranked
     retained item (co-dropped items never count as cover), so source coverage of
@@ -319,10 +319,12 @@ def _try_new_source_displacement(
     """
     item_sources = _source_id_set(item)
     sources_by_key = {_selection_key(s): _source_id_set(s) for s in state.selected}
-    ranks_by_key = {_selection_key(s): _context_render_rank_key(s) for s in state.selected}
+    if len(sources_by_key) != len(state.selected):
+        return False
     selected_sources = set().union(*sources_by_key.values()) if sources_by_key else set()
     if not item_sources - selected_sources:
         return False
+    ranks_by_key = {_selection_key(s): _context_render_rank_key(s) for s in state.selected}
 
     def drop_set_is_covered(keys: tuple[tuple[str, str], ...]) -> bool:
         dropped = set(keys)

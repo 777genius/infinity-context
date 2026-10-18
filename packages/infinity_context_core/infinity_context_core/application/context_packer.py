@@ -851,6 +851,7 @@ class ContextPacker:
                     "dropped_by_source_cap": dropped_by_source_cap,
                     "dropped_by_source_group_cap": dropped_by_source_group_cap,
                     "dropped_by_char_cap": dropped_by_char_cap,
+                    "new_source_displacements": new_source_displacements,
                     "dropped_by_answer_support_family_duplicate": (
                         dropped_by_answer_support_family_duplicate
                     ),
