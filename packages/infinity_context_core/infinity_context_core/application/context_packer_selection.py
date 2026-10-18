@@ -221,13 +221,33 @@ def replace_selected_item(
     char_budget: int,
 ) -> bool:
     """Atomically replace one item while retaining selection-state invariants."""
+    return _replace_selected_items(
+        state,
+        displaced=(displaced,),
+        replacement=replacement,
+        budget=budget,
+        char_budget=char_budget,
+    )
 
-    displaced_key = _selection_key(displaced)
+
+def _replace_selected_items(
+    state: _SelectionState,
+    *,
+    displaced: tuple[ContextItem, ...],
+    replacement: ContextItem,
+    budget: int,
+    char_budget: int,
+) -> bool:
+    """Atomically replace items while retaining selection-state invariants."""
+
+    displaced_keys = {_selection_key(item) for item in displaced}
     replacement_key = _selection_key(replacement)
-    if displaced_key not in state.selected_keys or replacement_key in state.selected_keys:
+    if replacement_key in state.selected_keys or len(displaced_keys) != len(displaced):
         return False
-    retained = tuple(item for item in state.selected if _selection_key(item) != displaced_key)
-    if len(retained) != len(state.selected) - 1:
+    if any(key not in state.selected_keys for key in displaced_keys):
+        return False
+    retained = tuple(item for item in state.selected if _selection_key(item) not in displaced_keys)
+    if len(retained) != len(state.selected) - len(displaced_keys):
         return False
     trial = _SelectionState(
         selected=[],
@@ -274,6 +294,75 @@ def replace_selected_item(
     state.selected_art_style_items_by_source_group = trial.selected_art_style_items_by_source_group
     state.used_tokens = trial.used_tokens
     return True
+
+
+_MAX_NEW_SOURCE_DISPLACEMENTS = 3
+
+
+def _source_id_set(item: ContextItem) -> set[str]:
+    return {ref.source_id for ref in item.source_refs if ref.source_id}
+
+
+def _try_new_source_displacement(
+    state: _SelectionState,
+    *,
+    item: ContextItem,
+    budget: int,
+    char_budget: int,
+    protected_keys: frozenset[tuple[str, str]],
+) -> bool:
+    """Swap in an item covering an unseen source, dropping rank-worse covered items.
+
+    Dropped items keep every source id covered by a strictly better-ranked
+    retained item (co-dropped items never count as cover), so source coverage of
+    the selection never shrinks.
+    """
+    item_sources = _source_id_set(item)
+    sources_by_key = {_selection_key(s): _source_id_set(s) for s in state.selected}
+    if len(sources_by_key) != len(state.selected):
+        return False
+    selected_sources = set().union(*sources_by_key.values()) if sources_by_key else set()
+    if not item_sources - selected_sources:
+        return False
+    ranks_by_key = {_selection_key(s): _context_render_rank_key(s) for s in state.selected}
+
+    def drop_set_is_covered(keys: tuple[tuple[str, str], ...]) -> bool:
+        dropped = set(keys)
+        for key in keys:
+            rank = ranks_by_key[key]
+            covered: set[str] = set()
+            for other_key, other_sources in sources_by_key.items():
+                if other_key not in dropped and ranks_by_key[other_key] < rank:
+                    covered.update(other_sources)
+            if not sources_by_key[key] <= covered:
+                return False
+        return True
+
+    ranked = sorted(
+        (
+            selected
+            for selected in state.selected
+            if _selection_key(selected) not in protected_keys
+            and sources_by_key[_selection_key(selected)]
+            and drop_set_is_covered((_selection_key(selected),))
+        ),
+        key=_context_render_rank_key,
+        reverse=True,
+    )
+    for count in (1, 2):
+        for start in range(len(ranked) - count + 1):
+            window = tuple(ranked[start : start + count])
+            if not drop_set_is_covered(tuple(_selection_key(selected) for selected in window)):
+                continue
+            if _replace_selected_items(
+                state,
+                displaced=window,
+                replacement=item,
+                budget=budget,
+                char_budget=char_budget,
+            ):
+                return True
+    return False
 
 
 def _item_type_counts(items: tuple[ContextItem, ...]) -> dict[str, int]:

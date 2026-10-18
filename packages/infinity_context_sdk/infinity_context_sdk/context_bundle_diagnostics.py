@@ -283,6 +283,7 @@ class ContextBundleDiagnostics:
     keyword_chunks_dropped_by_project_identity: int = 0
     keyword_chunks_dropped_by_anchor_conflict: int = 0
     keyword_chunks_dropped_by_insufficient_relevance: int = 0
+    new_source_displacements: int = 0
 
 
 def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
@@ -435,6 +436,7 @@ def bundle_diagnostics_from_payload(value: object) -> ContextBundleDiagnostics:
         dropped_by_budget=_non_negative_int(payload.get("dropped_by_budget")),
         dropped_by_source_cap=_non_negative_int(payload.get("dropped_by_source_cap")),
         dropped_by_char_cap=_non_negative_int(payload.get("dropped_by_char_cap")),
+        new_source_displacements=_non_negative_int(payload.get("new_source_displacements")),
         diagnostics_truncated=bool(raw.get("diagnostics_truncated")),
         raw=safe_raw,
         vector_status=_safe_text(raw.get("vector_status"), default="unknown"),

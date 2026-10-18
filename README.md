@@ -214,8 +214,14 @@ against PR #76.
 
 | Diagnostic set | Questions with all required sources in the context | Required sources covered |
 | --- | --- | --- |
-| Frozen 100 questions | **90/100 (90.0%)** | 201/216 |
-| Separate frozen 48 questions | **38/48 (79.2%)** | 90/104 |
+| Frozen 100 questions | **93/100 (93.0%)** | 206/216 |
+| Separate frozen 48 questions | **39/48 (81.3%)** | 92/104 |
+
+Updated on **2026-10-18** after PR 78: the table is the same frozen input set
+re-measured with the packer's union-preserving source displacement, which moved
+full-source coverage from 90/100 (201/216) and 38/48 (90/104) to the numbers
+above without regressing any previously covered question; required-source
+coverage is still one source short of the 207/216 target.
 
 These results measure **source coverage**, not LLM answer accuracy. Both sets have
 now been used for diagnosis; the 48-question set is no longer an untouched holdout.
