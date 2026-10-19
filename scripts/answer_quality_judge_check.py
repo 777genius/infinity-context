@@ -69,7 +69,9 @@ def main() -> int:
         "\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8"
     )
 
-    agree = sum(1 for record in records if record["flash"] == record["pro"])
+    valid = ("correct", "missing", "incorrect")
+    resolved = [record for record in records if record["flash"] in valid and record["pro"] in valid]
+    agree = sum(1 for record in resolved if record["flash"] == record["pro"])
     matrix: dict[str, int] = {}
     for record in records:
         key = f"flash={record['flash']}|pro={record['pro']}"
@@ -78,12 +80,14 @@ def main() -> int:
         json.dumps(
             {
                 "cases": len(records),
+                "resolved": len(resolved),
+                "unresolved": len(records) - len(resolved),
                 "agreement": agree,
                 "both_correct": sum(
-                    1 for record in records if record["flash"] == "correct" == record["pro"]
+                    1 for record in resolved if record["flash"] == "correct" == record["pro"]
                 ),
-                "flash_correct": sum(1 for record in records if record["flash"] == "correct"),
-                "pro_correct": sum(1 for record in records if record["pro"] == "correct"),
+                "flash_correct": sum(1 for record in resolved if record["flash"] == "correct"),
+                "pro_correct": sum(1 for record in resolved if record["pro"] == "correct"),
                 "matrix": matrix,
             },
             indent=2,

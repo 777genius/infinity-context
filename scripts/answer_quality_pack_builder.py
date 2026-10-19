@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import pickle
 import sys
@@ -56,8 +57,12 @@ def main() -> int:
 
     matched = 0
     rows = []
+    seen_hashes: set[str] = set()
     for path in sorted(inputs.rglob("*.pickle")):
         case_hash = hashlib.sha256(path.stem.encode()).hexdigest()[:12]
+        if case_hash in seen_hashes:
+            raise SystemExit(f"case hash collision on stem {path.stem!r}: {case_hash}")
+        seen_hashes.add(case_hash)
         data = pickle.loads(path.read_bytes())
         query = data["kwargs"]["query"]
         gold = gold_by_question.get(_norm(query))
@@ -85,6 +90,7 @@ def main() -> int:
     with args.out.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    os.chmod(args.out, 0o600)
 
     by_type: dict[str, int] = {}
     for row in rows:

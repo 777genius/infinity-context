@@ -121,11 +121,9 @@ def _verdict(raw: str) -> str:
     match = re.search(r'\{"verdict"\s*:\s*"([a-z_]+)"', raw)
     if match:
         return match.group(1)
-    lowered = raw.lower()
-    for label in ("correct", "incorrect", "missing"):
-        if label in lowered:
-            return label
-    return "unparsed"
+    # Word boundaries matter: "incorrect" contains the substring "correct".
+    fallback = re.search(r"\b(incorrect|missing|correct)\b", raw.lower())
+    return fallback.group(1) if fallback else "unparsed"
 
 
 def _judge(question: str, gold: str, candidate: str) -> tuple[str, str, int, int]:
@@ -162,7 +160,10 @@ def main() -> int:
     done = set()
     if results_path.exists():
         for line in results_path.read_text(encoding="utf-8").splitlines():
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue  # torn trailing line from an interrupted run
             done.add((record["cid"], record["arm"]))
     pending = []
     for row in rows:
@@ -205,11 +206,14 @@ def main() -> int:
                 )
 
     wanted = {row["cid"] for row in rows}
-    records = [
-        json.loads(line)
-        for line in results_path.read_text(encoding="utf-8").splitlines()
-        if json.loads(line)["cid"] in wanted
-    ]
+    records = []
+    for line in results_path.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # torn trailing line from an interrupted run
+        if record["cid"] in wanted:
+            records.append(record)
     aggregate: dict[str, object] = {
         "cases": len(rows),
         "answerer": ANSWERER_MODEL,
