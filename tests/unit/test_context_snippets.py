@@ -532,3 +532,40 @@ def test_query_focused_snippet_matches_cross_language_multimodal_aliases() -> No
         "атлас",
         "алекс",
     }
+
+
+def test_query_focused_snippet_extends_past_edge_hit_cluster() -> None:
+    text = (
+        "Atlas renewal diary entry continues. " * 9
+        + "Next topic decision: approved for the west office."
+    )
+
+    snippet = query_focused_snippet(query="Atlas renewal decision", text=text)
+
+    assert snippet is not None
+    assert "decision" in snippet.text
+    assert "approved for the west office" in snippet.text
+    assert len(snippet.text) <= 605
+
+
+def test_query_focused_snippet_keeps_window_when_next_hit_is_far() -> None:
+    text = (
+        "Atlas renewal diary entry continues. " * 9
+        + " " * 300
+        + " decision sits far beyond the window edge."
+    )
+
+    snippet = query_focused_snippet(query="Atlas renewal decision", text=text)
+
+    assert snippet is not None
+    assert len(snippet.text) <= 365
+
+
+def test_query_focused_snippet_extension_is_bounded() -> None:
+    text = "Atlas renewal diary entry continues. " * 10 + " decision " * 40
+
+    snippet = query_focused_snippet(query="Atlas renewal decision", text=text)
+
+    assert snippet is not None
+    assert "decision" in snippet.text
+    assert len(snippet.text) <= 605

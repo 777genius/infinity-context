@@ -21,6 +21,7 @@ from infinity_context_core.domain.entities import SourceRef
 _DEFAULT_WINDOW_CHARS = 320
 _MAX_QUERY_TERMS = 12
 _MAX_SNIPPET_CHARS = 360
+_MAX_EDGE_EXTENSION_CHARS = 240
 _MAX_STRUCTURED_SNIPPET_CHARS = 640
 _MAX_STRUCTURED_SNIPPET_LINES = 4
 _MAX_STRUCTURED_PREVIOUS_LINES = 2
@@ -66,6 +67,7 @@ def query_focused_snippet(
         hits=hits,
         window_chars=window,
     )
+    end = _extend_to_edge_hit_cluster(text=text, hits=hits, start=start, end=end)
     word_start = _left_word_boundary(text, start)
     line_start = _left_line_boundary(text, word_start)
     structured_line = _is_structured_evidence_line(text, line_start)
@@ -81,6 +83,8 @@ def query_focused_snippet(
         ):
             return inline_snippet
     max_chars = _MAX_STRUCTURED_SNIPPET_CHARS if structured_line else _MAX_SNIPPET_CHARS
+    if end - start > max_chars:
+        max_chars = _MAX_SNIPPET_CHARS + _MAX_EDGE_EXTENSION_CHARS
     start = line_start if end - line_start <= max_chars else word_start
     structured_context_start = structured_line and start == line_start
     if structured_context_start:
@@ -294,6 +298,42 @@ def _best_window(
             best_terms = terms
             best_key = key
     return best_start, best_end, best_terms
+
+
+def _extend_to_edge_hit_cluster(
+    *,
+    text: str,
+    hits: tuple[tuple[int, int, str], ...],
+    start: int,
+    end: int,
+) -> int:
+    """Grow the right edge when query hits continue just past the window.
+
+    Query terms cluster on the question side of a dialogue chunk while the
+    answer continues right after them, so a window that stops at the question
+    can drop the very fact the chunk was retrieved for. The growth is snapped
+    to a line boundary so dialogue lines are not cut mid-way, and is bounded
+    by a fixed extension budget.
+    """
+    budget = _MAX_EDGE_EXTENSION_CHARS - max(0, (end - start) - _MAX_SNIPPET_CHARS)
+    if budget <= 0:
+        return end
+    reach = end + budget
+    farthest = end
+    for hit_start, hit_end, _term in hits:
+        if hit_end <= end:
+            continue
+        if hit_start >= reach:
+            break
+        farthest = max(farthest, hit_end)
+    if farthest <= end:
+        return end
+    line_end = text.find("\n", farthest)
+    target = len(text) if line_end == -1 else line_end + 1
+    target = min(target, reach)
+    if target <= end:
+        return end
+    return _right_word_boundary(text, target)
 
 
 def _window_bounds(*, text_len: int, center: int, window_chars: int) -> tuple[int, int]:
