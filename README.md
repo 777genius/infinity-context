@@ -238,8 +238,9 @@ graded each answer against the official gold answer. The memory context turned
 36/100 vs 0/100 (frozen 100) and 18/48 vs 0/48 (held-48) correct: every gain
 came from memory, none of the questions with incomplete source coverage could
 be answered, and the empty-context arm never guessed anything right. The
-paired design bounds LongMemEval memorization: anything answered with an empty
-context is parametric knowledge, not memory. Details and caveats:
+paired design measures LongMemEval memorization directly: on these sets the
+empty-context arm answered nothing, so every correct answer came from the
+retrieved memory. Details and caveats:
 docs/quality-analysis/answer-quality-paired-eval-r1.md.
 
 PR #75 reduced median context latency from **6.334 s to 5.586 s (11.8%)** in

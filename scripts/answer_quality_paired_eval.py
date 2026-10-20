@@ -74,11 +74,14 @@ _write_lock = threading.Lock()
 
 # Service-layer messages that qodercli may print on stdout; they must never be
 # graded as answers (they were observed as a 126-char identical blob under
-# provider rate limiting).
+# provider rate limiting). Anchored to service phrasings so ordinary answer
+# prose containing words like "quota" or "exceeded" is not rejected.
 _ERROR_PATTERN = re.compile(
-    r"(?i)(\berror\b|\brate ?limit|\b429\b|too many requests|quota|usage limit|"
-    r"temporarily unavailable|internal server error|api error|authentication|"
-    r"exceeded|try again)"
+    r"(?i)(too many requests|rate ?limit(?:ed|ing)?|\b429\b|"
+    r"quota (?:exceeded|exhausted|limit)|usage limit|come back tomorrow|"
+    r"internal server error|service unavailable|temporarily unavailable|"
+    r"authentication (?:error|failed)|api error|exceeded retry limit|"
+    r"try again later|queuing failed|model is busy)"
 )
 
 
@@ -107,7 +110,9 @@ def _qodercli_once(model: str, prompt: str, reasoning_effort: str | None) -> str
 
 
 def _codex_once(model: str, prompt: str) -> str | None:
-    last_message = pathlib.Path(tempfile.mkstemp(prefix="eval-last-", suffix=".txt")[1])
+    fd, name = tempfile.mkstemp(prefix="eval-last-", suffix=".txt")
+    os.close(fd)
+    last_message = pathlib.Path(name)
     try:
         proc = subprocess.run(
             [

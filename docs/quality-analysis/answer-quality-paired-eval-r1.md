@@ -13,9 +13,9 @@ Two frozen question sets, two answerer models, one consistent picture:
   correctly on Main-100 (Qwen3.8-Flash) and **18/48** on held-48
   (gpt-5.6-terra); with an empty context it answers **0/100** and **0/48**. In
   both sets every correct answer comes from the memory context — memory helped
-  36 and 18 cases respectively and hurt none — so on these sets the packer
-  contributes real, exclusively memory-derived answer accuracy and introduces
-  no regressions against the empty baseline.
+  36 and 18 cases respectively and hurt none — so on these sets the packed
+  memory context contributes real answer accuracy that comes exclusively from
+  memory, and introduces no regressions against the empty baseline.
 - Answer accuracy is bounded by source coverage: every correct answer in both
   sets is among the coverage-complete cases, and none of the 7 + 9
   coverage-incomplete cases was answered. Raising coverage (the README
@@ -229,9 +229,13 @@ ones on the measurement host. Main-100 ran before the additive CLI options
 landed; those options (`--answerer-model`, `--answerer-runner`,
 `--judge-model`, `--judge-runner`, the `codex exec` runner and its longer
 retry/cooldown policy) leave the default qodercli/Qwen path behavior-identical
-to what ran Main-100, and the held-48 numbers were produced by exactly these
-committed scripts. Prompt templates, the service-error pattern and the verdict
-parser are unchanged across both stages. `answer_quality_pack_builder.py` is
+to what ran Main-100. Held-48 was produced by these scripts apart from two
+review fixes that landed afterwards and cannot change a recorded verdict:
+closing an unused file descriptor in the codex runner, and narrowing the
+service-error filter to service phrasings so ordinary answer prose containing
+words like "quota" or "exceeded" is no longer rejected — the filter only
+decides which retry-level failures are recorded, never which text gets graded.
+Prompt templates and the verdict parser are unchanged across both stages. `answer_quality_pack_builder.py` is
 the committed form of the build code. The pack rows match its output schema
 exactly except one vestigial `duplicated_question` field, false on every row
 and read by no script. The built packs were re-verified directly on the
@@ -263,3 +267,21 @@ were fixed before the final measurement stages ran, one was rejected:
 - **Rejected:** a claim that `coverage_complete` derives from a covered-source
   count. The flag is read from the frozen coverage report per case; the
   reviewed code does not compute it that way.
+
+A second automated pass (PR 79, `gpt-6-luna`) found four more findings, all
+fixed after the measurement and none capable of changing a recorded verdict:
+
+- **codex runner leaked the `mkstemp` descriptor (fixed).** The temporary
+  last-message file's descriptor was never closed; it is now closed
+  immediately after creation.
+- **Service-error filter rejected ordinary prose (fixed).** The filter used to
+  reject any answer containing bare words like `quota`, `exceeded` or `error`;
+  it is now anchored to service phrasings (`too many requests`, `come back
+  tomorrow`, `model is busy`, …). The filter only decides which retry-level
+  failures are recorded, never which text is graded.
+- **Memorization claim overstated (fixed).** The empty arm measures
+  memorization on these sets (and found none); it does not bound memorization
+  in general. The README wording now says exactly that.
+- **Packer attribution (fixed).** The paired ablation establishes a gain from
+  the packed context under these prompts and models; the decision summary now
+  attributes the gain to the packed memory context, not to the packer alone.
