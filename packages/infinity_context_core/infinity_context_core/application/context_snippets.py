@@ -84,7 +84,7 @@ def query_focused_snippet(
             return inline_snippet
     max_chars = _MAX_STRUCTURED_SNIPPET_CHARS if structured_line else _MAX_SNIPPET_CHARS
     if end - start > max_chars:
-        max_chars = _MAX_SNIPPET_CHARS + _MAX_EDGE_EXTENSION_CHARS
+        max_chars = max(max_chars, _MAX_SNIPPET_CHARS + _MAX_EDGE_EXTENSION_CHARS)
     start = line_start if end - line_start <= max_chars else word_start
     structured_context_start = structured_line and start == line_start
     if structured_context_start:
@@ -311,15 +311,17 @@ def _extend_to_edge_hit_cluster(
 
     Query terms cluster on the question side of a dialogue chunk while the
     answer continues right after them, so a window that stops at the question
-    can drop the very fact the chunk was retrieved for. The growth is snapped
-    to a line boundary so dialogue lines are not cut mid-way, and is bounded
-    by a fixed extension budget.
+    can drop the very fact the chunk was retrieved for. The growth stops at
+    the newline itself (never into the next line) and is bounded by a fixed
+    extension budget; word-boundary snapping is left to the caller.
     """
     budget = _MAX_EDGE_EXTENSION_CHARS - max(0, (end - start) - _MAX_SNIPPET_CHARS)
     if budget <= 0:
         return end
     reach = end + budget
     farthest = end
+    # hits arrive sorted by position (context_lexical.matching_token_spans),
+    # so the first hit starting past `reach` ends the scan.
     for hit_start, hit_end, _term in hits:
         if hit_end <= end:
             continue
@@ -329,11 +331,8 @@ def _extend_to_edge_hit_cluster(
     if farthest <= end:
         return end
     line_end = text.find("\n", farthest)
-    target = len(text) if line_end == -1 else line_end + 1
-    target = min(target, reach)
-    if target <= end:
-        return end
-    return _right_word_boundary(text, target)
+    target = len(text) if line_end == -1 else line_end
+    return min(target, reach)
 
 
 def _window_bounds(*, text_len: int, center: int, window_chars: int) -> tuple[int, int]:
