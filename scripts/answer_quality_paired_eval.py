@@ -1,8 +1,11 @@
 """Paired answer-quality eval: same answerer model, WITH vs WITHOUT context.
 
-Answerer  = qodercli -m Qwen3.8-Flash --reasoning-effort xhigh (no tools)
+Answerer  = qodercli -m <--answerer-model, default Qwen3.8-Flash> (no tools);
+            --reasoning-effort xhigh is passed only for the default answerer;
+            --answerer-runner codex runs the same prompt through `codex exec`
 Judge     = qodercli -m mimo-v2.6-flash, blind to the arm, verdicts
-            correct | missing | incorrect
+            correct | missing | incorrect (overridable via --judge-model /
+            --judge-runner when the default judge provider is unavailable)
 
 The design isolates the contribution of the packed memory context: one model,
 one question, two arms (real rendered context vs empty context), one blind
@@ -23,6 +26,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -78,42 +82,92 @@ _ERROR_PATTERN = re.compile(
 )
 
 
-def _call(model: str, prompt: str, attempts: int = 3) -> tuple[str, int, int]:
+def _qodercli_once(model: str, prompt: str, reasoning_effort: str | None) -> str | None:
+    proc = subprocess.run(
+        [
+            "qodercli",
+            "-p",
+            prompt,
+            "-m",
+            model,
+            "--tools",
+            "",
+            "--no-session-persistence",
+            *(["--reasoning-effort", reasoning_effort] if reasoning_effort else []),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=os.environ,
+    )
+    text = (proc.stdout or "").strip()
+    if proc.returncode != 0 and not text:
+        return None
+    return text
+
+
+def _codex_once(model: str, prompt: str) -> str | None:
+    last_message = pathlib.Path(tempfile.mkstemp(prefix="eval-last-", suffix=".txt")[1])
+    try:
+        proc = subprocess.run(
+            [
+                "codex",
+                "exec",
+                "--skip-git-repo-check",
+                "--ephemeral",
+                "--sandbox",
+                "read-only",
+                "--color",
+                "never",
+                "-m",
+                model,
+                "-o",
+                str(last_message),
+                "-",
+            ],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=300,
+            env=os.environ,
+        )
+        if proc.returncode != 0:
+            return None
+        text = last_message.read_text(encoding="utf-8").strip()
+        return text or None
+    finally:
+        last_message.unlink(missing_ok=True)
+
+
+def _call(
+    model: str,
+    prompt: str,
+    attempts: int | None = None,
+    reasoning_effort: str | None = None,
+    runner: str = "qodercli",
+) -> tuple[str, int, int]:
+    # codex bursts hit HTTP 429 quickly and the cooldown window is longer than
+    # the qodercli one, so give it more, slower retries.
+    if attempts is None:
+        attempts = 5 if runner == "codex" else 3
     failures = 0
     started = time.time()
     for attempt in range(attempts):
         try:
-            proc = subprocess.run(
-                [
-                    "qodercli",
-                    "-p",
-                    prompt,
-                    "-m",
-                    model,
-                    "--tools",
-                    "",
-                    "--no-session-persistence",
-                    *(["--reasoning-effort", "xhigh"] if model == ANSWERER_MODEL else []),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=300,
-                env=os.environ,
-            )
+            if runner == "codex":
+                text = _codex_once(model, prompt)
+            else:
+                text = _qodercli_once(model, prompt, reasoning_effort)
         except subprocess.TimeoutExpired:
             failures += 1
             time.sleep(5 * (attempt + 1))
             continue
-        text = (proc.stdout or "").strip()
-        if proc.returncode != 0 and not text:
-            failures += 1
-            time.sleep(5 * (attempt + 1))
-            continue
-        text = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", text).strip()
-        if text and not _ERROR_PATTERN.search(text):
-            return text, failures, int((time.time() - started) * 1000)
+        if text:
+            text = re.sub(r"^```[a-zA-Z]*\n|\n```$", "", text).strip()
+            if text and not _ERROR_PATTERN.search(text):
+                return text, failures, int((time.time() - started) * 1000)
         failures += 1
-        time.sleep(3 * (attempt + 1))
+        time.sleep((10 if runner == "codex" else 3) * (attempt + 1))
     return "", failures, int((time.time() - started) * 1000)
 
 
@@ -126,11 +180,19 @@ def _verdict(raw: str) -> str:
     return fallback.group(1) if fallback else "unparsed"
 
 
-def _judge(question: str, gold: str, candidate: str) -> tuple[str, str, int, int]:
+def _judge(
+    question: str,
+    gold: str,
+    candidate: str,
+    judge_model: str = JUDGE_MODEL,
+    judge_runner: str = "qodercli",
+) -> tuple[str, str, int, int]:
     if not candidate.strip():
         return "call_failed", "", 1, 0
     raw, failures, elapsed = _call(
-        JUDGE_MODEL, JUDGE_TEMPLATE.format(question=question, gold=gold, candidate=candidate[:900])
+        judge_model,
+        JUDGE_TEMPLATE.format(question=question, gold=gold, candidate=candidate[:900]),
+        runner=judge_runner,
     )
     return _verdict(raw), hashlib.sha256(candidate.encode()).hexdigest()[:12], failures, elapsed
 
@@ -148,7 +210,16 @@ def main() -> int:
     parser.add_argument("--out-dir", required=True, type=pathlib.Path)
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--workers", type=int, default=6)
+    parser.add_argument("--answerer-model", default=ANSWERER_MODEL)
+    parser.add_argument("--answerer-runner", choices=("qodercli", "codex"), default="qodercli")
+    parser.add_argument("--judge-model", default=JUDGE_MODEL)
+    parser.add_argument("--judge-runner", choices=("qodercli", "codex"), default="qodercli")
     args = parser.parse_args()
+    answerer_effort = (
+        "xhigh"
+        if args.answerer_runner == "qodercli" and args.answerer_model == ANSWERER_MODEL
+        else None
+    )
 
     rows = [json.loads(line) for line in args.pack.read_text(encoding="utf-8").splitlines()]
     rows.sort(key=lambda row: row["cid"])
@@ -176,10 +247,17 @@ def main() -> int:
         row, arm = item
         context = row["context"] if arm == "with" else EMPTY_CONTEXT
         candidate, answer_failures, answer_ms = _call(
-            ANSWERER_MODEL, ANSWERER_TEMPLATE.format(context=context, question=row["question"])
+            args.answerer_model,
+            ANSWERER_TEMPLATE.format(context=context, question=row["question"]),
+            reasoning_effort=answerer_effort,
+            runner=args.answerer_runner,
         )
         verdict, candidate_hash, judge_failures, judge_ms = _judge(
-            row["question"], row["gold"], candidate
+            row["question"],
+            row["gold"],
+            candidate,
+            judge_model=args.judge_model,
+            judge_runner=args.judge_runner,
         )
         return {
             "cid": row["cid"],
@@ -216,8 +294,10 @@ def main() -> int:
             records.append(record)
     aggregate: dict[str, object] = {
         "cases": len(rows),
-        "answerer": ANSWERER_MODEL,
-        "judge": JUDGE_MODEL,
+        "answerer": args.answerer_model,
+        "answerer_runner": args.answerer_runner,
+        "judge": args.judge_model,
+        "judge_runner": args.judge_runner,
     }
 
     def _rate(arm: str) -> dict[str, int]:

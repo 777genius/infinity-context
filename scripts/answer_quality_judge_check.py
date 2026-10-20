@@ -1,9 +1,10 @@
 """Judge-validity check: agreement between two judges on the same candidates.
 
 Re-runs the answerer on a sampled subset (with-context arm), then grades each
-candidate with mimo-v2.6-flash and mimo-v2.6-pro independently. Reports only
-the agreement matrix and rates; candidate text never leaves the measurement
-host.
+candidate with two independent judge models (default: mimo-v2.6-flash and
+mimo-v2.6-pro; both overridable via --judge-a/--judge-b/--judge-runner when a
+provider is unavailable). Reports only the agreement matrix and rates;
+candidate text never leaves the measurement host.
 """
 
 from __future__ import annotations
@@ -28,9 +29,11 @@ FLASH = "mimo-v2.6-flash"
 PRO = "mimo-v2.6-pro"
 
 
-def grade(model: str, question: str, gold: str, candidate: str) -> str:
+def grade(model: str, question: str, gold: str, candidate: str, runner: str) -> str:
     raw, _failures, _ms = _call(
-        model, JUDGE_TEMPLATE.format(question=question, gold=gold, candidate=candidate[:900])
+        model,
+        JUDGE_TEMPLATE.format(question=question, gold=gold, candidate=candidate[:900]),
+        runner=runner,
     )
     return _verdict(raw)
 
@@ -41,7 +44,19 @@ def main() -> int:
     parser.add_argument("--out", required=True, type=pathlib.Path)
     parser.add_argument("--sample", type=int, default=20)
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--answerer-model", default=ANSWERER_MODEL)
+    parser.add_argument("--answerer-runner", choices=("qodercli", "codex"), default="qodercli")
+    parser.add_argument("--judge-a", default=FLASH)
+    parser.add_argument("--judge-b", default=PRO)
+    parser.add_argument("--judge-a-runner", choices=("qodercli", "codex"), default="qodercli")
+    parser.add_argument("--judge-b-runner", choices=("qodercli", "codex"), default=None)
     args = parser.parse_args()
+    judge_b_runner = args.judge_b_runner or args.judge_a_runner
+    answerer_effort = (
+        "xhigh"
+        if args.answerer_runner == "qodercli" and args.answerer_model == ANSWERER_MODEL
+        else None
+    )
 
     rows = [json.loads(line) for line in args.pack.read_text(encoding="utf-8").splitlines()]
     rows.sort(key=lambda row: row["cid"])
@@ -50,15 +65,17 @@ def main() -> int:
 
     def run_one(row: dict) -> dict:
         candidate, _failures, _ms = _call(
-            ANSWERER_MODEL,
+            args.answerer_model,
             ANSWERER_TEMPLATE.format(context=row["context"], question=row["question"]),
+            reasoning_effort=answerer_effort,
+            runner=args.answerer_runner,
         )
         return {
             "cid": row["cid"],
             "qtype": row["qtype"],
             "coverage_complete": row["coverage_complete"],
-            "flash": grade(FLASH, row["question"], row["gold"], candidate),
-            "pro": grade(PRO, row["question"], row["gold"], candidate),
+            "a": grade(args.judge_a, row["question"], row["gold"], candidate, args.judge_a_runner),
+            "b": grade(args.judge_b, row["question"], row["gold"], candidate, judge_b_runner),
             "candidate_chars": len(candidate),
         }
 
@@ -70,24 +87,30 @@ def main() -> int:
     )
 
     valid = ("correct", "missing", "incorrect")
-    resolved = [record for record in records if record["flash"] in valid and record["pro"] in valid]
-    agree = sum(1 for record in resolved if record["flash"] == record["pro"])
+    resolved = [record for record in records if record["a"] in valid and record["b"] in valid]
+    agree = sum(1 for record in resolved if record["a"] == record["b"])
     matrix: dict[str, int] = {}
     for record in records:
-        key = f"flash={record['flash']}|pro={record['pro']}"
+        key = f"a={record['a']}|b={record['b']}"
         matrix[key] = matrix.get(key, 0) + 1
     print(
         json.dumps(
             {
                 "cases": len(records),
+                "answerer": args.answerer_model,
+                "answerer_runner": args.answerer_runner,
+                "judge_a": args.judge_a,
+                "judge_a_runner": args.judge_a_runner,
+                "judge_b": args.judge_b,
+                "judge_b_runner": judge_b_runner,
                 "resolved": len(resolved),
                 "unresolved": len(records) - len(resolved),
                 "agreement": agree,
                 "both_correct": sum(
-                    1 for record in resolved if record["flash"] == "correct" == record["pro"]
+                    1 for record in resolved if record["a"] == "correct" == record["b"]
                 ),
-                "flash_correct": sum(1 for record in resolved if record["flash"] == "correct"),
-                "pro_correct": sum(1 for record in resolved if record["pro"] == "correct"),
+                "a_correct": sum(1 for record in resolved if record["a"] == "correct"),
+                "b_correct": sum(1 for record in resolved if record["b"] == "correct"),
                 "matrix": matrix,
             },
             indent=2,

@@ -229,6 +229,19 @@ They are not a full LongMemEval result, a production qualification, or a matched
 comparison with competing memory systems. Broader quality still needs a fresh
 holdout and end-to-end answer evaluation.
 
+An end-to-end answer-quality measurement (2026-10-20, PR 79) closes that gap
+with a paired ablation on both frozen sets: every question was answered twice —
+once with the real packed context and once with an empty context — by one
+answerer model per set (Qwen3.8-Flash on the frozen 100, gpt-5.6-terra on the
+held-48 after a provider outage switched the answerer), and a blind judge
+graded each answer against the official gold answer. The memory context turned
+36/100 vs 0/100 (frozen 100) and 18/48 vs 0/48 (held-48) correct: every gain
+came from memory, none of the questions with incomplete source coverage could
+be answered, and the empty-context arm never guessed anything right. The
+paired design bounds LongMemEval memorization: anything answered with an empty
+context is parametric knowledge, not memory. Details and caveats:
+docs/quality-analysis/answer-quality-paired-eval-r1.md.
+
 PR #75 reduced median context latency from **6.334 s to 5.586 s (11.8%)** in
 three alternating ASGI before/after pairs on **one query**. This is a small paired
 measurement, not an overall p95 latency estimate.
