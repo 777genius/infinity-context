@@ -156,10 +156,31 @@ short answers, not evidence gaps. Judge noise was already bounded separately
 are predominantly answerer failures. The answerer's candidate text is not
 retained in `results.jsonl` (sha only), so no further local split is possible.
 
+## Recall headroom probe (`absent_not_retrieved`, 10 cases)
+
+`scripts/answer_recall_lexical_probe.py` ranks every store chunk by a naive
+query-token overlap (no IDF — headroom estimation, not production ranking) and
+records the best rank of a gold-bearing chunk:
+
+| Set | Cases | Gold chunk in lexical top-3 | top-25 | top-75 | deeper than 150 |
+|---|---:|---:|---:|---:|---:|
+| Main-100 | 5 | 0 | 3 | 3 | 2 (ranks 1095, 5788) |
+| held-48 | 5 | 2 | 2 | 3 | 2 (ranks 468, 5165) |
+
+5 of 10 cases would be reachable by a plain lexical recall union; the other 5
+need semantic recall or query rewriting. Caveat: two of the top-ranked cases
+have hundreds of gold-bearing chunks (short, common gold), so their containment
+signal is weak. The core's BM25 boosts (`context_bm25_ranking.py`) only rerank
+already-retrieved candidates — no lexical recall channel exists today. The
+original ingestion harness lives in a root-owned host bundle
+(`/srv/worker-state/...`) that the measurement account cannot read, so any
+recall A/B needs either that access or a rebuilt ingestion harness.
+
 ## Ranked next levers
 
-1. **Recall harness for the frozen sets** (unlocks `not_retrieved` 8 cases and
-   the 10 uncovered Main-100 sources): frozen pickles carry no retrieval
+1. **Recall harness for the frozen sets** (unlocks `not_retrieved` — 10 probed
+   cases, half of them lexically reachable per the probe above — and the 10
+   uncovered Main-100 sources): frozen pickles carry no retrieval
    configuration; a host harness that re-runs retrieval against the seeded
    stores is the prerequisite for any admission/reranking experiment.
 2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
