@@ -12,6 +12,8 @@ provider-free TEST-profile app, intercepts pack(), and compares:
 - death layer three seams localize where the gold chunk dies:
     never_matched   neither the product keyword lane nor a direct big-limit
                     raw-query SQL search ever surfaces the gold chunk
+    baseline_skipped_no_scope  big-limit baseline skipped (no SQL scope)
+    baseline_error  big-limit baseline raised; death unobserved, not a miss
     pool_truncated  raw-query SQL matches it but the merged lane pool drops it
     admit_*          admit_keyword_chunk rejects it (project_identity /
                      anchor_conflict / insufficient_relevance), with
@@ -513,6 +515,10 @@ def main() -> int:
                             death = "no_gold_chunk"
                         elif gold_in_replay:
                             death = "recovered"
+                        elif not gold_in_keyword and big_total == -1:
+                            death = "baseline_skipped_no_scope"
+                        elif not gold_in_keyword and big_total == -2:
+                            death = "baseline_error"
                         elif not gold_in_keyword and not gold_in_big:
                             death = "never_matched"
                         elif not gold_in_keyword and gold_in_big:

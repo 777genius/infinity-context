@@ -5,7 +5,10 @@ context captured earlier), replays each case's request against a temp copy
 of the seeded memory.db — scope from the frozen candidate rows with a
 gold-row fallback, token_budget from the frozen kwargs — and writes a pack
 jsonl whose context/item_count/ctx_chars are refreshed under the currently
-loaded product code. Rows without a frozen pickle pass through unchanged.
+loaded product code. Rows without a frozen pickle pass through unchanged;
+empty rendered contexts overwrite the stale context (empty is a valid
+result of the code under test), while failed replays keep the stale row
+and gain a `repack_error` marker so downstream scoring can skip them.
 
 Prints ONLY counters — no question, gold answer or context text ever
 reaches stdout.
@@ -155,15 +158,16 @@ def main() -> int:
                     rendered = str(bundle.get("rendered_text") or "")
                     if response.status_code != 200:
                         counters[f"http_{response.status_code}"] += 1
-                        continue
-                    if not rendered:
-                        counters["empty_rendered"] += 1
+                        refreshed[cid] = {"repack_error": f"http_{response.status_code}"}
                         continue
                     refreshed[cid] = {
                         "context": rendered,
                         "ctx_chars": len(rendered),
                         "item_count": len(bundle.get("items") or []),
                     }
+                    if not rendered:
+                        counters["empty_rendered"] += 1
+                        continue
                     counters["replayed"] += 1
                     if _contains(rows_by_cid[cid]["gold"], rendered):
                         counters["gold_in_rendered"] += 1
@@ -172,7 +176,10 @@ def main() -> int:
     with args.out.open("w", encoding="utf-8") as handle:
         for row in rows:
             update = refreshed.get(row["cid"])
-            if update is not None:
+            if update is not None and "repack_error" in update:
+                counters["replay_failed_stale"] += 1
+                row = {**row, **update}
+            elif update is not None:
                 row = {**row, **update}
             else:
                 counters["passthrough"] += 1
