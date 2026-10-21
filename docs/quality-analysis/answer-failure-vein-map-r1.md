@@ -184,6 +184,36 @@ Verdict: the scattered class converts **inside the budget** — ~+5 correct of
 36 with ~1 regression-equivalent, so in-budget aggregation is a real, shippable
 lever worth designing (displacement policy, not budget increase).
 
+### Does a production signal find the carriers?
+
+Both arms above pick carriers with **gold-token overlap** — available to an
+oracle, not to a packer. The obvious production stand-in is query-token
+overlap, so that was measured: same 36 cases, carriers picked by query-token
+overlap from the seeded store (6 chunks cap, no gold anywhere), tail items
+evicted until the pack fits the cap (31/36 evict, 137 items total, all
+contexts under 18000).
+
+| Arm | correct | incorrect | missing |
+|---|---:|---:|---:|
+| base packed context | 6 | 11 | 19 |
+| query-token carriers, in-budget | 8 | 9 | 19 |
+| gold-token carriers, in-budget | 11 | 9 | 16 |
+
+Paired against base: **3 up, 1 down** — inside the measured noise floor, and
+the mechanism explains why: the query-carrier arm adds a mean of **7.3% of
+gold tokens** (31 of 36 cases add exactly zero), against 98.6% for the oracle
+arm. The carriers are not duplicates of what the pack already holds (66 of 71
+are new chunks) — they are simply the *wrong* chunks: the defining property of
+this class is that the decisive tokens are absent from the query, so no
+query-driven selection can reach them.
+
+Verdict: the in-budget aggregation ceiling is real, but the naive production
+instantiation of it is dead. The missing piece is a **carrier-identification
+signal that reaches tokens absent from the query** (embedding similarity,
+decomposition expansion, chunk-graph neighbours — each its own experiment and
+its own cost), plus the displacement policy. It is a feature, not a patch,
+and the cheap version of it does not exist.
+
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
 For 7 of 8 cases (7 failures + 1 control) the gold-bearing chunk's
@@ -329,11 +359,13 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
    failures): answerer-side formatting guidance, not memory. Context-side
    presentation knobs were probed and rejected (section above).
 3. **In-budget evidence aggregation** for the scattered class (29 cases):
-   both arms measured (oracle over-budget +6/36 with 0 regressions; in-budget
-   eviction of tail items +6/-1, 4 of 6 flips reproduce inside the cap). The
-   class converts without raising the budget; the design work is the
-   displacement policy — which selected items to drop when carriers matter
-   more. Evidence-backed, next in line.
+   ceilings measured on both sides — gold-token carriers convert +6/-1 inside
+   the cap, but the production-realistic stand-in (query-token carriers)
+   adds 7.3% gold tokens and lands inside noise (3 up / 1 down): the decisive
+   tokens are by definition absent from the query. Shippable only with a
+   carrier-identification signal beyond query overlap; that signal is the
+   real cost, not the displacement. Deprioritized until such a signal has its
+   own cheap experiment.
 
 Packer family-key rework, neighbor expansion, snippet visibility (PR 80
 answer-level: 0 conversion), context trimming and gold repositioning are
