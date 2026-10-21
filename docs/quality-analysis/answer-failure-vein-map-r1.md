@@ -230,6 +230,13 @@ Between them the two probes also bound where a future signal has to look: the
 fact is reachable through documents the pack already touches, but only by
 ranking chunks by something other than query overlap or sequence distance.
 
+A third candidate signal — the chunk graph in the seeded store — does not
+exist to measure: `memory_context_links`, `memory_facts` and
+`memory_source_refs` are empty (0 rows) in all 8 frozen stores (8305–17451
+chunks each), and `memory_chunks` carries no embedding column. Any
+graph- or embedding-based carrier identification would have to be built and
+seeded first, which is exactly the feature-level cost noted above.
+
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
 For 7 of 8 cases (7 failures + 1 control) the gold-bearing chunk's
