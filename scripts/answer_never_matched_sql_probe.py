@@ -233,7 +233,9 @@ def main() -> int:
             in_scope = scope is not None and row["space"] == scope[0] and row["scope"] == scope[1]
             visible = row["status"] == "active" and row["classification"] != "restricted"
             thread_ok = row["thread"] is None or row["thread"] == request_thread
-            term_hit = any(variant in row["norm"] for term in capped_terms for variant in term.variants)
+            term_hit = any(
+                variant in row["norm"] for term in capped_terms for variant in term.variants
+            )
             uncapped_hit = any(
                 variant in row["norm"] for term in uncapped_terms for variant in term.variants
             )
