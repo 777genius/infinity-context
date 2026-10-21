@@ -31,11 +31,14 @@ from answer_failure_diagnosis import _norm, _tokens  # noqa: E402
 SCATTER_THRESHOLD = 0.9
 
 
-def _store_rows(db_path: pathlib.Path) -> list[tuple[str, str | None, int | None, str]]:
+def _store_rows(
+    db_path: pathlib.Path,
+) -> list[tuple[str, str | None, str | None, str | None, int, str]]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
         return conn.execute(
-            "SELECT id, memory_scope_id, char_start, text FROM memory_chunks"
+            "SELECT id, memory_scope_id, document_id, episode_id, char_start, text "
+            "FROM memory_chunks"
         ).fetchall()
     finally:
         conn.close()
@@ -63,7 +66,10 @@ def main() -> int:
             targets.add(row["cid"])
 
     inputs = args.inputs_root / args.set_dir / "frozen-private"
-    store_cache: dict[pathlib.Path, list[tuple[str, str | None, int | None, str]]] = {}
+    store_cache: dict[
+        pathlib.Path,
+        list[tuple[str, str | None, str | None, str | None, int, str]],
+    ] = {}
     rows = []
     for path in sorted(inputs.rglob("*.pickle")):
         cid = hashlib.sha256(path.stem.encode()).hexdigest()[:12]
@@ -80,15 +86,20 @@ def main() -> int:
         norm_gold = _norm(gold)
         union: set[str] = set()
         best_chunk = 0
-        by_scope: dict[str | None, list[tuple[int, str]]] = {}
-        for _cid, scope, char_start, text in store_rows:
-            present = [token for token in gold_tokens if token in _norm(text)]
+        by_owner: dict[
+            tuple[str | None, str | None, str | None], list[tuple[int, str]]
+        ] = {}
+        for _cid, scope, document_id, episode_id, char_start, text in store_rows:
+            chunk_tokens = set(_tokens(text))
+            present = [token for token in gold_tokens if token in chunk_tokens]
             union.update(present)
             best_chunk = max(best_chunk, len(present))
-            by_scope.setdefault(scope, []).append((char_start or 0, text))
+            by_owner.setdefault((scope, document_id, episode_id), []).append(
+                (char_start or 0, text)
+            )
 
         split_adjacent = False
-        for chunks in by_scope.values():
+        for chunks in by_owner.values():
             chunks.sort()
             for (_, left), (_, right) in zip(chunks, chunks[1:], strict=False):
                 if norm_gold and norm_gold in _norm(left + " " + right):

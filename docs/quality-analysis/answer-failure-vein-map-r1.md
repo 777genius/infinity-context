@@ -27,7 +27,8 @@ Findings:
   the packed context; 39/42 have gold of only 1-2 content tokens), 29 are
   `scattered` (gold tokens split across the store; no single chunk or adjacent
   pair holds the span), 9 `dropped_by_pack`, 8 `not_retrieved`, 6 remaining
-  `snippet_cut` (held-48, gold beyond the window without query hits).
+  `snippet_cut` (1 Main-100, 5 held-48; gold beyond the window without query
+  hits).
 - The packer-side dropped class is governed by a 43-component bespoke
   answer-support family key; the gold-bearing chunk typically ranks 1-2 within
   its family and loses to a sibling. Reworking representative choice has a
@@ -116,12 +117,14 @@ the window with no query hits there — unreachable by the same trick.
 
 ## The scattered class (`absent_no_carrier`, 37 cases)
 
-All 37 (26 Main incl. controls, 11 held) are "scattered", none missing:
+All 37 (26 Main incl. controls, 11 held) are "scattered", none missing —
+re-measured after the probe matching fixes (whole-token membership instead of
+substring hits, adjacency grouped by source owner):
 
 - gold-token union over the whole store is exactly 1.0 in every case;
-- best single chunk covers 42-100% of gold tokens (median ~0.73);
-- no adjacent chunk pair (same scope, sorted by char_start) contains the
-  full normalized gold span.
+- best single chunk covers 38-89% of gold tokens (median ~0.60);
+- no adjacent chunk pair (same owner: scope + document/episode, sorted by
+  char_start) contains the full normalized gold span.
 
 Failure-only rendered-context coverage of gold tokens: Main-100 21 cases span
 0.30-0.87 (none reach 1.0); held-48 8 cases span 0.0-1.0 (one reaches 1.0).
@@ -286,15 +289,20 @@ retained in `results.jsonl` (sha only), so no further local split is possible.
 
 `scripts/answer_recall_lexical_probe.py` ranks every store chunk by a naive
 query-token overlap (no IDF — headroom estimation, not production ranking) and
-records the best rank of a gold-bearing chunk:
+records the best rank of a gold-bearing chunk. Equal-score chunks form one tie
+block, so ranks are tie-aware: each cell is **possible / guaranteed** (block
+start / block end — store order inside a block carries no lexical signal).
+Re-measured after the tie-aware fix:
 
-| Set | Cases | Gold chunk in lexical top-3 | top-25 | top-75 | deeper than 150 |
+| Set | Cases | top-3 | top-25 | top-75 | deeper than 150 (possible ranks) |
 |---|---:|---:|---:|---:|---:|
-| Main-100 | 5 | 0 | 3 | 3 | 2 (ranks 1095, 5788) |
-| held-48 | 5 | 2 | 2 | 3 | 2 (ranks 468, 5165) |
+| Main-100 | 5 | 0 / 0 | 3 / 1 | 3 / 2 | 2 / 2 (514, 1106) |
+| held-48 | 5 | 3 / 2 | 3 / 2 | 3 / 2 | 1 / 2 (1617) |
 
-5 of 10 cases would be reachable by a plain lexical recall union; the other 5
-need semantic recall or query rewriting.
+Zero-overlap gold chunks are counted separately and never set the best rank
+here: 2 Main-100 and 1 held-48 case carry at least one. 3 of 10 cases are
+guaranteed in the lexical top-25 (6 of 10 possible); the rest need semantic
+recall or query rewriting.
 
 **Superseded by the replay-harness measurement below (same day):** the
 lexically-near cases are exactly the ones the SQL keyword lane already brings

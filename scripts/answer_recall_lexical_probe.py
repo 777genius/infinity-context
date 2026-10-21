@@ -74,23 +74,36 @@ def main() -> int:
                 conn.close()
         store_rows = store_cache[db_path]
 
-        scored: list[tuple[float, int, int]] = []
-        gold_positions: list[int] = []
+        scores: list[tuple[float, int]] = []
+        gold_positions: set[int] = set()
         for position, (_chunk_id, text) in enumerate(store_rows):
             text_tokens = set(_tokens(text))
             overlap = len(query_tokens & text_tokens)
-            scored.append((-overlap / max(1, len(query_tokens)), -overlap, position))
+            scores.append((-overlap / max(1, len(query_tokens)), -overlap))
             if _contains(gold_by_cid[cid], text):
-                gold_positions.append(position)
-        scored.sort()
-        rank_by_position = {position: rank for rank, (_, _, position) in enumerate(scored)}
-        best_rank = min((rank_by_position[p] for p in gold_positions), default=None)
+                gold_positions.add(position)
+        # Equal scores form one tie block; store order inside the block carries
+        # no lexical signal, so a gold chunk's rank is a range: block start
+        # (best case, `possible`) .. block end (worst case, `guaranteed`).
+        order = sorted(range(len(scores)), key=lambda p: scores[p])
+        block_start: dict[tuple[float, int], int] = {}
+        block_end: dict[tuple[float, int], int] = {}
+        for rank, position in enumerate(order):
+            key = scores[position]
+            block_start.setdefault(key, rank)
+            block_end[key] = rank
+        possible_ranks = [block_start[scores[p]] for p in gold_positions]
+        guaranteed_ranks = [block_end[scores[p]] for p in gold_positions]
         rows.append(
             {
                 "cid": cid,
                 "store_chunks": len(store_rows),
                 "gold_chunks": len(gold_positions),
-                "gold_lexical_rank": best_rank,
+                "gold_zero_overlap_chunks": sum(
+                    1 for p in gold_positions if scores[p][1] == 0
+                ),
+                "gold_lexical_rank_best": min(possible_ranks, default=None),
+                "gold_lexical_rank_worst": min(guaranteed_ranks, default=None),
             }
         )
 
@@ -99,19 +112,33 @@ def main() -> int:
         for row in rows:
             handle.write(json.dumps(row) + "\n")
 
-    ranks = [row["gold_lexical_rank"] for row in rows if row["gold_lexical_rank"] is not None]
+    possible = [
+        row["gold_lexical_rank_best"]
+        for row in rows
+        if row["gold_lexical_rank_best"] is not None
+    ]
+    guaranteed = [
+        row["gold_lexical_rank_worst"]
+        for row in rows
+        if row["gold_lexical_rank_worst"] is not None
+    ]
     in_top: collections.Counter = collections.Counter()
     for top in _TOPS:
-        in_top[f"top_{top}"] = sum(1 for rank in ranks if rank < top)
+        in_top[f"top_{top}_possible"] = sum(1 for rank in possible if rank < top)
+        in_top[f"top_{top}_guaranteed"] = sum(1 for rank in guaranteed if rank < top)
     print(
         json.dumps(
             {
                 "set_dir": args.set_dir,
                 "out": str(args.out),
                 "cases": len(rows),
-                "cases_without_gold_chunk": len(rows) - len(ranks),
+                "cases_without_gold_chunk": len(rows) - len(possible),
+                "cases_with_zero_overlap_gold": sum(
+                    1 for row in rows if row["gold_zero_overlap_chunks"]
+                ),
                 "gold_chunk_in": dict(in_top),
-                "best_ranks": sorted(ranks),
+                "best_ranks_possible": sorted(possible),
+                "best_ranks_guaranteed": sorted(guaranteed),
             },
             indent=2,
         )
