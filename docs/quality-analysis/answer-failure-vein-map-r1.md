@@ -168,7 +168,14 @@ records the best rank of a gold-bearing chunk:
 | held-48 | 5 | 2 | 2 | 3 | 2 (ranks 468, 5165) |
 
 5 of 10 cases would be reachable by a plain lexical recall union; the other 5
-need semantic recall or query rewriting. Caveat: two of the top-ranked cases
+need semantic recall or query rewriting.
+
+**Superseded by the replay-harness measurement below (same day):** the
+lexically-near cases are exactly the ones the SQL keyword lane already brings
+into the pool (they die later, on anchor-conflict admission, rejected at the
+answer level); the lexically-far tail is unreachable by both rankings. A
+plain lexical recall union therefore adds nothing — see the depth A/B
+section. Caveat: two of the top-ranked cases
 have hundreds of gold-bearing chunks (short, common gold), so their containment
 signal is weak. The core's BM25 boosts (`context_bm25_ranking.py`) only rerank
 already-retrieved candidates — no lexical recall channel exists today. The
