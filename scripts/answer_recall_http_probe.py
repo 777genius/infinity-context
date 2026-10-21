@@ -3,8 +3,8 @@
 The frozen pickles were cut at the ContextPacker.pack seam (their kwargs match
 its keyword signature exactly) during a /v1/context request, so this probe
 reconstructs that request — scope from the frozen candidate rows, token_budget
-from the frozen kwargs — against a temp copy of the seeded memory.db with the
-provider-free Settings from http_dump.py, intercepts pack(), and compares:
+from the frozen kwargs — against a temp copy of the seeded memory.db with a
+provider-free TEST-profile app, intercepts pack(), and compares:
 
 - fidelity   replayed candidate ids vs the frozen candidate ids
 - recall     gold-bearing store chunk ids vs replayed candidate ids
@@ -18,6 +18,7 @@ provider-free Settings from http_dump.py, intercepts pack(), and compares:
                      admit_best_none for the silent best_query-missing path
     lost_after_admit admitted but absent from packer candidates (item stage)
     unattributed     in the pool but no admission record for its text
+    http_error       /v1/context returned 5xx for this case
 
 Runs on the measurement host. Prints ONLY counters and opaque case hashes —
 no question, gold answer or context text ever reaches stdout.
@@ -31,15 +32,31 @@ import hashlib
 import json
 import pathlib
 import pickle
+import re
 import shutil
 import statistics
-import sys
 import tempfile
+import unicodedata
 from unittest import mock
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from answer_snippet_rebuild_ab import _contains  # noqa: E402
+def _norm(text: str) -> str:
+    text = unicodedata.normalize("NFKC", str(text)).lower()
+    text = re.sub(r"[^0-9a-zа-яё]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _tokens(text: str) -> list[str]:
+    return [token for token in _norm(text).split() if len(token) > 1]
+
+
+def _contains(gold: str, blob: str) -> bool:
+    norm_gold = _norm(gold)
+    if norm_gold and norm_gold in _norm(blob):
+        return True
+    gold_tokens = _tokens(gold)
+    blob_tokens = set(_tokens(blob))
+    return bool(gold_tokens) and all(token in blob_tokens for token in gold_tokens)
 
 
 def _cid(path: pathlib.Path) -> str:
@@ -197,6 +214,11 @@ def main() -> int:
         db_path = args.store_root / args.set_dir / f"{qtype}-exact-pack-state" / "memory.db"
         by_store.setdefault(db_path, []).append(cid)
 
+    missing_stores = sorted(str(path) for path in by_store if not path.is_file())
+    if missing_stores:
+        print(json.dumps({"missing_stores": missing_stores, "cases": len(pickles)}, indent=2))
+        return 2
+
     import asyncio
 
     import infinity_context_core.application.context_collectors as collectors_mod
@@ -211,6 +233,7 @@ def main() -> int:
 
     original_pack = ContextPacker.pack
     captured: list[dict] = []
+    biglimit_error_kinds: collections.Counter[str] = collections.Counter()
 
     def pack_spy(self, *call_args, **call_kwargs):
         captured.append(
@@ -281,7 +304,7 @@ def main() -> int:
                         embeddings_enabled=False,
                     )
                 )
-                with TestClient(app) as client:
+                with TestClient(app, raise_server_exceptions=False) as client:
                     for cid in sorted(cids):
                         data = pickle.loads(pickles[cid].read_bytes())
                         kwargs = data["kwargs"]
@@ -361,8 +384,9 @@ def main() -> int:
                                         work_db, scope, kwargs["query"], gold_store_ids
                                     )
                                 )
-                            except Exception:
+                            except Exception as exc:  # noqa: BLE001
                                 big_total = -2
+                                biglimit_error_kinds[type(exc).__name__] += 1
                         gold_in_big = bool(gold_big)
                         gold_scopes = len(
                             {
@@ -375,7 +399,9 @@ def main() -> int:
                                 if item_id in rows_data
                             }
                         )
-                        if not gold_store_ids:
+                        if response.status_code >= 500:
+                            death = "http_error"
+                        elif not gold_store_ids:
                             death = "no_gold_chunk"
                         elif gold_in_replay:
                             death = "recovered"
@@ -511,6 +537,7 @@ def main() -> int:
                 "set_dir": args.set_dir,
                 "out": str(args.out),
                 "knobs": {"max_facts": args.max_facts, "max_chunks": args.max_chunks},
+                "biglimit_error_kinds": dict(biglimit_error_kinds),
                 "not_retrieved": group_summary(target_rows),
                 "controls": group_summary(control_rows),
                 "other": group_summary(other_rows),

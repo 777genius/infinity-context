@@ -19,13 +19,29 @@ import hashlib
 import json
 import pathlib
 import pickle
+import re
 import shutil
-import sys
 import tempfile
+import unicodedata
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-from answer_snippet_rebuild_ab import _contains  # noqa: E402
+def _norm(text: str) -> str:
+    text = unicodedata.normalize("NFKC", str(text)).lower()
+    text = re.sub(r"[^0-9a-zа-яё]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _tokens(text: str) -> list[str]:
+    return [token for token in _norm(text).split() if len(token) > 1]
+
+
+def _contains(gold: str, blob: str) -> bool:
+    norm_gold = _norm(gold)
+    if norm_gold and norm_gold in _norm(blob):
+        return True
+    gold_tokens = _tokens(gold)
+    blob_tokens = set(_tokens(blob))
+    return bool(gold_tokens) and all(token in blob_tokens for token in gold_tokens)
 
 
 def _cid(path: pathlib.Path) -> str:
@@ -79,6 +95,11 @@ def main() -> int:
         )
         by_store.setdefault(db_path, []).append(cid)
 
+    missing_stores = sorted(str(path) for path in by_store if not path.is_file())
+    if missing_stores:
+        print(json.dumps({"missing_stores": missing_stores, "pickles": len(pickles)}, indent=2))
+        return 2
+
     from fastapi.testclient import TestClient
     from infinity_context_server.config import DeployProfile, Settings
     from infinity_context_server.main import create_app
@@ -101,7 +122,7 @@ def main() -> int:
                     embeddings_enabled=False,
                 )
             )
-            with TestClient(app) as client:
+            with TestClient(app, raise_server_exceptions=False) as client:
                 for cid in sorted(cids):
                     data = pickle.loads(pickles[cid].read_bytes())
                     kwargs = data["kwargs"]
