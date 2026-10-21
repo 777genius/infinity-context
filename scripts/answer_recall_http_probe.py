@@ -354,6 +354,7 @@ def main() -> int:
                             "query": kwargs["query"],
                             "token_budget": kwargs["token_budget"],
                         }
+                        scopes_truncated = False
                         if args.scope_set == "all":
                             store_scopes = sorted(
                                 {(row["space"], row["scope"]) for row in rows_data.values()}
@@ -364,12 +365,16 @@ def main() -> int:
                                 else (store_scopes[0][0] if store_scopes else None)
                             )
                             # canonical_scope_matches rejects the whole set when any
-                            # scope is not active, so only active scopes are sent.
-                            scope_ids_all = (
+                            # scope is not active, so only active scopes are sent;
+                            # the HTTP model caps memory_scope_ids at 20, so a
+                            # larger store is truncated (flagged in the row).
+                            active_ids_all = (
                                 _active_scope_ids(db_path, request_space)
                                 if request_space is not None
                                 else ()
                             )
+                            scopes_truncated = len(active_ids_all) > 20
+                            scope_ids_all = active_ids_all[:20]
                             sql_scope = (
                                 (request_space, scope_ids_all, None)
                                 if request_space is not None and scope_ids_all
@@ -402,11 +407,13 @@ def main() -> int:
                                 if request_space is not None
                                 else set()
                             )
-                            scope_ids_oracle = tuple(
+                            oracle_ids_all = tuple(
                                 sid
                                 for sp, sid in sorted(gold_scopes)
                                 if sp == request_space and sid in active_ids
-                            )[:20]
+                            )
+                            scopes_truncated = len(oracle_ids_all) > 20
+                            scope_ids_oracle = oracle_ids_all[:20]
                             sql_scope = (
                                 (request_space, scope_ids_oracle, None)
                                 if request_space is not None and scope_ids_oracle
@@ -489,7 +496,7 @@ def main() -> int:
                                 big_total = -2
                                 biglimit_error_kinds[type(exc).__name__] += 1
                         gold_in_big = bool(gold_big)
-                        gold_scopes = len(
+                        gold_scope_n = len(
                             {
                                 (
                                     rows_data[item_id]["space"],
@@ -538,7 +545,7 @@ def main() -> int:
                                 if frozen_ids
                                 else 0.0,
                                 "gold_store_chunks": len(gold_store_ids),
-                                "gold_scopes": gold_scopes,
+                                "gold_scopes": gold_scope_n,
                                 "gold_in_frozen": bool(gold_store_ids & frozen_ids),
                                 "gold_in_replay": gold_in_replay,
                                 "gold_in_keyword": gold_in_keyword,
@@ -566,6 +573,7 @@ def main() -> int:
                                 "scope_mixed": scope_mixed,
                                 "scope_source": scope_source,
                                 "scope_mode": args.scope_set,
+                                "scopes_truncated": scopes_truncated,
                                 "scope_missing": scope is None,
                                 "selected_n": len(bundle_data.get("items") or []),
                             }

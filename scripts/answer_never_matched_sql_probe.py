@@ -114,6 +114,8 @@ def _nofilter_gold_hits(
 ) -> set[str]:
     """Product keyword SQL with every scope included and no thread filter."""
     import asyncio
+    import shutil
+    import tempfile
 
     from infinity_context_adapters.postgres.canonical_retrieval_batching import (
         keyword_search_many as sql_keyword_search_many,
@@ -121,8 +123,8 @@ def _nofilter_gold_hits(
     from infinity_context_core.ports.repositories import ChunkKeywordSearch
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-    async def _run() -> set[str]:
-        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    async def _run(work_db: pathlib.Path) -> set[str]:
+        engine = create_async_engine(f"sqlite+aiosqlite:///{work_db}")
         try:
             async with async_sessionmaker(engine, expire_on_commit=False)() as session:
                 groups = await sql_keyword_search_many(
@@ -141,7 +143,11 @@ def _nofilter_gold_hits(
         finally:
             await engine.dispose()
 
-    return asyncio.run(_run())
+    # the SQLAlchemy engine cannot open mode=ro, so run against a temp copy
+    with tempfile.TemporaryDirectory(prefix="nofiltersql-") as tmp:
+        work_db = pathlib.Path(tmp) / "memory.db"
+        shutil.copyfile(db_path, work_db)
+        return asyncio.run(_run(work_db))
 
 
 def main() -> int:
@@ -215,7 +221,6 @@ def main() -> int:
         )
 
         layer_counts: collections.Counter[str] = collections.Counter()
-        term_pipeline: collections.Counter[str] = collections.Counter()
         naive_buckets: collections.Counter[str] = collections.Counter()
         request_space = scope[0] if scope is not None else None
         active_scopes = (
@@ -235,6 +240,9 @@ def main() -> int:
             cap_only_hit = uncapped_hit and not term_hit
             if in_scope:
                 layer_counts["scope_ok"] += 1
+            elif row["space"] != request_space:
+                # gold row lives in another space: unreachable for this request
+                layer_counts["scope_miss_space"] += 1
             elif row["scope"] not in active_scopes:
                 # archived/deleted scope: unreachable for any HTTP request
                 layer_counts["scope_miss_inactive"] += 1
@@ -282,7 +290,7 @@ def main() -> int:
             active_scopes = (
                 _active_scope_ids(db_path, request_space) if request_space is not None else set()
             )
-        # upper bound within the HTTP contract: every active scope, no thread filter
+        # upper bound of the keyword SQL lane: every active scope, no thread filter
         nofilter_hits = (
             len(
                 _nofilter_gold_hits(
