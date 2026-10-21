@@ -37,9 +37,13 @@ Findings:
   on Main-100) cannot be measured further with the frozen pickles: they carry
   pack kwargs only, no retrieval configuration. A retrieval-side harness is
   required before any recall lever can be evaluated.
+- The answerer-side short-gold hint (the ranked lever) is measured and
+  rejected: on the 85 gold-visible cases it nets +3 up / -2 down against an
+  identical-prompt repeat that itself flips +3 / -1 — inside noise.
 
-Conclusion: the cheap, safe veins are mined out. The next levers, ranked by
-cost, are listed at the end.
+Conclusion: the cheap, safe veins are mined out — recall, context-side
+presentation and answerer-side guidance are each measured and rejected. What
+remains, ranked by cost, is listed at the end.
 
 ## Method
 
@@ -325,6 +329,37 @@ Conclusion: at the answer level, context-side presentation knobs (visibility,
 trimming, ordering) are mined out — they either do nothing or actively hurt.
 The remaining mass is answerer-side (short-gold extraction) or recall-side.
 
+## Answerer-side short-gold hint (2026-10-21, paired eval)
+
+The answerer-side candidate (ranked lever 2) was measured at full class scale.
+Scope: the 85 cases whose rebuilt pack renders gold (in_rendered pools of both
+sets, `gold_in` filtered), one pack used by all runs. Knob: three lines added
+to the answerer prompt only — the answer may be a short fragment, quote the
+matching line instead of replying "I don't know". Judge prompt untouched,
+same answerer (`gpt-5.6-terra`) and judge (`gpt-6-luna`). Three chained runs:
+baseline, hint, and an identical-prompt baseline repeat as the noise floor.
+Counters only; packs stay on the host.
+
+| Run | correct | missing | incorrect | unparsed |
+|---|---:|---:|---:|---:|
+| baseline | 46 | 19 | 17 | 3 |
+| + short-gold hint | 50 | 14 | 16 | 5 |
+| baseline repeat (noise) | 48 | 18 | 15 | 4 |
+
+Paired, with-arm: baseline -> hint flips 6 up / 2 down; baseline -> baseline
+repeat flips 3 up / 1 down. Three of the six hint up-flips
+(2be5717c5d05, 692ee11054a8, 9059026c41b5) also flip in the identical-prompt
+repeat — sampling, not the hint. Hint-attributable flips: 3 up
+(46f7649eb078, 98f3c0474251, db53edc0aa81) / 2 down (both `unparsed` rows)
+= **net +1 correct**, against a noise floor of net +2 on identical prompts.
+Without-arm stays missing in all runs (82/79/84), so discrimination is clean.
+
+Verdict: the hint lands inside the measured noise — rejected. Together with
+the mini-probe above (a stronger answerer moved 1 up / 1 down on 12 cases),
+the `in_rendered` class is confirmed answerer-limited with no cheap
+prompt- or presentation-level lever: neither guidance nor answerer strength
+converts these gold-visible short answers reliably.
+
 ## Keyword-lane depth A/B (2026-10-21, replay probe)
 
 Knob: `max_chunks` 30 -> 60 doubles keyword-lane depth (per-query SQL limit
@@ -376,11 +411,13 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
    open on the recall side was a **plain lexical recall channel** — measured
    and rejected: the replay tail's gold ranks 725-3488 under naive lexical
    scoring (deeper than SQL), so a lexical union adds nothing. The recall
-   side of this frozen set is mined out; what remains is answerer-side or
-   design-level (items 2-3).
-2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
-   failures): answerer-side formatting guidance, not memory. Context-side
-   presentation knobs were probed and rejected (section above).
+   side of this frozen set is mined out; the answerer side (item 2) is
+   measured and rejected as well — what remains is design-level (item 3).
+2. **Short-gold presentation** (the 39 short-gold `in_rendered` failures):
+   measured and rejected — context-side knobs (visibility, trimming, ordering)
+   either do nothing or hurt, and the answerer-side prompt hint nets +1
+   correct over a noise floor of +2 (sections above). No cheap lever remains
+   on this class.
 3. **In-budget evidence aggregation** for the scattered class (29 cases):
    ceilings measured on both sides — gold-token carriers convert +6/-1 inside
    the cap, but the production-realistic stand-in (query-token carriers)
