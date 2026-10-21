@@ -228,6 +228,18 @@ result is 223, 1361, 1539: one case sits just past the doubled per-query
 limit (180), two sit an order deeper. Doubling again would catch the 223
 case at ~2x SQL cost and still miss the other two.
 
+All 10 target cases were ranked by a plain token-overlap lexical scorer over
+all in-scope chunks (probe-side counters). The lexically-near tail (gold in
+top-4) is the `admit_anchor_conflict` class — gold already reaches the SQL
+pool; its failure is admission, not recall. The lexically-far tail (gold at
+ranks 725-3488 of 4k-16k scored) is the `pool_truncated` class — deeper than
+the SQL term-variant ranking too. The single `never_matched` case has zero
+token overlap with the query, consistent with its gold sharing no SQL term
+variant at all. So a plain lexical recall union would surface only chunks
+the SQL lane already brings: it rescues nothing new. The unreachable-by-both
+tail would need query rewriting or semantic recall; the anchor-conflict
+class was already rejected at the answer level (anchor-bypass probe).
+
 Verdict: depth is a cheap but saturating recall lever (+1 target, zero
 regressions). The persistent tail needs a distinct lexical/semantic channel,
 not deeper SQL. No answer-level A/B on the rescued case: n=1 cannot
@@ -242,9 +254,11 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
    were measured; the anchor-bypass fix was evaluated at the answer level and
    rejected (0 conversions, 1 crowding regression). The depth A/B (section
    above) bought +1 target at zero regressions but saturates; what remains
-   open on the recall side is a **plain lexical recall channel** for the
-   deep tail (pool_truncated gold at SQL ranks 1361-1799, plus the 5 of 10
-   lexically-reachable probe cases) — unmeasured.
+   open on the recall side was a **plain lexical recall channel** — measured
+   and rejected: the replay tail's gold ranks 725-3488 under naive lexical
+   scoring (deeper than SQL), so a lexical union adds nothing. The recall
+   side of this frozen set is mined out; what remains is answerer-side or
+   design-level (items 2-3).
 2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
    failures): answerer-side formatting guidance, not memory. Context-side
    presentation knobs were probed and rejected (section above).
