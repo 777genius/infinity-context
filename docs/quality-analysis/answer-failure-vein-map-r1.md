@@ -214,6 +214,22 @@ decomposition expansion, chunk-graph neighbours — each its own experiment and
 its own cost), plus the displacement policy. It is a feature, not a patch,
 and the cheap version of it does not exist.
 
+Two more gold-free signals were measured against the same oracle carriers
+(149 carriers over the 36 cases), and both are cheap-and-dead:
+
+- **Same-document siblings, uncapped**: 34 of 149 carriers (23%) belong to a
+  document already represented in the rendered pack, and adding *every* chunk
+  of those documents completes the gold span in **9/36** cases — but at 6379
+  extra chunks total (~177 per case), which no budget tolerates.
+- **Same-document siblings, proximity-ranked** (nearest `sequence` neighbours
+  of the packed chunks, K = 1/2/4/6/10): full coverage in **1/36 at every K**.
+  The fact-bearing chunk sits far from the packed ones *inside the same
+  document*, so sequence proximity carries no signal.
+
+Between them the two probes also bound where a future signal has to look: the
+fact is reachable through documents the pack already touches, but only by
+ranking chunks by something other than query overlap or sequence distance.
+
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
 For 7 of 8 cases (7 failures + 1 control) the gold-bearing chunk's
