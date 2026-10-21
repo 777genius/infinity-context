@@ -86,6 +86,21 @@ def _store_rows(db_path: pathlib.Path) -> dict[str, dict]:
     }
 
 
+def _active_scope_ids(db_path: pathlib.Path, space_id: str) -> tuple[str, ...]:
+    """Scope ids the HTTP contract will accept: memory_scopes.status == active."""
+    import sqlite3
+
+    conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM memory_scopes WHERE space_id = ? AND status = 'active'",
+            (space_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return tuple(row[0] for row in rows)
+
+
 def _majority_scope(item_ids: set[str], rows: dict[str, dict]) -> tuple[tuple | None, bool]:
     seen = collections.Counter(
         (row["space"], row["scope"], row["thread"])
@@ -98,7 +113,12 @@ def _majority_scope(item_ids: set[str], rows: dict[str, dict]) -> tuple[tuple | 
 
 
 async def _biglimit_gold_ids(
-    db_path: pathlib.Path, scope: tuple, query_text: str, gold_ids: set[str]
+    db_path: pathlib.Path,
+    space_id: str,
+    scope_ids: tuple[str, ...],
+    thread_id: str | None,
+    query_text: str,
+    gold_ids: set[str],
 ) -> tuple[int, set[str]]:
     """Direct product SQL keyword search with a huge limit: (total, gold hits)."""
     from infinity_context_adapters.postgres.canonical_retrieval_batching import (
@@ -114,9 +134,9 @@ async def _biglimit_gold_ids(
                 session,
                 (
                     ChunkKeywordSearch(
-                        space_id=scope[0],
-                        memory_scope_ids=(scope[1],),
-                        thread_id=scope[2],
+                        space_id=space_id,
+                        memory_scope_ids=scope_ids,
+                        thread_id=thread_id,
                         query=query_text,
                         limit=10000,
                     ),
@@ -181,6 +201,15 @@ def main() -> int:
     parser.add_argument("--max-facts", type=int)
     parser.add_argument("--max-chunks", type=int)
     parser.add_argument("--max-evidence-items", type=int)
+    parser.add_argument(
+        "--scope-set",
+        choices=("majority", "all", "oracle"),
+        default="majority",
+        help="request scope: majority = one scope from frozen items (the frozen "
+        "contract); all = every active scope in the space, thread filter omitted; "
+        "oracle = majority scope plus the gold chunks' scopes (perfect-knowledge "
+        "ceiling), thread filter omitted",
+    )
     args = parser.parse_args()
 
     gold_by_cid: dict[str, str] = {}
@@ -325,12 +354,79 @@ def main() -> int:
                             "query": kwargs["query"],
                             "token_budget": kwargs["token_budget"],
                         }
-                        if scope is not None:
-                            body.update(
-                                space_id=scope[0],
-                                memory_scope_ids=[scope[1]],
-                                thread_id=scope[2],
+                        if args.scope_set == "all":
+                            store_scopes = sorted(
+                                {(row["space"], row["scope"]) for row in rows_data.values()}
                             )
+                            request_space = (
+                                scope[0]
+                                if scope is not None
+                                else (store_scopes[0][0] if store_scopes else None)
+                            )
+                            # canonical_scope_matches rejects the whole set when any
+                            # scope is not active, so only active scopes are sent.
+                            scope_ids_all = (
+                                _active_scope_ids(db_path, request_space)
+                                if request_space is not None
+                                else ()
+                            )
+                            sql_scope = (
+                                (request_space, scope_ids_all, None)
+                                if request_space is not None and scope_ids_all
+                                else None
+                            )
+                            if sql_scope is not None:
+                                body.update(
+                                    space_id=request_space,
+                                    memory_scope_ids=list(scope_ids_all),
+                                )
+                        elif args.scope_set == "oracle":
+                            # perfect-knowledge ceiling: majority scope plus every
+                            # active scope holding a gold chunk; thread omitted
+                            # because gold often spans threads. The HTTP model caps
+                            # memory_scope_ids at 20, so the set is truncated.
+                            gold_scopes = {
+                                (rows_data[item_id]["space"], rows_data[item_id]["scope"])
+                                for item_id in gold_store_ids
+                                if item_id in rows_data
+                            }
+                            if scope is not None:
+                                gold_scopes.add((scope[0], scope[1]))
+                            request_space = (
+                                scope[0]
+                                if scope is not None
+                                else (min(gold_scopes)[0] if gold_scopes else None)
+                            )
+                            active_ids = (
+                                set(_active_scope_ids(db_path, request_space))
+                                if request_space is not None
+                                else set()
+                            )
+                            scope_ids_oracle = tuple(
+                                sid
+                                for sp, sid in sorted(gold_scopes)
+                                if sp == request_space and sid in active_ids
+                            )[:20]
+                            sql_scope = (
+                                (request_space, scope_ids_oracle, None)
+                                if request_space is not None and scope_ids_oracle
+                                else None
+                            )
+                            if sql_scope is not None:
+                                body.update(
+                                    space_id=request_space,
+                                    memory_scope_ids=list(scope_ids_oracle),
+                                )
+                        else:
+                            sql_scope = (
+                                None if scope is None else (scope[0], (scope[1],), scope[2])
+                            )
+                            if scope is not None:
+                                body.update(
+                                    space_id=scope[0],
+                                    memory_scope_ids=[scope[1]],
+                                    thread_id=scope[2],
+                                )
                         if args.max_facts is not None:
                             body["max_facts"] = args.max_facts
                         if args.max_chunks is not None:
@@ -377,11 +473,16 @@ def main() -> int:
                         gold_in_replay = bool(gold_store_ids & replay_ids)
                         big_total = -1
                         gold_big: set[str] = set()
-                        if scope is not None and gold_store_ids:
+                        if sql_scope is not None and gold_store_ids:
                             try:
                                 big_total, gold_big = asyncio.run(
                                     _biglimit_gold_ids(
-                                        work_db, scope, kwargs["query"], gold_store_ids
+                                        work_db,
+                                        sql_scope[0],
+                                        sql_scope[1],
+                                        sql_scope[2],
+                                        kwargs["query"],
+                                        gold_store_ids,
                                     )
                                 )
                             except Exception as exc:  # noqa: BLE001
@@ -464,6 +565,7 @@ def main() -> int:
                                 == kwargs["max_rendered_chars"],
                                 "scope_mixed": scope_mixed,
                                 "scope_source": scope_source,
+                                "scope_mode": args.scope_set,
                                 "scope_missing": scope is None,
                                 "selected_n": len(bundle_data.get("items") or []),
                             }
@@ -536,7 +638,11 @@ def main() -> int:
             {
                 "set_dir": args.set_dir,
                 "out": str(args.out),
-                "knobs": {"max_facts": args.max_facts, "max_chunks": args.max_chunks},
+                "knobs": {
+                    "max_facts": args.max_facts,
+                    "max_chunks": args.max_chunks,
+                    "scope_set": args.scope_set,
+                },
                 "biglimit_error_kinds": dict(biglimit_error_kinds),
                 "not_retrieved": group_summary(target_rows),
                 "controls": group_summary(control_rows),
