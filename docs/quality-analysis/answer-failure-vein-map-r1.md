@@ -123,7 +123,37 @@ Neighbor-recoverability (Main-100, 26 cases, 112 missing tokens):
 
 Even the optimistic bound cannot complete the gold span in most cases, so
 neighbor expansion is not a lever here; this class needs evidence aggregation,
-which is a design-level feature, not a patch.
+which is a design-level feature, not a patch. The oracle answer test below
+measures that ceiling.
+
+## Oracle aggregation answer test (2026-10-21, paired eval)
+
+The scattered class is the only remaining mass that needs a *design* lever, so
+it got an answer-level ceiling test rather than another packer patch: for each
+of the 36 scattered failure cases (26 Main-100 incl. controls, 10 held-48) the
+base packed context was replayed through the production packer, then the best
+non-adjacent carrier chunks were appended greedily until the gold-token union
+over the pack reached 1.0 (K cap 6). The resulting oracle pack was scored
+against the same base pack in the paired harness (answerer gpt-5.6-terra, judge
+gpt-6-luna), arms blinded as usual.
+
+| Arm | correct | incorrect | missing |
+|---|---:|---:|---:|
+| base packed context | 6 | 9 | 19 |
+| oracle-aggregated context | 12 | 10 | 14 |
+
+Paired on the same 36 cases: **6 missing/incorrect -> correct** (5 Main-100,
+1 held-48), **0 correct -> not**. Median added chars 4268 (max 6815); base
+contexts sit at the 18000-char cap (median 17612), and 29/36 oracle contexts
+exceed it — including 5 of the 6 converting cases (the sixth converts at 17798
+chars, inside the cap).
+
+Verdict: the scattered class has a **real answer-level ceiling** — aggregation
+converts roughly a fifth of its failures with zero regressions — but the
+measured path to it is not shippable as-is: it appends ~4k chars past the
+production budget. A lever here means redesigning what the packer *displaces*
+to make room (in-budget set-cover), not raising the budget. Worth starting;
+the ceiling is now measured, not assumed.
 
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
@@ -269,9 +299,10 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
 2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
    failures): answerer-side formatting guidance, not memory. Context-side
    presentation knobs were probed and rejected (section above).
-3. **Evidence aggregation design** for the scattered class (29 cases): a
-   design-level feature; only worth starting with the recall harness in place
-   (now true).
+3. **In-budget evidence aggregation** for the scattered class (29 cases):
+   the oracle answer test above converted 6/36 with 0 regressions, so the class
+   has a real ceiling; the open question is which selected items to displace to
+   buy the ~4k chars inside the 18000-char cap. Design-level, evidence-backed.
 
 Packer family-key rework, neighbor expansion, snippet visibility (PR 80
 answer-level: 0 conversion), context trimming and gold repositioning are
