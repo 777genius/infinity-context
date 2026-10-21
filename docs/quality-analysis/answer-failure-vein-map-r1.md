@@ -176,20 +176,55 @@ original ingestion harness lives in a root-owned host bundle
 (`/srv/worker-state/...`) that the measurement account cannot read, so any
 recall A/B needs either that access or a rebuilt ingestion harness.
 
+## Answer-level presentation probes (2026-10-21, mini paired eval)
+
+Three context-side presentation hypotheses were measured at the answer level
+on a 12-case mini-pack (the four PR 80 gold-visibility flips, one non-flipping
+target, one down-flip, six stable controls; all with `coverage_complete`),
+rebuilt through the production packer on both sides. Answerer `gpt-5.6-terra`,
+judge `gpt-6-luna`, both via `codex exec`; paired with/without arms. Counters
+only; packs stay on the host.
+
+| Probe | With-arm correct (of 12) | Verdict |
+|---|---:|---|
+| Baseline pack (all items) | 7 (1 incorrect, 4 missing) | reference |
+| PR 80 snippet overlay | 7 (1 incorrect, 4 missing) | no conversion |
+| Top-K trim, K=35 | 7 (1 incorrect, 4 missing) | neutral, per-cid identical |
+| Top-K trim, K=20 | 4 (1 incorrect, 7 missing) | **harmful** — trims gold-bearing items |
+| Stronger answerer (`gpt-6.1-sol`) on the baseline pack | 7 (1 incorrect, 4 missing) | 1 missing→correct (gold visible), 1 correct→missing |
+
+Without-arm stayed 12/12 missing in every run (clean discrimination, no
+parametric leakage). Gold first-hit offset in the rendered context sits at
+0.01–0.11 of context length for the near misses — the short-gold answers are
+**not** buried at the end of long contexts, so ordering/reordering is not the
+lever either. Two of four missing cases have gold absent from the context
+altogether (already counted in `not_retrieved`/`snippet_cut` veins); the other
+two carry gold verbatim and fail under both answerers except one flip under
+sol, consistent with the `in_rendered` answerer-limited class.
+
+Conclusion: at the answer level, context-side presentation knobs (visibility,
+trimming, ordering) are mined out — they either do nothing or actively hurt.
+The remaining mass is answerer-side (short-gold extraction) or recall-side.
+
 ## Ranked next levers
 
-1. **Recall harness for the frozen sets** (unlocks `not_retrieved` — 10 probed
-   cases, half of them lexically reachable per the probe above — and the 10
-   uncovered Main-100 sources): frozen pickles carry no retrieval
-   configuration; a host harness that re-runs retrieval against the seeded
-   stores is the prerequisite for any admission/reranking experiment.
+1. **Recall harness for the frozen sets** — delivered (PR 82 replay probe +
+   ladder scripts). With it, `never_matched` was diagnosed as scope
+   partitioning (server-side lever closed by contract) and `admit_*` layers
+   were measured; the anchor-bypass fix was evaluated at the answer level and
+   rejected (0 conversions, 1 crowding regression). What remains open on the
+   recall side is a **plain lexical recall channel** for the 5 of 10
+   lexically-reachable probe cases — unmeasured, needs a recall A/B first.
 2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
-   failures): answerer-side formatting guidance, not memory.
+   failures): answerer-side formatting guidance, not memory. Context-side
+   presentation knobs were probed and rejected (section above).
 3. **Evidence aggregation design** for the scattered class (29 cases): a
-   design-level feature; only worth starting with the recall harness in place.
+   design-level feature; only worth starting with the recall harness in place
+   (now true).
 
-Packer family-key rework and neighbor expansion are explicitly deprioritized
-(ceiling and regression risk above).
+Packer family-key rework, neighbor expansion, snippet visibility (PR 80
+answer-level: 0 conversion), context trimming and gold repositioning are
+explicitly deprioritized (ceilings, regressions or negative results above).
 
 ## Reproduction
 
