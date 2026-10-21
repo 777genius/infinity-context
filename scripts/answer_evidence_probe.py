@@ -44,11 +44,20 @@ LABELS = ("verbatim", "derivable", "insufficient")
 
 
 def _label(raw: str) -> str:
+    candidates = [raw.strip()]
+    candidates.extend(line.strip() for line in raw.splitlines())
+    for candidate in candidates:
+        if not candidate.startswith("{"):
+            continue
+        try:
+            value = json.loads(candidate).get("evidence")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+        if value in LABELS:
+            return value
+    lowered = raw.lower()
     for label in LABELS:
-        if f'"evidence": "{label}"' in raw or f'"evidence":"{label}"' in raw:
-            return label
-    for label in LABELS:
-        if label in raw.lower():
+        if label in lowered and f"not {label}" not in lowered:
             return label
     return "unparsed"
 

@@ -30,7 +30,7 @@ import unicodedata
 
 def _norm(text: str) -> str:
     text = unicodedata.normalize("NFKC", str(text)).lower()
-    text = re.sub(r"[^0-9a-zа-яё]+", " ", text)
+    text = re.sub(r"[\W_]+", " ", text, flags=re.UNICODE)
     return re.sub(r"\s+", " ", text).strip()
 
 
