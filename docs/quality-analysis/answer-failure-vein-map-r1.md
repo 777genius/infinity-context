@@ -17,9 +17,11 @@ snippet module, `after` = the PR 80 file overlaid byte-identical.
 Findings:
 
 - PR 80 rescues exactly the class it targets: `absent_snippet_cut` failures on
-  Main-100 drop 4 -> 1 (controls 9 -> 7 absent overall), gold-visible rises
-  56 -> 61, coverage stays flat (86/100, 34/48). held-48 is unchanged — the
-  edge extension never fires there (no query-hit clusters past the window).
+  Main-100 drop 4 -> 1 (controls 9 -> 7 absent overall), gold-visible
+  (normalized gold contained in the rendered pack) rises 56 -> 59 by the A/B
+  `gold_in` counter (4 up-flips, 1 down), coverage stays flat (86/100, 34/48).
+  held-48 is unchanged — the edge extension never fires there (no query-hit
+  clusters past the window).
 - The remaining failure mass is **not** dominated by packer or snippet defects.
   Of 94 failures across both sets: 42 are `in_rendered` (evidence verbatim in
   the packed context; 39/42 have gold of only 1-2 content tokens), 29 are
@@ -32,11 +34,13 @@ Findings:
   ceiling of ~5-7 cases and a high regression risk — not a close lever.
 - Neighbor expansion does not rescue the scattered class: adjacent chunks of
   already-selected items contain only 26% of the missing gold tokens (66% for
-  neighbors of all retrieved candidates), never enough to complete the fact.
+  neighbors of all retrieved candidates), not enough to complete the fact in
+  most cases.
 - Recall misses (`not_retrieved`, 8 cases; plus the known 10 uncovered sources
-  on Main-100) cannot be measured further with the frozen pickles: they carry
-  pack kwargs only, no retrieval configuration. A retrieval-side harness is
-  required before any recall lever can be evaluated.
+  on Main-100) were measured with the replay harness (PR 82): the lexically
+  near tail reaches the SQL pool and dies on admission, the far tail is
+  unreachable by deeper SQL or a plain lexical union — measured and rejected
+  (keyword-lane depth A/B below).
 - The answerer-side short-gold hint (the ranked lever) is measured and
   rejected: on the 85 gold-visible cases it nets +3 up / -2 down against an
   identical-prompt repeat that itself flips +3 / -1 — inside noise.
@@ -49,9 +53,11 @@ remains, ranked by cost, is listed at the end.
 
 Scripts (committed in this PR): `scripts/answer_bucket_ladder_ab.py` (rebuild +
 nested containment ladder), `scripts/answer_no_carrier_probe.py` (store-side
-token analysis for `absent_no_carrier`). Ad-hoc one-off probes (family-key
-competition, neighbor recoverability, packer drop diagnostics) ran on the host
-against the same artifacts and are reproducible from the snippets below.
+token analysis for `absent_no_carrier`), `scripts/answer_recall_lexical_probe.py`
+(lexical-rank headroom for `absent_not_retrieved`). Ad-hoc one-off probes
+(family-key competition, neighbor recoverability, packer drop diagnostics) ran
+on the host against the same artifacts; their per-case counters are quoted
+inline in the sections below.
 
 Ladder buckets, applied to rebuilt candidate texts and the production packer:
 
@@ -86,8 +92,11 @@ With-arm failures (64 of 100), before -> after PR 80:
 | `dropped_by_pack` | 7 | 7 |
 
 Correct controls (36): absent 9 -> 7 (snippet_cut 3 -> 1), `in_rendered`
-26 -> 28, `dropped_by_pack` 1. The three failure cases flipped by PR 80 and the
-two control flips match the +5 gold-visible A/B exactly.
+26 -> 28, `dropped_by_pack` 1. The ladder flips 3 failure cases and 2 controls
+into `in_rendered` (54 -> 59); the A/B `gold_in` counter — a slightly
+different containment predicate on a differently-built pack — counts a
+different flip set (4 up, 1 down) and lands on the same after-total of 59.
+Those 4 up-flips plus the 1 down are among the mini-pack cases below.
 
 ## Bucket ladder (held-48)
 
@@ -111,7 +120,7 @@ All 37 (26 Main incl. controls, 11 held) are "scattered", none missing:
 
 - gold-token union over the whole store is exactly 1.0 in every case;
 - best single chunk covers 42-100% of gold tokens (median ~0.73);
-- no adjacent chunk pair (same scope, consecutive char_start) contains the
+- no adjacent chunk pair (same scope, sorted by char_start) contains the
   full normalized gold span.
 
 Failure-only rendered-context coverage of gold tokens: Main-100 21 cases span
@@ -133,17 +142,18 @@ measures that ceiling.
 ## Oracle aggregation answer test (2026-10-21, paired eval)
 
 The scattered class is the only remaining mass that needs a *design* lever, so
-it got an answer-level ceiling test rather than another packer patch: for each
-of the 36 scattered failure cases (26 Main-100 incl. controls, 10 held-48) the
-base packed context was replayed through the production packer, then the best
-non-adjacent carrier chunks were appended greedily until the gold-token union
-over the pack reached 1.0 (K cap 6). The resulting oracle pack was scored
-against the same base pack in the paired harness (answerer gpt-5.6-terra, judge
-gpt-6-luna), arms blinded as usual.
+it got an answer-level ceiling test rather than another packer patch: 36 of
+the 37 scattered cases were scored (all 26 Main-100 incl. controls, 10 of 11
+held-48; the pools include the scattered controls, so base has 6 correct).
+For each case the base packed context was replayed through the production
+packer, then the best non-adjacent carrier chunks were appended greedily
+until the gold-token union over the pack reached 1.0 (K cap 6). The resulting
+oracle pack was scored against the same base pack in the paired harness
+(answerer gpt-5.6-terra, judge gpt-6-luna), arms blinded as usual.
 
 | Arm | correct | incorrect | missing |
 |---|---:|---:|---:|
-| base packed context | 6 | 9 | 19 |
+| base packed context | 6 | 11 | 19 |
 | oracle-aggregated context | 12 | 10 | 14 |
 
 Paired on the same 36 cases: **6 missing/incorrect -> correct** (5 Main-100,
@@ -243,16 +253,16 @@ seeded first, which is exactly the feature-level cost noted above.
 
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
-For 7 of 8 cases (7 failures + 1 control) the gold-bearing chunk's
-answer-support family **is** represented in the pack — a sibling chunk of the
-same family was selected and the bearing item was counted in
-`dropped_by_answer_support_family_duplicate` (per-case sums 21-33 in the
-worst cases). One case dies on `dropped_by_source_cap` + `dropped_by_char_cap`
-with no family bearing; one case has no bearing item even under the rebuilt
-snippets at probe time.
+Of the 8 cases (7 with-arm failures + 1 correct control), 7 die on the
+answer-support family key: the gold-bearing chunk's family **is** represented
+in the pack — a sibling chunk of the same family was selected and the bearing
+item was counted in `dropped_by_answer_support_family_duplicate` (per-case
+sums 21-33 in the worst cases). The eighth dies on `dropped_by_source_cap` +
+`dropped_by_char_cap` with no family bearing.
 
-Key competition inside the family (5 cases with a bearing member): the bearing
-item ranks 1, 1, 2, 2, 5 of the family; the deciding key components are bespoke
+Key competition inside the family (probed on the 5 cases where a bearing
+member resolves under the rebuilt snippets): the bearing item ranks 1, 1, 2,
+2, 5 of the family; the deciding key components are bespoke
 per-question-category ranks inside a 43-component tuple
 (`_answer_support_family_item_key_for_query`). A principled minimal change is
 not identifiable without displacing deliberately chosen winners — ceiling ~5-7
@@ -352,7 +362,8 @@ repeat flips 3 up / 1 down. Three of the six hint up-flips
 repeat — sampling, not the hint. Hint-attributable flips: 3 up
 (46f7649eb078, 98f3c0474251, db53edc0aa81) / 2 down (both `unparsed` rows)
 = **net +1 correct**, against a noise floor of net +2 on identical prompts.
-Without-arm stays missing in all runs (82/79/84), so discrimination is clean.
+Without-arm stays missing in every run (82/79/84 of 85), so discrimination
+is clean.
 
 Verdict: the hint lands inside the measured noise — rejected. Together with
 the mini-probe above (a stronger answerer moved 1 up / 1 down on 12 cases),
@@ -433,10 +444,15 @@ explicitly deprioritized (ceilings, regressions or negative results above).
 
 ## Reproduction
 
-Host-side (paths are host-local, inputs are private and never leave it):
+Host-side (paths are host-local, inputs are private and never leave it).
+All three scripts import shared helpers (`answer_snippet_rebuild_ab`,
+`answer_failure_diagnosis`) that ship with PR 80 (`fix/snippet-edge-extension`),
+so run them from a tree where PR 80 is merged or checked out, not from main
+alone:
 
 ```
-# ladder, both sides, both sets
+# ladder, Main-100, after arm (drop --snippet-overlay for the before arm;
+# repeat with --set-dir for the held-48 set)
 python scripts/answer_bucket_ladder_ab.py --pack pack.jsonl \
   --results run100/results.jsonl --inputs-root $INPUTS \
   --set-dir balanced-frozen-20261011 --store-root $STORES \
