@@ -155,6 +155,35 @@ production budget. A lever here means redesigning what the packer *displaces*
 to make room (in-budget set-cover), not raising the budget. Worth starting;
 the ceiling is now measured, not assumed.
 
+### In-budget variant (same 36 cases)
+
+The follow-up question is whether that ceiling survives inside the production
+budget: the oracle arm appends carriers on top of a full pack, so it breaks the
+18000-char cap. The in-budget arm instead **evicts tail-ranked items** from the
+rendered pack until the carriers fit: 29/36 cases need 1-7 evicted items (118
+total, median 4), 7 fit untouched, every context lands under 18000 (max 17979).
+
+| Arm | correct | incorrect | missing |
+|---|---:|---:|---:|
+| base packed context | 6 | 11 | 19 |
+| in-budget aggregation | 11 | 9 | 16 |
+| oracle (over-budget) | 12 | 10 | 14 |
+
+Paired against base: **6 missing/incorrect -> correct, 1 correct -> missing**
+(4 of the 6 oracle flips reproduce in-budget; 2 do not). One honest noise
+floor: 7 cases have byte-identical contexts between the oracle and in-budget
+arms, and 2 of those 7 disagree in verdict — the paired harness has a few
+verdicts of run-to-run slack at this sample size, so the 1-2 case differences
+between arms are inside noise; the 5-6 case conversion over base is not.
+
+Also measured: eviction is not free — 108 of the 118 evicted items carry at
+least one gold token (they are scattered-class packs, gold is everywhere in
+diluted form). What the carriers buy is *completeness*, not more gold tokens.
+
+Verdict: the scattered class converts **inside the budget** — ~+5 correct of
+36 with ~1 regression-equivalent, so in-budget aggregation is a real, shippable
+lever worth designing (displacement policy, not budget increase).
+
 ## The dropped class (`dropped_by_pack`, 8 Main-100 cases)
 
 For 7 of 8 cases (7 failures + 1 control) the gold-bearing chunk's
@@ -300,9 +329,11 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
    failures): answerer-side formatting guidance, not memory. Context-side
    presentation knobs were probed and rejected (section above).
 3. **In-budget evidence aggregation** for the scattered class (29 cases):
-   the oracle answer test above converted 6/36 with 0 regressions, so the class
-   has a real ceiling; the open question is which selected items to displace to
-   buy the ~4k chars inside the 18000-char cap. Design-level, evidence-backed.
+   both arms measured (oracle over-budget +6/36 with 0 regressions; in-budget
+   eviction of tail items +6/-1, 4 of 6 flips reproduce inside the cap). The
+   class converts without raising the budget; the design work is the
+   displacement policy — which selected items to drop when carriers matter
+   more. Evidence-backed, next in line.
 
 Packer family-key rework, neighbor expansion, snippet visibility (PR 80
 answer-level: 0 conversion), context trimming and gold repositioning are
