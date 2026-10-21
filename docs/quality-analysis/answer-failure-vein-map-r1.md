@@ -206,15 +206,45 @@ Conclusion: at the answer level, context-side presentation knobs (visibility,
 trimming, ordering) are mined out — they either do nothing or actively hurt.
 The remaining mass is answerer-side (short-gold extraction) or recall-side.
 
+## Keyword-lane depth A/B (2026-10-21, replay probe)
+
+Knob: `max_chunks` 30 -> 60 doubles keyword-lane depth (per-query SQL limit
+90 -> 180, fused pool cap 180 -> 360). Replay probe (PR 82 harness), both
+frozen sets, `--scope-set all`, identical code on both arms.
+
+| Set | Targets recovered | pool_truncated | admit_anchor_conflict | Controls positive | Regressions |
+|---|---|---|---|---|---|
+| Main balanced (5 targets, 10 controls) | 1 -> 2 (+1) | 2 -> 2 | 1 -> 1 | 0 -> 0 | 0 |
+| held-48 (5 targets, 10 controls) | 0 -> 0 | 1 -> 1 | 0 -> 0 | 0 -> 1 | 0 |
+
+The rescued balanced case flipped `lost_after_admit` -> `recovered` with a
+stable keyword rank (124) and more rendered gold (41 -> 69). The held-48
+change is a control flipping `lost_after_admit` -> `recovered` (positive,
+not a target).
+
+The 3 persistent `pool_truncated` cases match gold under a limit=10000
+direct-SQL probe (1753-1967 hits), but their best gold rank in that deep
+result is 223, 1361, 1539: one case sits just past the doubled per-query
+limit (180), two sit an order deeper. Doubling again would catch the 223
+case at ~2x SQL cost and still miss the other two.
+
+Verdict: depth is a cheap but saturating recall lever (+1 target, zero
+regressions). The persistent tail needs a distinct lexical/semantic channel,
+not deeper SQL. No answer-level A/B on the rescued case: n=1 cannot
+discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
+0 answer conversions), so the default `max_chunks` stays 30.
+
 ## Ranked next levers
 
 1. **Recall harness for the frozen sets** — delivered (PR 82 replay probe +
    ladder scripts). With it, `never_matched` was diagnosed as scope
    partitioning (server-side lever closed by contract) and `admit_*` layers
    were measured; the anchor-bypass fix was evaluated at the answer level and
-   rejected (0 conversions, 1 crowding regression). What remains open on the
-   recall side is a **plain lexical recall channel** for the 5 of 10
-   lexically-reachable probe cases — unmeasured, needs a recall A/B first.
+   rejected (0 conversions, 1 crowding regression). The depth A/B (section
+   above) bought +1 target at zero regressions but saturates; what remains
+   open on the recall side is a **plain lexical recall channel** for the
+   deep tail (pool_truncated gold at SQL ranks 1361-1799, plus the 5 of 10
+   lexically-reachable probe cases) — unmeasured.
 2. **Short-gold presentation** (touches the 39 short-gold `in_rendered`
    failures): answerer-side formatting guidance, not memory. Context-side
    presentation knobs were probed and rejected (section above).
