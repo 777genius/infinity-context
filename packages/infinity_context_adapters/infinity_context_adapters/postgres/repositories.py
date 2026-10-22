@@ -334,6 +334,41 @@ class PostgresDocumentRepository(DocumentRepositoryPort):
         rows = (await self._session.execute(statement)).scalars()
         return [chunk_row_to_domain(row) for row in rows]
 
+    async def list_chunks_by_document_ids(
+        self,
+        document_ids: tuple[str, ...],
+        *,
+        limit_per_document: int,
+    ) -> list[MemoryChunk]:
+        if not document_ids:
+            return []
+        document_rank = (
+            func.row_number()
+            .over(
+                partition_by=MemoryChunkRow.document_id,
+                order_by=(MemoryChunkRow.sequence.asc(), MemoryChunkRow.id.asc()),
+            )
+            .label("document_row_rank")
+        )
+        statement = (
+            select(MemoryChunkRow, document_rank)
+            .where(
+                MemoryChunkRow.document_id.in_(document_ids),
+                MemoryChunkRow.status == "active",
+            )
+            .order_by(
+                MemoryChunkRow.document_id.asc(),
+                MemoryChunkRow.sequence.asc(),
+                MemoryChunkRow.id.asc(),
+            )
+        )
+        rows = (await self._session.execute(statement)).all()
+        return [
+            chunk_row_to_domain(row)
+            for row, document_row_rank in rows
+            if document_row_rank <= limit_per_document
+        ]
+
     async def list_for_scope(
         self,
         *,
@@ -569,13 +604,14 @@ class PostgresChunkRepository(ChunkRepositoryPort):
         source_external_id_groups: tuple[str, ...],
         exclude_chunk_ids: tuple[str, ...],
         limit: int,
+        limit_per_group: int | None = None,
     ) -> list[MemoryChunk]:
         groups = tuple(
             dict.fromkeys(
                 group.strip() for group in source_external_id_groups if group and group.strip()
             )
         )
-        if limit <= 0 or not groups:
+        if (limit <= 0 and not limit_per_group) or not groups:
             return []
         source_conditions = tuple(
             or_(
@@ -586,6 +622,10 @@ class PostgresChunkRepository(ChunkRepositoryPort):
                 ),
             )
             for group in groups
+        )
+        group_match_rank = case(
+            *[(condition, index) for index, condition in enumerate(source_conditions)],
+            else_=len(groups),
         )
         conditions = [
             MemoryChunkRow.space_id == space_id,
@@ -600,6 +640,38 @@ class PostgresChunkRepository(ChunkRepositoryPort):
             conditions.append(
                 or_(MemoryChunkRow.thread_id == thread_id, MemoryChunkRow.thread_id.is_(None))
             )
+        if limit_per_group is not None:
+            group_row_rank = (
+                func.row_number()
+                .over(
+                    partition_by=group_match_rank,
+                    order_by=(
+                        MemoryChunkRow.source_external_id.asc(),
+                        MemoryChunkRow.sequence.asc(),
+                        MemoryChunkRow.id.asc(),
+                    ),
+                )
+                .label("group_row_rank")
+            )
+            rows = (
+                await self._session.execute(
+                    select(MemoryChunkRow, group_row_rank).where(*conditions)
+                )
+            ).all()
+            ranked = [
+                (int(group_row_rank), chunk_row_to_domain(row))
+                for row, group_row_rank in rows
+                if int(group_row_rank) <= limit_per_group
+            ]
+            ranked.sort(
+                key=lambda item: (
+                    item[0],
+                    str(item[1].source_external_id or ""),
+                    item[1].sequence,
+                    str(item[1].id),
+                )
+            )
+            return [chunk for _, chunk in ranked]
         rows = (
             await self._session.execute(
                 select(MemoryChunkRow)

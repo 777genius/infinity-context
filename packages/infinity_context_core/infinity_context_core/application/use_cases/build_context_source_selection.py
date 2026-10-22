@@ -170,9 +170,16 @@ async def _keyword_neighbor_chunk_items(
     considered = 0
     skipped = 0
     async with uow_factory() as uow:
+        chunks_by_document: dict[str, dict[int, MemoryChunk]] = {}
+        for chunk in await uow.documents.list_chunks_by_document_ids(
+            document_ids,
+            limit_per_document=400,
+        ):
+            if chunk.document_id is None:
+                continue
+            chunks_by_document.setdefault(str(chunk.document_id), {})[chunk.sequence] = chunk
         for document_id in document_ids:
-            chunks = await uow.documents.list_chunks(document_id, limit=400)
-            by_sequence = {chunk.sequence: chunk for chunk in chunks}
+            by_sequence = chunks_by_document.get(document_id, {})
             seed_sequences = tuple(
                 chunk.sequence
                 for chunk in seed_chunks
@@ -387,21 +394,21 @@ async def _keyword_source_sibling_chunk_items(
         if backfill_groups and group_backfill_limit > 0:
             candidate_ids = {str(chunk.id) for chunk in candidates}
             backfill_chunks: list[MemoryChunk] = []
-            for group in backfill_groups:
-                group_candidates = await list_source_group_chunks(
-                    space_id=str(query.space_id),
-                    memory_scope_ids=memory_scope_ids,
-                    thread_id=str(query.thread_id) if query.thread_id else None,
-                    source_external_id_groups=(group,),
-                    exclude_chunk_ids=(),
-                    limit=group_backfill_limit,
-                )
-                for chunk in group_candidates:
-                    chunk_id = str(chunk.id)
-                    if chunk_id in candidate_ids:
-                        continue
-                    candidate_ids.add(chunk_id)
-                    backfill_chunks.append(chunk)
+            group_candidates = await list_source_group_chunks(
+                space_id=str(query.space_id),
+                memory_scope_ids=memory_scope_ids,
+                thread_id=str(query.thread_id) if query.thread_id else None,
+                source_external_id_groups=backfill_groups,
+                exclude_chunk_ids=(),
+                limit=group_backfill_limit * len(backfill_groups),
+                limit_per_group=group_backfill_limit,
+            )
+            for chunk in group_candidates:
+                chunk_id = str(chunk.id)
+                if chunk_id in candidate_ids:
+                    continue
+                candidate_ids.add(chunk_id)
+                backfill_chunks.append(chunk)
             if backfill_chunks:
                 candidates = [*candidates, *backfill_chunks]
                 group_backfill_chunks_used = len(backfill_chunks)
