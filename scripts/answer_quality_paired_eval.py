@@ -342,16 +342,20 @@ def _run_evaluation(args, rows: list[dict], manifest: dict, answerer_effort: str
 
     started = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(run_one, item) for item in pending]
-        for index, future in enumerate(concurrent.futures.as_completed(futures), start=1):
-            record = future.result()
-            append_result(results_path, record)
-            records.append(record)
-            if index % 10 == 0 or index == len(pending):
-                print(
-                    f"progress {index}/{len(pending)} elapsed={time.time() - started:.0f}s",
-                    flush=True,
-                )
+        try:
+            futures = [pool.submit(run_one, item) for item in pending]
+            for index, future in enumerate(concurrent.futures.as_completed(futures), start=1):
+                record = future.result()
+                append_result(results_path, record)
+                records.append(record)
+                if index % 10 == 0 or index == len(pending):
+                    print(
+                        f"progress {index}/{len(pending)} elapsed={time.time() - started:.0f}s",
+                        flush=True,
+                    )
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
 
     aggregate = public_counts(rows, records)
     aggregate.update(

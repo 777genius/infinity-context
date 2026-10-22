@@ -60,7 +60,9 @@ def test_manifest_binds_selected_content_config_and_actual_source_bytes(tmp_path
     evaluator.write_text("original evaluator")
     manifest = run_manifest([_row()], {"model": "m1", "prompt": "p1"}, evaluator)
     assert manifest == run_manifest([_row()], {"prompt": "p1", "model": "m1"}, evaluator)
-    assert manifest != run_manifest([_row(context="changed")], {"model": "m1"}, evaluator)
+    assert manifest != run_manifest(
+        [_row(context="changed")], {"model": "m1", "prompt": "p1"}, evaluator
+    )
     assert manifest != run_manifest([_row()], {"model": "m2", "prompt": "p1"}, evaluator)
     assert manifest != run_manifest([_row()], {"model": "m1", "prompt": "p2"}, evaluator)
     evaluator.write_text("dirty evaluator")

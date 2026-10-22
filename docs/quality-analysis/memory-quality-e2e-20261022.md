@@ -123,7 +123,12 @@ regressions are explicit. Invalid, truncated, duplicate-key, contradictory, or
 wrong-shaped structured verdicts remain unresolved. A run with unresolved
 outcomes exits nonzero; resuming does not silently erase its failed records.
 
-The 74 focused tests cover real CLI subprocesses with a local deterministic
+If submission or result handling fails or is interrupted, the evaluator cancels
+queued arms and joins already-running work before releasing the run directory
+lock. This cleanup does not terminate active provider subprocesses or recover
+results that were never written.
+
+The original 74 focused tests cover real CLI subprocesses with a local deterministic
 runner, manifest mismatches, concurrent locking, partial writes, corruption,
 permissions, public-output privacy, and paired accounting. They test the
 measurement machinery; they are not a live answer-model quality experiment.

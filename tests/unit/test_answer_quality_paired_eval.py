@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import concurrent.futures
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from scripts import answer_quality_paired_eval as paired_eval
 from scripts.answer_quality_paired_eval import _verdict
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -225,3 +230,138 @@ def test_cli_unresolved_judgment_is_terminal_and_not_a_memory_win(cli):
     resumed = _run(cli)
     assert resumed.returncode == 2
     assert _calls(log) == calls
+
+
+@pytest.mark.parametrize(
+    ("failure_at", "error_type"),
+    [
+        ("result", RuntimeError),
+        ("append", OSError),
+        ("append", KeyboardInterrupt),
+        ("submit", RuntimeError),
+    ],
+)
+def test_failure_cancels_queued_arms_and_joins_running_arms(
+    tmp_path, monkeypatch, failure_at, error_type
+):
+    failure = error_type("controlled evaluation failure")
+    rows = [
+        {
+            "cid": f"case-{index}",
+            "question": f"question-{index}",
+            "gold": "answer",
+            "context": f"context-{index}",
+            "qtype": "test",
+            "coverage_complete": True,
+        }
+        for index in range(4)
+    ]
+    prompts = {
+        paired_eval.ANSWERER_TEMPLATE.format(
+            context=row["context"] if arm == "with" else paired_eval.EMPTY_CONTEXT,
+            question=row["question"],
+        ): index
+        for index, (row, arm) in enumerate(
+            (row, arm) for row in rows for arm in ("with", "without")
+        )
+    }
+    first_queued = 2 if failure_at == "submit" else 3
+    submitted_count = 6 if failure_at == "submit" else 8
+    running_started = threading.Event()
+    release_running = threading.Event()
+    queued_cancelled = threading.Event()
+    evaluator_done = threading.Event()
+    state_lock = threading.Lock()
+    started, completed, cancelled, submitted, outcomes = [], [], [], [], []
+    real_executor = concurrent.futures.ThreadPoolExecutor
+    real_as_completed = concurrent.futures.as_completed
+
+    def call(_model, prompt, **_kwargs):
+        index = prompts[prompt]
+        with state_lock:
+            started.append(index)
+        if index == 0 and failure_at != "submit":
+            if failure_at == "result":
+                raise failure
+        else:
+            with state_lock:
+                if len(started) == first_queued:
+                    running_started.set()
+            assert release_running.wait(10), "running arms were not released"
+            with state_lock:
+                completed.append(index)
+        return "answer", 0, 1
+
+    def capture_cancellation(index, future):
+        if index >= first_queued and future.cancelled():
+            with state_lock:
+                cancelled.append(index)
+                if len(cancelled) == submitted_count - first_queued:
+                    queued_cancelled.set()
+
+    class ObservedExecutor(real_executor):
+        def submit(self, fn, /, *args, **kwargs):
+            if failure_at == "submit" and len(submitted) == submitted_count:
+                assert running_started.wait(5), "worker slots were not occupied"
+                raise failure
+            index = len(submitted)
+            future = super().submit(fn, *args, **kwargs)
+            submitted.append(future)
+            future.add_done_callback(lambda done: capture_cancellation(index, done))
+            return future
+
+    def as_completed(futures):
+        # Hold result consumption until both workers block and only the trigger arm is done.
+        assert running_started.wait(5), "worker slots were not occupied"
+        assert [index for index, future in enumerate(futures) if future.done()] == [0]
+        return real_as_completed(futures)
+
+    def append_failure(*_args):
+        raise failure
+
+    def evaluate():
+        try:
+            paired_eval._run_evaluation(
+                SimpleNamespace(
+                    out_dir=tmp_path,
+                    workers=2,
+                    answerer_model="local",
+                    answerer_runner="qodercli",
+                    judge_model="local",
+                    judge_runner="qodercli",
+                ),
+                rows,
+                {"run_sha256": "a" * 64},
+                None,
+            )
+        except BaseException as error:
+            with state_lock:
+                outcomes.append((error, list(completed)))
+        finally:
+            evaluator_done.set()
+
+    monkeypatch.setattr(paired_eval, "_call", call)
+    monkeypatch.setattr(
+        paired_eval,
+        "_judge",
+        lambda *_args, **_kwargs: ("correct", hashlib.sha256(b"answer").hexdigest()[:12], 0, 1),
+    )
+    monkeypatch.setattr(paired_eval.concurrent.futures, "ThreadPoolExecutor", ObservedExecutor)
+    monkeypatch.setattr(paired_eval.concurrent.futures, "as_completed", as_completed)
+    if failure_at == "append":
+        monkeypatch.setattr(paired_eval, "append_result", append_failure)
+    evaluator = threading.Thread(target=evaluate)
+    evaluator.start()
+    try:
+        assert queued_cancelled.wait(5), "queued arms were not cancelled"
+        assert not evaluator_done.wait(0.05), "evaluator returned before running arms finished"
+        assert not completed
+    finally:
+        release_running.set()
+        evaluator.join(timeout=10)
+    assert not evaluator.is_alive()
+    assert len(outcomes) == 1
+    assert outcomes[0][0] is failure
+    assert set(outcomes[0][1]) == set(range(first_queued - 2, first_queued))
+    assert set(started) == set(range(first_queued))
+    assert all(future.cancelled() for future in submitted[first_queued:])
