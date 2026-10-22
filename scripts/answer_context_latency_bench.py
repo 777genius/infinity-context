@@ -17,7 +17,6 @@ import hashlib
 import json
 import pathlib
 import pickle
-import re
 import shutil
 import statistics
 import tempfile
@@ -175,11 +174,18 @@ def main() -> int:
                         kwargs = data["kwargs"]
                         frozen_ids = {item.item_id for item in kwargs["items"]}
                         scope = _majority_scope(frozen_ids, store_rows)
-                        body: dict = {"query": kwargs["query"], "token_budget": kwargs["token_budget"]}
+                        body: dict = {
+                            "query": kwargs["query"],
+                            "token_budget": kwargs["token_budget"],
+                        }
                         if scope is not None:
-                            body.update(space_id=scope[0], memory_scope_ids=[scope[1]], thread_id=scope[2])
+                            body.update(
+                                space_id=scope[0],
+                                memory_scope_ids=[scope[1]],
+                                thread_id=scope[2],
+                            )
 
-                        def fire() -> tuple[int, float]:
+                        def fire(body: dict = body) -> tuple[int, float]:
                             start = time.perf_counter()
                             response = client.post(
                                 "/v1/context",
@@ -232,12 +238,16 @@ def main() -> int:
                     "p95": _pct(ok_totals, 0.95),
                     "mean": round(statistics.fmean(ok_totals), 2) if ok_totals else None,
                 },
-                "phases_ms_total": {name: round(value, 1) for name, value in sorted(phase_ms.items())},
+                "phases_ms_total": {
+                    name: round(value, 1) for name, value in sorted(phase_ms.items())
+                },
                 "phase_calls": dict(phase_calls),
                 "approx_probe": {
                     "calls": approx_calls,
                     "distinct_pairs": len(approx_keys),
-                    "redundancy": round(approx_calls / len(approx_keys), 2) if approx_keys else None,
+                    "redundancy": (
+                        round(approx_calls / len(approx_keys), 2) if approx_keys else None
+                    ),
                 },
             },
             indent=2,
