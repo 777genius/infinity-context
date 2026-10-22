@@ -87,7 +87,6 @@ def main() -> int:
                 chunk_tokens[chunk_id] = toks
                 store_df.update(toks)
                 store_bg_df.update(set(bigrams(toks_list)))
-            store_size = max(1, len(chunk_tokens))
 
             for cid in sorted(store_cids):
                 b = base_rows[cid]
