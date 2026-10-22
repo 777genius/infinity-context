@@ -116,6 +116,22 @@ def main() -> int:
 
         return wrapper
 
+    import infinity_context_core.application.context_lexical as lexical_mod
+
+    # Redundancy probe: distinct (variants, counts-identity) pairs reaching the
+    # fuzzy fallback. Strong list keeps counts objects alive so ids stay unique.
+    approx_calls = 0
+    approx_keys: set[tuple] = set()
+    keepalive: list[object] = []
+    original_approx = lexical_mod._approximate_term_frequency
+
+    def approx_probe(variants, text_counts):
+        nonlocal approx_calls
+        approx_calls += 1
+        approx_keys.add((variants, id(text_counts)))
+        keepalive.append(text_counts)
+        return original_approx(variants, text_counts)
+
     originals = {
         "pack": ContextPacker.pack,
         "keyword_lane": collectors_mod._keyword_search_chunks,
@@ -135,6 +151,7 @@ def main() -> int:
         mock.patch.object(
             collectors_mod, "query_focused_snippet", timed("snippet", originals["snippet"])
         ),
+        mock.patch.object(lexical_mod, "_approximate_term_frequency", approx_probe),
     ):
         for db_path, cids in sorted(by_store.items()):
             store_rows = _store_rows(db_path)
@@ -217,6 +234,11 @@ def main() -> int:
                 },
                 "phases_ms_total": {name: round(value, 1) for name, value in sorted(phase_ms.items())},
                 "phase_calls": dict(phase_calls),
+                "approx_probe": {
+                    "calls": approx_calls,
+                    "distinct_pairs": len(approx_keys),
+                    "redundancy": round(approx_calls / len(approx_keys), 2) if approx_keys else None,
+                },
             },
             indent=2,
         )
