@@ -240,6 +240,30 @@ def test_request_cache_builds_length_buckets_once_per_text(
     assert call_count == 1
 
 
+def test_stateless_frequency_scan_skips_length_buckets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = 0
+    real_length_buckets = lexical_module._length_buckets
+
+    def counting_length_buckets(text_counts: object) -> object:
+        nonlocal call_count
+        call_count += 1
+        return real_length_buckets(text_counts)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        lexical_module,
+        "_length_buckets",
+        counting_length_buckets,
+    )
+
+    counts = lexical_module.text_variant_counts("aleksandra visited atlas cafe museum")
+    term = lexical_module.LexicalQueryTerm(raw="aleksandry", variants=("aleksandry",))
+
+    assert lexical_module.query_term_frequency(term, counts) == 1
+    assert call_count == 0
+
+
 def test_approximate_term_frequency_replays_text_order_across_length_buckets() -> None:
     # The first edit-distance hit in text order is a length+1 candidate, while a
     # length-1 candidate sits in an earlier bucket; position replay must win.

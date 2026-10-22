@@ -752,7 +752,13 @@ def _approximate_term_frequency(
     if not long_variants:
         return 0
     if length_buckets is None:
-        length_buckets = _length_buckets(text_counts)
+        for variant in long_variants:
+            for candidate, frequency in text_counts.items():
+                if len(candidate) < 6 or abs(len(candidate) - len(variant)) > 1:
+                    continue
+                if _edit_distance_at_most_one(variant, candidate):
+                    return frequency
+        return 0
     for variant in long_variants:
         variant_length = len(variant)
         nearby: list[tuple[int, str, int]] = []
