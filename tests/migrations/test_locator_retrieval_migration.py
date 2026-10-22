@@ -75,7 +75,7 @@ def test_published_ledger_prefix_continues_through_forward_locator_migration() -
 
     _validate_history(migrations, history)
 
-    assert migrations[-1].migration_id == "0060_memory_outbox_aggregate_id_width"
+    assert migrations[-1].migration_id == "0061_outbox_claim_ownership"
 
 
 def test_published_locator_checksums_remain_upgrade_compatible() -> None:

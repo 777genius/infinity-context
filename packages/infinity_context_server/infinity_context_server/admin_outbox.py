@@ -39,12 +39,14 @@ async def replay_outbox(*, status: str, limit: int) -> dict[str, object]:
                         .where(MemoryOutboxRow.status == status)
                         .order_by(MemoryOutboxRow.created_at)
                         .limit(limit)
+                        .with_for_update(skip_locked=True)
                     )
                 ).scalars()
             )
             now = container.clock.now()
             for row in rows:
                 row.status = "pending"
+                row.claim_token = None
                 row.next_attempt_at = now
                 row.updated_at = now
             await session.commit()

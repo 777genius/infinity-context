@@ -1,35 +1,41 @@
 # Answer-quality paired eval r1
 
-Measurement dates: 2026-10-18 to 2026-10-20. This is the first end-to-end
-answer-quality measurement of the production context packer: one answerer LLM
+Measurement dates: 2026-10-18 to 2026-10-20. This is a frozen-candidate
+context-to-answer replay of the production context packer: one answerer LLM
 receives the packed memory context (or an empty context) and answers the
 question; a blind judge grades the answer against the official gold answer.
+It does not rerun ingestion and retrieval for each question. The interpretation
+and artifact contract below were reviewed on 2026-10-22; the historical model
+outputs were not rerun or retrospectively relabelled.
 
 ## Decision summary
 
-Two frozen question sets, two answerer models, one consistent picture:
+Two frozen question sets and two answerer models provide evidence of useful
+packed context, with limits on the historical paired accounting:
 
 - With the real packed context the answerer answers **36/100** questions
   correctly on Main-100 (Qwen3.8-Flash) and **18/48** on held-48
   (gpt-5.6-terra); with an empty context it answers **0/100** and **0/48**. In
-  both sets every correct answer comes from the memory context — memory helped
-  36 and 18 cases respectively and hurt none — so on these sets the packed
-  memory context contributes real answer accuracy that comes exclusively from
-  memory, and introduces no regressions against the empty baseline.
-- Answer accuracy is bounded by source coverage: every correct answer in both
-  sets is among the coverage-complete cases, and none of the 7 + 9
-  coverage-incomplete cases was answered. Raising coverage (the README
-  snapshot's remaining gaps) is a direct lever on answer accuracy.
-- With the full source set in context the answerer still fails on roughly 60%
-  of questions (incorrect or "I don't know"): source coverage is necessary but
-  not sufficient — evidence selection and derivation inside the rendered
-  context is the next quality frontier.
+  Main-100, eight arm records are unresolved. Its historical `helped=36` and
+  `hurt=0` treated unresolved arms as non-correct; corrected resolved-pair
+  counts cannot be recovered from the aggregate alone. Held-48 reports no
+  unresolved arms, with 18 improvements and zero regressions in that run.
+  These observations support a contribution from supplied context under the
+  tested prompts; they do not prove exclusive causal provenance of each answer.
+- Every correct answer in these runs is among the coverage-complete cases;
+  none of the 7 + 9 coverage-incomplete cases was marked correct. This is an
+  observed association, not a general proof that source coverage bounds answer
+  accuracy. A coverage gain still needs an answer-level measurement.
+- Many coverage-complete cases remain incorrect, missing, or unresolved.
+  Merely including a source does not establish that the rendered passage
+  supports the requested entity, relation, time, and polarity. Evidence
+  selection and faithful derivation both remain possible failure causes.
 
 ## Why answer quality on top of source coverage
 
 The frozen-148 harness (README "Memory evaluation snapshot") scores whether the
 rendered context contains every gold source. That is a retrieval-completeness
-metric: it is necessary for a correct answer but says nothing about whether an
+metric: it records expected-source inclusion but does not establish whether an
 LLM can actually derive the answer from the rendered evidence. This eval closes
 that gap with a paired ablation on the same cases:
 
@@ -38,10 +44,10 @@ that gap with a paired ablation on the same cases:
 - **without arm** — the same answerer, same question, empty context
   (`(empty: no memory retrieved)`).
 
-The paired delta isolates the memory contribution and bounds the effect of
-LongMemEval being a public dataset: anything the answerer answers in the
-without arm comes from parametric knowledge (memorization or guessing), not
-from the memory system.
+The paired comparison estimates the effect of supplying the packed context
+under these prompts and models. The empty arm checks observed success without
+that context; a zero result on these cases does not rule out memorization or
+guessing generally, or establish the provenance of every with-arm answer.
 
 ## Method
 
@@ -60,10 +66,13 @@ from the memory system.
   `longmemeval-failure-slice-map-r1.md`). 100/100 and 48/48 matched.
 - **Answerer.** Main-100 ran with `qodercli -m Qwen3.8-Flash --reasoning-effort
   xhigh`; held-48 ran with `gpt-5.6-terra` through the codex CLI
-  (`codex exec`, read-only sandbox, no tools) after the Qwen daily usage limit
+  (`codex exec`, read-only sandbox) after the Qwen daily usage limit
   and a mimo outage blocked the original plan (see the incident section). Both
   answerers were instructed identically: one short line, reply exactly `I don't
   know` when the context lacks the answer.
+  The qodercli command explicitly disables tools. The committed codex command
+  does not establish a no-tools boundary: read-only filesystem access alone is
+  insufficient to make that claim.
 - **Judge.** `qodercli -m mimo-v2.6-flash` for Main-100; `gpt-6-luna` through
   the codex CLI for held-48 — a different model from that pack's answerer, and
   blind to the arm (it sees question, gold, candidate only). Verdicts:
@@ -87,13 +96,17 @@ arms, all numbers from the frozen `run100/aggregate.json`:
 | With packed memory context | 36 | 24 | 37 | 3 | 36 (36.0%) |
 | Empty context | 0 | 0 | 95 | 5 | 0 (0.0%) |
 
-Paired per case: memory **helped on 36**, hurt on **0**, both arms correct on
-0, neither on 64 (the "neither" bucket includes the 8 arms that ended
-`call_failed`).
+Historical paired counters: `helped=36`, `hurt=0`, `both_correct=0`,
+`neither_correct=64`. The old calculation treated all non-correct outcomes,
+including `call_failed`, alike. Eight unresolved arms affect between five and
+eight distinct cases; their overlap and the corrected resolved-pair help/hurt
+counts require the private per-case records. These old counters are not an
+error-free paired quality estimate.
 
 By question type (with / without correct, 25 cases each): information
 extraction 14/0, knowledge update 11/0, multi-session reasoning 7/0, temporal
-reasoning 4/0 — every gain over the empty arm comes from memory.
+reasoning 4/0. These are arm-level correct counts, not corrected resolved-pair
+counts.
 
 By source coverage: all 36 correct answers are among the 93 coverage-complete
 cases (36/93 correct there); none of the 7 coverage-incomplete cases was
@@ -150,11 +163,11 @@ main run — was graded blindly by `gpt-6-luna` (the held-48 judge) and by
 | terra incorrect | 0 | 0 | 3 |
 
 Agreement **20/20 (100%)**, both judges marked exactly the same 9 candidates
-correct, zero unresolved verdicts. Read this with two honesty notes: the
+correct, zero unresolved verdicts. Read this with two limitations: the
 account had no third model, so one judge grades candidates it also produced —
-this bounds the verdict protocol's label consistency, not cross-provider
-agreement, and shared model lineage can only inflate it; and the sample is
-small (20 cases).
+this measures agreement in that sample, not independent correctness or
+cross-provider agreement, and shared model lineage can correlate errors; and
+the sample is small (20 cases).
 
 ## Provider incident and mitigations
 
@@ -188,7 +201,9 @@ detection:
   codex endpoint answers with HTTP 429 bursts; the runner now gives the codex
   path five retries with a longer cooldown (10 s × attempt), and arms whose
   judge verdict could not be resolved are dropped and re-run by the driver
-  until the aggregate reports zero unresolved verdicts.
+  until the aggregate reports zero unresolved verdicts. This describes the
+  historical driver. The current runner preserves unresolved records as
+  terminal observations; a retry experiment must use a new output directory.
 - the mimo outage was not a blip: both mimo models kept answering "the current
   model is busy" from 15:14 UTC through at least 18:33 UTC (probed every 10
   minutes), and the qodercli `Fast` alias began answering "Queuing failed", so
@@ -207,8 +222,9 @@ detection:
   sample could only run within the codex account (luna vs terra, terra also the
   answerer), so it bounds the verdict protocol's label consistency, not
   cross-provider agreement.
-- LongMemEval is public, so parametric memorization is possible; the without arm
-  measures it directly (see paired table).
+- LongMemEval is public, so parametric memorization is possible; the without
+  arm measures observed answers without supplied context, not memorization
+  itself.
 - This measures the packer's rendered context only; ingest of the frozen
   sessions is taken as given.
 
@@ -224,8 +240,8 @@ Measurement-only scripts (no production code paths):
   answerer on a sampled subset and grades each fresh candidate with two judge
   models (`--judge-a`/`--judge-b`, runners selectable per judge).
 
-The committed copies of the two runner scripts are byte-identical (md5) to the
-ones on the measurement host. Main-100 ran before the additive CLI options
+The following describes the historical r1 scripts, before the 2026-10-22
+artifact-contract revision. Main-100 ran before the additive CLI options
 landed; those options (`--answerer-model`, `--answerer-runner`,
 `--judge-model`, `--judge-runner`, the `codex exec` runner and its longer
 retry/cooldown policy) leave the default qodercli/Qwen path behavior-identical
@@ -233,14 +249,68 @@ to what ran Main-100. Held-48 was produced by these scripts apart from two
 review fixes that landed afterwards and cannot change a recorded verdict:
 closing an unused file descriptor in the codex runner, and narrowing the
 service-error filter to service phrasings so ordinary answer prose containing
-words like "quota" or "exceeded" is no longer rejected — the filter only
-decides which retry-level failures are recorded, never which text gets graded.
-Prompt templates and the verdict parser are unchanged across both stages. `answer_quality_pack_builder.py` is
+words like "quota" or "exceeded" is no longer rejected. Filtering changes
+which responses are accepted for grading and can therefore affect a future
+retry sequence; it does not relabel already recorded historical verdicts.
+Prompt templates and the verdict parser were unchanged across those two
+historical stages. `answer_quality_pack_builder.py` is
 the committed form of the build code. The pack rows match its output schema
 exactly except one vestigial `duplicated_question` field, false on every row
 and read by no script. The built packs were re-verified directly on the
 measurement host: 100/100 and 48/48 rows carry a non-empty gold answer, all
 case hashes distinct, 93/100 and 39/48 rows flagged coverage-complete.
+
+### Current paired-run artifact contract (2026-10-22)
+
+The current `answer_quality_paired_eval.py` uses schema version 2 and a private
+output directory. Start a fresh experiment outside the repository, for example:
+
+```bash
+python scripts/answer_quality_paired_eval.py \
+  --pack /private/measurement/pack.jsonl \
+  --out-dir /private/measurement/run-v2 \
+  --answerer-model Qwen3.8-Flash --answerer-runner qodercli \
+  --judge-model mimo-v2.6-flash --judge-runner qodercli --workers 2
+```
+
+The runner validates the complete input schema and unique case IDs before
+provider calls. `manifest.json` binds the selected input contents, answerer and
+judge configuration, prompt templates, and the actual runner/helper source
+bytes to one SHA-256 run identity. Changing any bound input requires a new
+output directory. Worker count can change on a compatible resume. Historical
+directories without this manifest are rejected rather than silently adopted.
+
+One process owns the directory through a nonblocking POSIX file lock. Completed
+arms are validated and durably appended as they finish. Resume repairs only an
+incomplete, syntactically broken final line without a terminating newline; it
+rejects malformed complete lines, incompatible records, and duplicate arms.
+A valid final record without a newline is retained and delimited before the
+next append. `call_failed` and `unparsed` records remain terminal observations
+on resume; use a new directory for a retry experiment.
+
+`results.jsonl` retains the full candidate answer for a private semantic audit,
+along with its digest and measurement counters. The directory is mode 0700 and
+artifact files are mode 0600; existing unsafe final symlinks and files owned by
+another user are rejected. Do not commit the private pack, candidate records,
+or provider logs. These local protections do not control a provider's retention
+or a CLI's logs; qodercli also receives the prompt in its process arguments.
+
+`aggregate.json` is atomically published from a fixed projection of counters,
+run identity, and declared model configuration. It contains no questions,
+gold answers, context, candidate text, or case IDs. Question-type group keys
+are hashed because input labels are not assumed public. For each arm it reports
+expected, observed, resolved, and absent counts. Rates carry an explicit
+numerator and denominator, including correct per expected arm and correct per
+resolved arm. Paired help/hurt counts include only cases whose two verdicts
+are both `correct`, `incorrect`, or `missing`; unresolved and incomplete pairs
+are separate counters. The CLI exits zero only for a complete run with no
+unresolved verdicts, and exits 2 for unresolved or rejected runs.
+
+This revision makes future experiments auditable. It does not regenerate the
+private r1 candidates or establish fresh ingestion-to-answer quality. When
+auditing a short gold match, check the candidate and cited passage for the
+requested subject, asserted relation, time/version, and negation; token
+containment alone is not sufficient evidence.
 
 ## Review round
 
@@ -253,8 +323,11 @@ were fixed before the final measurement stages ran, one was rejected:
   affected. Parsing now uses word-boundary matching with longest-first
   alternation; the fix was in place for the final stages of the run, and the
   judge-agreement sample cross-checks verdicts with a second judge model.
-- **Resume crash on torn trailing line (fixed).** A killed run could leave a
-  partial JSONL line that broke resume; such lines are now skipped.
+- **Resume crash on torn trailing line (historical mitigation).** The r1
+  runner skipped unparsable lines. That could also hide interior corruption
+  and leave a torn tail in front of the next appended record. The current
+  artifact contract below replaces that behavior with strict validation and
+  narrowly scoped trailing-byte repair.
 - **Case-hash collision across question-type directories (fixed).** The pack
   builder now fails loudly on a duplicate case hash; the built packs were
   re-verified to contain only distinct hashes.
@@ -277,11 +350,11 @@ fixed after the measurement and none capable of changing a recorded verdict:
 - **Service-error filter rejected ordinary prose (fixed).** The filter used to
   reject any answer containing bare words like `quota`, `exceeded` or `error`;
   it is now anchored to service phrasings (`too many requests`, `come back
-  tomorrow`, `model is busy`, …). The filter only decides which retry-level
-  failures are recorded, never which text is graded.
-- **Memorization claim overstated (fixed).** The empty arm measures
-  memorization on these sets (and found none); it does not bound memorization
-  in general. The README wording now says exactly that.
+  tomorrow`, `model is busy`, …). This affects retry selection and which
+  responses reach the judge, without relabelling past recorded verdicts.
+- **Memorization claim overstated (clarified again 2026-10-22).** The empty
+  arm reports no correct answer without supplied context on these sets. It
+  does not directly measure memorization or bound it generally.
 - **Packer attribution (fixed).** The paired ablation establishes a gain from
   the packed context under these prompts and models; the decision summary now
   attributes the gain to the packed memory context, not to the packer alone.

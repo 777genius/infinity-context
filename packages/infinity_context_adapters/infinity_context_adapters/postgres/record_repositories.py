@@ -100,6 +100,7 @@ class PostgresOutbox(OutboxPort):
         row.fairness_key = event.fairness_key or f"{event.aggregate_type}:{event.aggregate_id}"
         row.payload_json = event.payload
         row.status = "pending"
+        row.claim_token = None
         row.attempt_count = 0
         row.next_attempt_at = self._now
         row.last_safe_error = None

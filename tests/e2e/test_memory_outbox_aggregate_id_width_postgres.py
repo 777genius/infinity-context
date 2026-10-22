@@ -42,7 +42,7 @@ async def _assert_width_upgrade(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.applied == ("0060_memory_outbox_aggregate_id_width",)
+            assert result.applied[:1] == ("0060_memory_outbox_aggregate_id_width",)
             aggregate_id = "p" * 120
             async with engine.begin() as connection:
                 assert await connection.scalar(

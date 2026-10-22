@@ -27,7 +27,6 @@ import re
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 
 ANSWERER_MODEL = "Qwen3.8-Flash"
@@ -70,7 +69,35 @@ JUDGE_TEMPLATE = (
     "CANDIDATE ANSWER: {candidate}"
 )
 
-_write_lock = threading.Lock()
+# Support both direct script execution and the existing scripts' helper imports.
+if __package__:
+    from .answer_quality_artifacts import (
+        ArtifactError,
+        append_result,
+        atomic_json,
+        bind_manifest,
+        load_pack,
+        private_run_directory,
+        public_counts,
+        read_results,
+        run_manifest,
+        strict_json,
+        validate_record,
+    )
+else:
+    from answer_quality_artifacts import (
+        ArtifactError,
+        append_result,
+        atomic_json,
+        bind_manifest,
+        load_pack,
+        private_run_directory,
+        public_counts,
+        read_results,
+        run_manifest,
+        strict_json,
+        validate_record,
+    )
 
 # Service-layer messages that qodercli may print on stdout; they must never be
 # graded as answers (they were observed as a 126-char identical blob under
@@ -177,12 +204,24 @@ def _call(
 
 
 def _verdict(raw: str) -> str:
-    match = re.search(r'\{"verdict"\s*:\s*"([a-z_]+)"', raw)
-    if match:
-        return match.group(1)
+    payload = raw.strip()
+    fenced = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", payload, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        payload = fenced.group(1)
+    if (
+        payload.startswith(("{", "[", '"'))
+        or fenced
+        or re.search(r"[\"']verdict[\"']\s*:", raw, flags=re.IGNORECASE)
+    ):
+        try:
+            parsed = strict_json(payload)
+        except (ValueError, UnicodeError):
+            return "unparsed"
+        value = parsed.get("verdict") if isinstance(parsed, dict) else None
+        return value if value in ("correct", "incorrect", "missing") else "unparsed"
     # Word boundaries matter: "incorrect" contains the substring "correct".
-    fallback = re.search(r"\b(incorrect|missing|correct)\b", raw.lower())
-    return fallback.group(1) if fallback else "unparsed"
+    labels = set(re.findall(r"\b(incorrect|missing|correct)\b", raw.lower()))
+    return labels.pop() if len(labels) == 1 else "unparsed"
 
 
 def _judge(
@@ -220,33 +259,51 @@ def main() -> int:
     parser.add_argument("--judge-model", default=JUDGE_MODEL)
     parser.add_argument("--judge-runner", choices=("qodercli", "codex"), default="qodercli")
     args = parser.parse_args()
-    answerer_effort = (
-        "xhigh"
-        if args.answerer_runner == "qodercli" and args.answerer_model == ANSWERER_MODEL
-        else None
-    )
+    try:
+        if args.workers < 1:
+            raise ArtifactError("workers_must_be_positive")
+        rows = load_pack(args.pack, limit=args.limit)
+        answerer_effort = (
+            "xhigh"
+            if args.answerer_runner == "qodercli" and args.answerer_model == ANSWERER_MODEL
+            else None
+        )
+        manifest = run_manifest(
+            rows,
+            {
+                "answerer": args.answerer_model,
+                "answerer_runner": args.answerer_runner,
+                "answerer_effort": answerer_effort,
+                "judge": args.judge_model,
+                "judge_runner": args.judge_runner,
+                "answerer_template": ANSWERER_TEMPLATE,
+                "judge_template": JUDGE_TEMPLATE,
+                "empty_context": EMPTY_CONTEXT,
+            },
+            pathlib.Path(__file__),
+        )
+        with private_run_directory(args.out_dir):
+            return _run_evaluation(args, rows, manifest, answerer_effort)
+    except (ArtifactError, OSError, ValueError) as error:
+        # Paths, raw JSON and provider output may contain private text.
+        code = (
+            str(error) if isinstance(error, ArtifactError) else "evaluation_preflight_or_io_failed"
+        )
+        print(f"evaluation_error: {code}", file=sys.stderr)
+        return 2
 
-    rows = [json.loads(line) for line in args.pack.read_text(encoding="utf-8").splitlines()]
-    rows.sort(key=lambda row: row["cid"])
-    if args.limit:
-        rows = rows[: args.limit]
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+
+def _run_evaluation(args, rows: list[dict], manifest: dict, answerer_effort: str | None) -> int:
+    bind_manifest(args.out_dir, manifest)
+    run_sha256 = manifest["run_sha256"]
     results_path = args.out_dir / "results.jsonl"
-
-    done = set()
-    if results_path.exists():
-        for line in results_path.read_text(encoding="utf-8").splitlines():
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # torn trailing line from an interrupted run
-            done.add((record["cid"], record["arm"]))
-    pending = []
-    for row in rows:
-        for arm in ("with", "without"):
-            if (row["cid"], arm) not in done:
-                pending.append((row, arm))
+    records = read_results(results_path, rows, run_sha256)
+    done = {(record["cid"], record["arm"]) for record in records}
+    pending = [
+        (row, arm) for row in rows for arm in ("with", "without") if (row["cid"], arm) not in done
+    ]
     print(f"cases={len(rows)} pending_arms={len(pending)} already_done={len(done)}", flush=True)
+    by_cid = {row["cid"]: row for row in rows}
 
     def run_one(item: tuple[dict, str]) -> dict:
         row, arm = item
@@ -264,130 +321,69 @@ def main() -> int:
             judge_model=args.judge_model,
             judge_runner=args.judge_runner,
         )
-        return {
-            "cid": row["cid"],
-            "qtype": row["qtype"],
-            "arm": arm,
-            "coverage_complete": row["coverage_complete"],
-            "verdict": verdict,
-            "candidate_sha": candidate_hash,
-            "candidate_chars": len(candidate),
-            "call_failures": answer_failures + judge_failures,
-            "answer_ms": answer_ms,
-            "judge_ms": judge_ms,
-        }
+        return validate_record(
+            {
+                "run_sha256": run_sha256,
+                "cid": row["cid"],
+                "qtype": row["qtype"],
+                "arm": arm,
+                "coverage_complete": row["coverage_complete"],
+                "verdict": verdict,
+                "candidate": candidate,
+                "candidate_sha": candidate_hash,
+                "candidate_chars": len(candidate),
+                "call_failures": answer_failures + judge_failures,
+                "answer_ms": answer_ms,
+                "judge_ms": judge_ms,
+            },
+            by_cid,
+            run_sha256,
+        )
 
     started = time.time()
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
-        for index, record in enumerate(pool.map(run_one, pending), start=1):
-            with _write_lock, results_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record) + "\n")
-            if index % 10 == 0 or index == len(pending):
-                print(
-                    f"progress {index}/{len(pending)} elapsed={time.time() - started:.0f}s",
-                    flush=True,
-                )
-
-    wanted = {row["cid"] for row in rows}
-    records = []
-    for line in results_path.read_text(encoding="utf-8").splitlines():
         try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue  # torn trailing line from an interrupted run
-        if record["cid"] in wanted:
-            records.append(record)
-    aggregate: dict[str, object] = {
-        "cases": len(rows),
-        "answerer": args.answerer_model,
-        "answerer_runner": args.answerer_runner,
-        "judge": args.judge_model,
-        "judge_runner": args.judge_runner,
-    }
+            futures = [pool.submit(run_one, item) for item in pending]
+            for index, future in enumerate(concurrent.futures.as_completed(futures), start=1):
+                record = future.result()
+                append_result(results_path, record)
+                records.append(record)
+                if index % 10 == 0 or index == len(pending):
+                    print(
+                        f"progress {index}/{len(pending)} elapsed={time.time() - started:.0f}s",
+                        flush=True,
+                    )
+        except BaseException:
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
 
-    def _rate(arm: str) -> dict[str, int]:
-        counts = {"correct": 0, "incorrect": 0, "missing": 0, "unparsed": 0, "call_failed": 0}
-        for record in records:
-            if record["arm"] == arm:
-                counts[record["verdict"]] = counts.get(record["verdict"], 0) + 1
-        return counts
-
-    for arm in ("with", "without"):
-        aggregate[f"{arm}_counts"] = _rate(arm)
-    by_cid: dict[str, dict[str, str]] = {}
-    for record in records:
-        by_cid.setdefault(record["cid"], {})[record["arm"]] = record["verdict"]
-    aggregate["paired"] = {
-        "memory_helped": sum(
-            1
-            for pair in by_cid.values()
-            if pair.get("with") == "correct" and pair.get("without") != "correct"
-        ),
-        "memory_hurt": sum(
-            1
-            for pair in by_cid.values()
-            if pair.get("without") == "correct" and pair.get("with") != "correct"
-        ),
-        "both_correct": sum(
-            1
-            for pair in by_cid.values()
-            if pair.get("with") == "correct" and pair.get("without") == "correct"
-        ),
-        "neither": sum(
-            1
-            for pair in by_cid.values()
-            if pair.get("with") != "correct" and pair.get("without") != "correct"
-        ),
-    }
-    aggregate["by_qtype"] = {
-        qtype: {
-            "with_correct": sum(
-                1
-                for record in records
-                if record["arm"] == "with"
-                and record["verdict"] == "correct"
-                and record["qtype"] == qtype
+    aggregate = public_counts(rows, records)
+    aggregate.update(
+        {
+            "schema_version": 2,
+            "run_sha256": run_sha256,
+            "answerer": args.answerer_model,
+            "answerer_runner": args.answerer_runner,
+            "judge": args.judge_model,
+            "judge_runner": args.judge_runner,
+            "call_failures_total": sum(record["call_failures"] for record in records),
+            "answer_ms_median": {
+                arm: _median([record["answer_ms"] for record in records if record["arm"] == arm])
+                for arm in ("with", "without")
+            },
+            "judge_ms_median": _median([record["judge_ms"] for record in records]),
+            "unresolved_verdicts": sum(
+                record["verdict"] in ("unparsed", "call_failed") for record in records
             ),
-            "without_correct": sum(
-                1
-                for record in records
-                if record["arm"] == "without"
-                and record["verdict"] == "correct"
-                and record["qtype"] == qtype
-            ),
-            "cases": sum(1 for row in rows if row["qtype"] == qtype),
         }
-        for qtype in sorted({row["qtype"] for row in rows})
-    }
-    aggregate["by_coverage"] = {
-        str(flag): {
-            "with_correct": sum(
-                1
-                for record in records
-                if record["arm"] == "with"
-                and record["verdict"] == "correct"
-                and record["coverage_complete"] is flag
-            ),
-            "cases": sum(1 for row in rows if row["coverage_complete"] is flag),
-        }
-        for flag in (True, False)
-    }
-    aggregate["call_failures_total"] = sum(record["call_failures"] for record in records)
+    )
     long_dupes = collections.Counter(
         record["candidate_sha"] for record in records if record["candidate_chars"] > 20
     )
     aggregate["largest_repeated_long_candidate"] = max(long_dupes.values(), default=0)
-    aggregate["answer_ms_median"] = {
-        arm: _median([record["answer_ms"] for record in records if record["arm"] == arm])
-        for arm in ("with", "without")
-    }
-    aggregate["judge_ms_median"] = _median([record["judge_ms"] for record in records])
-    aggregate["unresolved_verdicts"] = sum(
-        1 for record in records if record["verdict"] in ("unparsed", "call_failed")
-    )
-    (args.out_dir / "aggregate.json").write_text(json.dumps(aggregate, indent=2), encoding="utf-8")
+    atomic_json(args.out_dir / "aggregate.json", aggregate)
     print(json.dumps(aggregate, indent=2))
-    return 0
+    return 0 if aggregate["status"] == "complete" else 2
 
 
 if __name__ == "__main__":

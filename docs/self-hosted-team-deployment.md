@@ -99,6 +99,31 @@ python -m infinity_context_server.worker --loop --role all
 processes `workload_class=extraction` jobs such as `asset.extract`. `all` keeps
 the legacy behavior for tests, local debugging and emergency draining.
 
+Migration `0061_outbox_claim_ownership` adds an internal claim token. Before
+starting workers with this version, stop or drain all older worker binaries:
+older workers do not check claim tokens and can otherwise acknowledge or renew
+jobs reclaimed by a new worker. Existing running rows without a token become
+reclaimable after their normal lease timeout. Tokens fence canonical job state;
+provider operations still require deterministic IDs and idempotent handlers.
+
+Document writers in this version use a case- and layout-sensitive content digest.
+Route document writes only to the new API/application binaries after draining
+older writers; old binaries still use the earlier case/whitespace-folded digest.
+Existing document and chunk IDs, content hashes and receipts are retained. An
+exact legacy retry reuses its IDs only when its complete original source can be
+proved from one full-span chunk. For historical lossy or multi-chunk source,
+an existing explicit key returns a conflict; an ordinary content-only import
+can create one new document using the new digest. Projected locators remain
+owned and return a conflict when historical source cannot be proved. Managed
+benchmark fingerprints retain their existing format and reject unverifiable
+replays conservatively.
+
+Replays reject intrinsically invalid chunk ranges, including negative,
+reversed, noninteger, or too-short spans. A positive absolute offset shift
+cannot be authenticated against historical full source when its original
+layout was not stored; normalization-equivalent retries keep the stored
+original offsets instead of guessing replacement citation ranges.
+
 For extraction workers, `MEMORY_EXTRACTION_WORKER_LIMIT` controls the number of
 claimed outbox jobs per poll. `MEMORY_EXTRACTION_WORKER_CONCURRENCY` controls
 how many claimed extraction jobs run concurrently inside one process and

@@ -259,6 +259,11 @@ def test_document_ingestion_public_api_exports_application_domain_and_ports() ->
         "estimate_token_count": domain,
         "normalize_document_text": domain,
         "reconcile_exact_document": domain,
+        "LegacyDocumentFragmentEvidence": domain,
+        "document_content_digest": domain,
+        "document_fragment_span_is_valid": domain,
+        "legacy_document_content_digest": domain,
+        "proves_legacy_document_source": domain,
     }
 
     assert public.__all__ == tuple(expected_exports)

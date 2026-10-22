@@ -703,6 +703,11 @@ def test_document_ingestion_public_api_is_importable_and_narrow() -> None:
         "estimate_token_count",
         "normalize_document_text",
         "reconcile_exact_document",
+        "LegacyDocumentFragmentEvidence",
+        "document_content_digest",
+        "document_fragment_span_is_valid",
+        "legacy_document_content_digest",
+        "proves_legacy_document_source",
     )
 
 

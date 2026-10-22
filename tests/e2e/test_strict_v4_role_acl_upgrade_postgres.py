@@ -169,6 +169,7 @@ async def _scenario(database_url: str) -> None:
                 "0058_suggestion_server_thread_scope",
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
         finally:
             await engine.dispose()
@@ -282,9 +283,9 @@ async def _non_schema_owner_scenario(database_url: str) -> None:
         engine = build_async_engine(migrator_database.app_url)
         try:
             result = await upgrade_schema(engine)
-            assert result.current == "0060_memory_outbox_aggregate_id_width"
+            assert result.current == "0061_outbox_claim_ownership"
             assert result.applied[0] == "0001_core_facts"
-            assert result.applied[-1] == "0060_memory_outbox_aggregate_id_width"
+            assert result.applied[-1] == "0061_outbox_claim_ownership"
         finally:
             await engine.dispose()
 

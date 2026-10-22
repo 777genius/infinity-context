@@ -5,6 +5,11 @@ on the measurement host; no benchmark rerun and no provider call. All numbers ar
 counters and opaque 12-hex case hashes — no question, gold answer or context text
 appears here. Private inputs stay on the host.
 
+Interpretation reviewed on 2026-10-22 without rerunning the private artifacts.
+The containment ladder below is a lexical diagnostic, not a semantic evidence
+audit. Historical aggregates and flip counts are retained; unresolved judge or
+provider outcomes must be separated before interpreting paired quality gains.
+
 ## Decision summary
 
 This maps where the remaining with-arm answer failures live after the
@@ -22,13 +27,14 @@ Findings:
   `gold_in` counter (4 up-flips, 1 down), coverage stays flat (86/100, 34/48).
   held-48 is unchanged — the edge extension never fires there (no query-hit
   clusters past the window).
-- The remaining failure mass is **not** dominated by packer or snippet defects.
-  Of 94 failures across both sets: 42 are `in_rendered` (evidence verbatim in
+- The ladder partitions 94 historical non-correct or unresolved with-arm
+  cases across both sets: 42 are `in_rendered` (gold-string or token matches in
   the packed context; 39/42 have gold of only 1-2 content tokens), 29 are
   `scattered` (gold tokens split across the store; no single chunk or adjacent
   pair holds the span), 9 `dropped_by_pack`, 8 `not_retrieved`, 6 remaining
   `snippet_cut` (1 Main-100, 5 held-48; gold beyond the window without query
-  hits).
+  hits). These buckets do not establish which component caused an answer
+  failure, or whether a matching span expresses the required fact.
 - The packer-side dropped class is governed by a 43-component bespoke
   answer-support family key; the gold-bearing chunk typically ranks 1-2 within
   its family and loses to a sibling. Reworking representative choice has a
@@ -42,13 +48,15 @@ Findings:
   near tail reaches the SQL pool and dies on admission, the far tail is
   unreachable by deeper SQL or a plain lexical union — measured and rejected
   (keyword-lane depth A/B below).
-- The answerer-side short-gold hint (the ranked lever) is measured and
-  rejected: on the 85 gold-visible cases it nets +3 up / -2 down against an
-  identical-prompt repeat that itself flips +3 / -1 — inside noise.
+- The answerer-side short-gold hint was compared on 85 lexically matched
+  cases with an identical-prompt repeat. Two apparent hint down-flips are
+  `unparsed`, so they are unresolved, not demonstrated answer regressions.
+  The aggregate is insufficient to recompute the resolved-pair effect.
 
-Conclusion: the cheap, safe veins are mined out — recall, context-side
-presentation and answerer-side guidance are each measured and rejected. What
-remains, ranked by cost, is listed at the end.
+These probes do not justify shipping the tested heuristics. They also do not
+exhaust recall, context presentation, or answerer guidance as whole categories.
+Further work needs a distinct, testable mechanism and complete paired outcomes;
+candidate directions are listed at the end.
 
 ## Method
 
@@ -76,6 +84,13 @@ Known approximation: the rebuild applies `query_focused_snippet` to the raw
 store text, while production snippets the enriched retrieval projection. The
 path is identical on both A/B sides, so the comparison is valid; absolute
 bucket counts may shift slightly in production.
+
+Containment can match a common token, a different subject, an obsolete state,
+or a negated claim. A semantic audit must inspect the requested subject,
+assertion, time/version, polarity, and the supporting passage. A short gold
+match is especially weak evidence of answer sufficiency. The historical
+candidate answers were stored only as hashes, so this audit cannot be
+reconstructed from those records alone.
 
 Store-join integrity: 6332/6332 Main-100 and 3192/3192 held-48 candidate items
 resolve to store chunks by id.
@@ -128,7 +143,8 @@ substring hits, adjacency grouped by source owner):
 
 Failure-only rendered-context coverage of gold tokens: Main-100 21 cases span
 0.30-0.87 (none reach 1.0); held-48 8 cases span 0.0-1.0 (one reaches 1.0).
-The decisive fact tokens are simply not in the pack.
+Some gold tokens are absent from these packs. This locates lexical gaps, but
+does not by itself prove which passage would support the requested fact.
 
 Neighbor-recoverability (Main-100, 26 cases, 112 missing tokens):
 
@@ -220,9 +236,9 @@ Paired against base: **3 up, 1 down** — inside the measured noise floor, and
 the mechanism explains why: the query-carrier arm adds a mean of **7.3% of
 gold tokens** (31 of 36 cases add exactly zero), against 98.6% for the oracle
 arm. The carriers are not duplicates of what the pack already holds (66 of 71
-are new chunks) — they are simply the *wrong* chunks: the defining property of
-this class is that the decisive tokens are absent from the query, so no
-query-driven selection can reach them.
+are new chunks) — but they fail to supply the oracle gold tokens in most
+cases. This rejects the tested query-token-overlap rule; it does not rule out
+semantic query-driven retrieval.
 
 Verdict: the in-budget aggregation ceiling is real, but the naive production
 instantiation of it is dead. The missing piece is a **carrier-identification
@@ -271,19 +287,23 @@ per-question-category ranks inside a 43-component tuple
 not identifiable without displacing deliberately chosen winners — ceiling ~5-7
 cases, high regression risk. Not taken.
 
-## The answerer-limited class (`in_rendered`, 42 cases)
+## Lexically present gold with undetermined cause (`in_rendered`, 42 cases)
 
 | Set | Cases | information_extraction | knowledge_update | multi_session_reasoning | temporal_reasoning | Gold 1-2 tokens | Gold 3-4 tokens |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | Main-100 | 31 | 5 | 8 | 12 | 6 | 29 | 2 |
 | held-48 | 11 | 1 | 3 | 6 | 1 | 10 | 1 |
 
-The gold fact is verbatim in the packed context, yet the judge returned
-missing/incorrect. 39/42 answers are 1-2 content tokens — presentation-fragile
-short answers, not evidence gaps. Judge noise was already bounded separately
-(PR 79 judge-agreement sample: 20/20 across two independent judges), so these
-are predominantly answerer failures. The answerer's candidate text is not
-retained in `results.jsonl` (sha only), so no further local split is possible.
+The containment predicate matches gold strings or tokens in the packed
+context, while the historical with-arm outcome is non-correct or unresolved.
+For 39/42 cases the gold has only 1-2 content tokens. This can reflect a valid
+supporting fact, but can also match the wrong owner, relation, time, or polarity.
+It therefore cannot classify these cases as predominantly answerer failures.
+The PR 79 sample found 20/20 agreement between two judges, one also the
+answerer; it neither establishes independent judge correctness nor bounds
+noise for these 42 cases. Historical `results.jsonl` retained candidate hashes
+only, preventing a retrospective candidate-level semantic audit. The current
+paired runner retains private candidate text for future audits.
 
 ## Recall headroom probe (`absent_not_retrieved`, 10 cases)
 
@@ -340,12 +360,13 @@ parametric leakage). Gold first-hit offset in the rendered context sits at
 **not** buried at the end of long contexts, so ordering/reordering is not the
 lever either. Two of four missing cases have gold absent from the context
 altogether (already counted in `not_retrieved`/`snippet_cut` veins); the other
-two carry gold verbatim and fail under both answerers except one flip under
-sol, consistent with the `in_rendered` answerer-limited class.
+two match gold text and fail under both answerers except one flip under sol.
+The lexical match does not resolve whether those contexts express sufficient
+support for the requested fact.
 
-Conclusion: at the answer level, context-side presentation knobs (visibility,
-trimming, ordering) are mined out — they either do nothing or actively hurt.
-The remaining mass is answerer-side (short-gold extraction) or recall-side.
+On this 12-case probe the tested visibility and trimming changes showed no
+net gain, and aggressive trimming lost correct answers. This small result
+does not exclude other ordering or evidence-selection approaches.
 
 ## Answerer-side short-gold hint (2026-10-21, paired eval)
 
@@ -364,20 +385,23 @@ Counters only; packs stay on the host.
 | + short-gold hint | 50 | 14 | 16 | 5 |
 | baseline repeat (noise) | 48 | 18 | 15 | 4 |
 
-Paired, with-arm: baseline -> hint flips 6 up / 2 down; baseline -> baseline
-repeat flips 3 up / 1 down. Three of the six hint up-flips
+Historical paired counters, with-arm: baseline -> hint flips 6 up / 2 down;
+baseline -> baseline repeat flips 3 up / 1 down. Three of the six hint up-flips
 (2be5717c5d05, 692ee11054a8, 9059026c41b5) also flip in the identical-prompt
-repeat — sampling, not the hint. Hint-attributable flips: 3 up
+repeat. The remaining reported differences were 3 up
 (46f7649eb078, 98f3c0474251, db53edc0aa81) / 2 down (both `unparsed` rows)
-= **net +1 correct**, against a noise floor of net +2 on identical prompts.
-Without-arm stays missing in every run (82/79/84 of 85), so discrimination
-is clean.
+= an old net counter of +1. Both down-flips are unresolved judge outcomes,
+not confirmed answer regressions. Overlap with a repeated run is also
+insufficient to assign a causal label to an individual flip. Corrected paired
+effects require per-case resolved verdicts and appropriate uncertainty, which
+cannot be recovered from the summary alone. The empty arm has 82/79/84 missing
+answers of 85, with the other outcomes unresolved; it has no reported correct
+answer.
 
-Verdict: the hint lands inside the measured noise — rejected. Together with
-the mini-probe above (a stronger answerer moved 1 up / 1 down on 12 cases),
-the `in_rendered` class is confirmed answerer-limited with no cheap
-prompt- or presentation-level lever: neither guidance nor answerer strength
-converts these gold-visible short answers reliably.
+The available evidence is insufficient to adopt this hint. Repeated-prompt
+variation and unresolved verdicts require a fresh, complete paired experiment
+before attributing an improvement. This probe does not classify the entire
+`in_rendered` class as answerer-limited.
 
 ## Keyword-lane depth A/B (2026-10-21, replay probe)
 
@@ -429,19 +453,19 @@ discriminate against the measured base rate (PR 80: 4 gold-visibility flips,
    above) bought +1 target at zero regressions but saturates; what remains
    open on the recall side was a **plain lexical recall channel** — measured
    and rejected: the replay tail's gold ranks 725-3488 under naive lexical
-   scoring (deeper than SQL), so a lexical union adds nothing. The recall
-   side of this frozen set is mined out; the answerer side (item 2) is
-   measured and rejected as well — what remains is design-level (item 3).
+   scoring (deeper than SQL), so that lexical union adds nothing. These
+   probes reject those particular depth and token-overlap choices, while a
+   different semantic recall signal remains an open experiment.
 2. **Short-gold presentation** (the 39 short-gold `in_rendered` failures):
-   measured and rejected — context-side knobs (visibility, trimming, ordering)
-   either do nothing or hurt, and the answerer-side prompt hint nets +1
-   correct over a noise floor of +2 (sections above). No cheap lever remains
-   on this class.
+   the tested context-side changes did not show a reliable gain in the small
+   probe. The hint's old net counter mixes unresolved outcomes; a semantic
+   audit and complete paired accounting are required before choosing a
+   further intervention for this class.
 3. **In-budget evidence aggregation** for the scattered class (29 cases):
    ceilings measured on both sides — gold-token carriers convert +6/-1 inside
    the cap, but the production-realistic stand-in (query-token carriers)
-   adds 7.3% gold tokens and lands inside noise (3 up / 1 down): the decisive
-   tokens are by definition absent from the query. Shippable only with a
+   adds 7.3% gold tokens and reports 3 up / 1 down. These token-overlap rules
+   supply little of the oracle signal. A production proposal needs a
    carrier-identification signal beyond query overlap; that signal is the
    real cost, not the displacement. Deprioritized until such a signal has its
    own cheap experiment.

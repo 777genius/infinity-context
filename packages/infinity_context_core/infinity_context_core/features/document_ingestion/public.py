@@ -46,6 +46,7 @@ from infinity_context_core.features.document_ingestion.domain import (
     ExactDocumentIdentity,
     ExactDocumentObservation,
     ExactDocumentReconciliation,
+    LegacyDocumentFragmentEvidence,
     SourceDocument,
     SourceDocumentClassification,
     SourceDocumentContent,
@@ -54,8 +55,12 @@ from infinity_context_core.features.document_ingestion.domain import (
     SourceDocumentOrigin,
     SourceDocumentStatus,
     content_hash_for_text,
+    document_content_digest,
+    document_fragment_span_is_valid,
     estimate_token_count,
+    legacy_document_content_digest,
     normalize_document_text,
+    proves_legacy_document_source,
     reconcile_exact_document,
 )
 from infinity_context_core.features.document_ingestion.ports import (
@@ -134,4 +139,9 @@ __all__ = (
     "estimate_token_count",
     "normalize_document_text",
     "reconcile_exact_document",
+    "LegacyDocumentFragmentEvidence",
+    "document_content_digest",
+    "document_fragment_span_is_valid",
+    "legacy_document_content_digest",
+    "proves_legacy_document_source",
 )

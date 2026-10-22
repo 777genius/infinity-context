@@ -10,7 +10,6 @@ from infinity_context_core.application.document_fragments import fragment_docume
 from infinity_context_core.application.document_text import projected_document_retrieval_text
 from infinity_context_core.application.dto import IngestDocumentResult
 from infinity_context_core.application.normalize import (
-    content_hash,
     estimate_tokens,
     normalize_text,
     scoped_source_hash,
@@ -25,6 +24,12 @@ from infinity_context_core.features.document_ingestion.public import (
     DocumentProjectionIdempotencyConflictError,
     DocumentProjectionLocatorConflictError,
     DocumentProjectionOrdinalConflictError,
+    LegacyDocumentFragmentEvidence,
+    document_content_digest,
+    document_fragment_span_is_valid,
+    legacy_document_content_digest,
+    normalize_document_text,
+    proves_legacy_document_source,
 )
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -137,8 +142,25 @@ class PostgresProjectedDocumentIngestor:
         if receipt is None:
             return None
         if (
-            receipt["request_fingerprint_sha256"] != fingerprint
+            receipt["request_fingerprint_sha256"]
+            not in (fingerprint, _request_fingerprint(command, legacy=True))
             or receipt["locator"] != projection["locator"]
+        ):
+            raise DocumentProjectionIdempotencyConflictError
+        document = await session.get(MemoryDocumentRow, receipt["document_id"])
+        chunks = tuple(
+            (
+                await session.execute(
+                    select(MemoryChunkRow).where(
+                        MemoryChunkRow.document_id == receipt["document_id"]
+                    )
+                )
+            ).scalars()
+        )
+        if (
+            document is None
+            or len(chunks) != 1
+            or not _matches_existing(document, chunks[0], command, projection)
         ):
             raise DocumentProjectionIdempotencyConflictError
         return await _load_result(session, receipt["document_id"])
@@ -185,7 +207,7 @@ class PostgresProjectedDocumentIngestor:
 
     async def _insert(self, session, command, projection, piece):
         now = self.clock.now()
-        body_hash = content_hash(command.text)
+        body_hash = document_content_digest(command.text)
         document = MemoryDocument.create(
             document_id=MemoryDocumentId(self.ids.new_id("doc")),
             space_id=command.space_id,
@@ -259,14 +281,39 @@ async def _load_result(session, document_id: str) -> IngestDocumentResult:
 
 
 def _matches_existing(document, row, command, projection) -> bool:
+    source_matches = document.content_hash == document_content_digest(command.text) or (
+        proves_legacy_document_source(
+            text=command.text,
+            persisted_hash=document.content_hash,
+            fragments=(
+                LegacyDocumentFragmentEvidence(
+                    row.text, row.sequence, row.char_start, row.char_end
+                ),
+            ),
+        )
+    )
     return (
-        document.space_id == str(command.space_id)
+        source_matches
+        and document.status == "active"
+        and row.status == "active"
+        and row.document_id == document.id
+        and row.episode_id is None
+        and row.space_id == document.space_id
+        and row.memory_scope_id == document.memory_scope_id
+        and row.thread_id == document.thread_id
+        and row.source_type == document.source_type
+        and row.source_external_id == document.source_external_id
+        and row.classification == document.classification
+        and document_fragment_span_is_valid(
+            text=row.text, char_start=row.char_start, char_end=row.char_end
+        )
+        and _matches_fragment_projection(row, command.text)
+        and document.space_id == str(command.space_id)
         and document.memory_scope_id == str(command.memory_scope_id)
         and document.thread_id == (str(command.thread_id) if command.thread_id else None)
         and document.title == command.title
         and document.source_type == command.source_type
         and document.source_external_id == command.source_external_id
-        and document.content_hash == content_hash(command.text)
         and document.classification == command.classification
         and row.metadata_json == dict(command.chunk_metadata or {})
         and row.retrieval_locator == projection["locator"]
@@ -284,7 +331,25 @@ def _matches_existing(document, row, command, projection) -> bool:
     )
 
 
-def _request_fingerprint(command) -> str:
+def _matches_fragment_projection(row, text_value: str) -> bool:
+    canonical = normalize_document_text(text_value)
+    for layout in dict.fromkeys(
+        (text_value, canonical, canonical.replace("\n", "\r\n"), canonical.replace("\n", "\r"))
+    ):
+        pieces = fragment_document_text(layout)
+        if len(pieces) != 1:
+            continue
+        piece = pieces[0]
+        if (
+            row.sequence == piece.sequence
+            and row.kind == piece.kind.value
+            and normalize_document_text(row.text) == normalize_document_text(piece.text)
+        ):
+            return True
+    return False
+
+
+def _request_fingerprint(command, *, legacy: bool = False) -> str:
     value = {
         "space_id": str(command.space_id),
         "memory_scope_id": str(command.memory_scope_id),
@@ -293,7 +358,11 @@ def _request_fingerprint(command) -> str:
         "source_type": command.source_type,
         "source_external_id": command.source_external_id,
         "classification": command.classification,
-        "content_hash": content_hash(command.text),
+        "content_hash": (
+            legacy_document_content_digest(command.text)
+            if legacy
+            else document_content_digest(command.text)
+        ),
         "chunk_metadata": {
             key: value
             for key, value in (command.chunk_metadata or {}).items()

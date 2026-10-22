@@ -1,0 +1,64 @@
+{
+  "case_count": 16,
+  "arms": {
+    "baseline": {
+      "sufficient_evidence_selected": 12,
+      "source_selected": 12,
+      "preselected_preserved_count": 16,
+      "http_p50_seconds": 0.15905899400058843,
+      "http_p95_seconds": 0.27448026799902436
+    },
+    "protection": {
+      "sufficient_evidence_selected": 12,
+      "source_selected": 12,
+      "preselected_preserved_count": 16,
+      "http_p50_seconds": 0.1411343259987916,
+      "http_p95_seconds": 0.5506477480012109
+    },
+    "learned": {
+      "sufficient_evidence_selected": 12,
+      "source_selected": 12,
+      "preselected_preserved_count": 16,
+      "http_p50_seconds": 0.1554028489990742,
+      "http_p95_seconds": 0.2888015739990806
+    }
+  },
+  "paired": {
+    "learned_vs_baseline": {
+      "improved": [],
+      "regressed": []
+    },
+    "learned_vs_protection": {
+      "improved": [],
+      "regressed": []
+    }
+  },
+  "model_load_seconds": 0.19115042399789672,
+  "model_inference_call_count": 9,
+  "model_seconds": {
+    "p50": 0.027199870000913506,
+    "p95": 0.09934026299742982,
+    "max": 0.09934026299742982
+  },
+  "eligible_counts": [
+    0,
+    0,
+    2,
+    2,
+    2,
+    0,
+    2,
+    2,
+    2,
+    0,
+    2,
+    1,
+    1,
+    2,
+    1,
+    2
+  ],
+  "rank_changed_case_count": 2,
+  "total_seconds": 11.276278675999492,
+  "gate_passed": false
+}

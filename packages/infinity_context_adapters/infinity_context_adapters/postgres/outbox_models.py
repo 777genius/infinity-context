@@ -40,6 +40,7 @@ class MemoryOutboxRow(Base):
     fairness_key: Mapped[str | None] = mapped_column(String(160), nullable=True)
     payload_json: Mapped[dict[str, object]] = mapped_column(json_type(), nullable=False)
     status: Mapped[str] = mapped_column(String(40), nullable=False, default="pending")
+    claim_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_safe_error: Mapped[str | None] = mapped_column(String(400), nullable=True)

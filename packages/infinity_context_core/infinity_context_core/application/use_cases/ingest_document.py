@@ -6,13 +6,17 @@ from infinity_context_core.application.benchmark_managed_write_admission import 
     require_managed_document_admission,
 )
 from infinity_context_core.application.document_fragments import fragment_document_text
+from infinity_context_core.application.document_ingestion_replay import (
+    document_idempotency_key,
+    find_document_duplicate,
+    replay_document_receipt,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import IngestDocumentCommand, IngestDocumentResult
 from infinity_context_core.application.normalize import (
     content_hash,
     estimate_tokens,
     normalize_text,
-    scoped_idempotency_key,
     scoped_source_hash,
 )
 from infinity_context_core.domain.entities import (
@@ -21,9 +25,13 @@ from infinity_context_core.domain.entities import (
     MemoryDocument,
     MemoryDocumentId,
 )
-from infinity_context_core.domain.errors import MemoryConflictError, MemoryInvariantError
+from infinity_context_core.domain.errors import MemoryConflictError
 from infinity_context_core.domain.events import OutboxEvent
 from infinity_context_core.domain.idempotency import IdempotencyRecord
+from infinity_context_core.features.document_ingestion.public import (
+    document_content_digest,
+    legacy_document_content_digest,
+)
 from infinity_context_core.ports.benchmark_runs import is_managed_benchmark_space_id
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.ids import IdGeneratorPort
@@ -48,100 +56,105 @@ class IngestDocumentUseCase:
         self._strict_v4_authority = strict_v4_authority
 
     async def execute(self, command: IngestDocumentCommand) -> IngestDocumentResult:
+        try:
+            return await self._execute_once(command)
+        except MemoryConflictError as exc:
+            # Flush/commit conflicts roll back the original transaction. Recover
+            # only from fresh canonical reads and the same validated replay policy.
+            async with self._uow_factory() as uow:
+                managed = is_managed_benchmark_space_id(str(command.space_id))
+                body_hash = (
+                    content_hash(command.text) if managed else document_content_digest(command.text)
+                )
+                keys = await self._keys(uow, command, body_hash)
+                for key in keys:
+                    existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
+                    if existing is not None:
+                        try:
+                            return await replay_document_receipt(
+                                uow,
+                                command,
+                                existing,
+                                modern_hash=document_content_digest(command.text),
+                            )
+                        except MemoryConflictError:
+                            if key == keys[0]:
+                                raise
+                duplicate = await find_document_duplicate(
+                    uow, command, body_hash=body_hash, managed=managed
+                )
+                if duplicate is not None:
+                    if command.idempotency_key or managed:
+                        try:
+                            await self._record_duplicate_receipt(
+                                uow, command, duplicate, key=keys[0], body_hash=body_hash
+                            )
+                        except MemoryConflictError:
+                            # A different request may have bound this explicit
+                            # key while we recovered the shared document.
+                            async with self._uow_factory() as replay_uow:
+                                await self._keys(replay_uow, command, body_hash)
+                                record = await replay_uow.idempotency.find(
+                                    space_id=str(command.space_id), key=keys[0]
+                                )
+                                if record is None:
+                                    raise
+                                return await replay_document_receipt(
+                                    replay_uow,
+                                    command,
+                                    record,
+                                    modern_hash=document_content_digest(command.text),
+                                )
+                    return duplicate
+            raise exc
+
+    async def _keys(self, uow, command, body_hash: str) -> tuple[str, ...]:
+        managed_key = await require_managed_document_admission(
+            uow=uow, command=command, strict_v4_authority=self._strict_v4_authority
+        )
+        strict = self._strict_v4_authority is not None
+        key = document_idempotency_key(command, body_hash, managed_key, strict)
+        if managed_key is not None or command.idempotency_key:
+            return (key,)
+        legacy_key = document_idempotency_key(
+            command, legacy_document_content_digest(command.text), None, False
+        )
+        return tuple(dict.fromkeys((key, legacy_key)))
+
+    async def _execute_once(self, command: IngestDocumentCommand) -> IngestDocumentResult:
         managed_benchmark = is_managed_benchmark_space_id(str(command.space_id))
-        body_hash = content_hash(command.text)
-
+        body_hash = (
+            content_hash(command.text)
+            if managed_benchmark
+            else document_content_digest(command.text)
+        )
         async with self._uow_factory() as uow:
-            managed_key = None
-            if managed_benchmark:
-                managed_key = await require_managed_document_admission(
-                    uow=uow,
-                    command=command,
-                    strict_v4_authority=self._strict_v4_authority,
+            keys = await self._keys(uow, command, body_hash)
+            key = keys[0]
+            for lookup_key in keys:
+                existing = await uow.idempotency.find(
+                    space_id=str(command.space_id), key=lookup_key
                 )
-            if managed_key is not None and self._strict_v4_authority is not None:
-                # Preserve the authenticated authority identity as durable canonical
-                # evidence. The strict writer fence validates this exact domain prefix.
-                key = managed_key
-            else:
-                raw_key = (
-                    managed_key
-                    or command.idempotency_key
-                    or (
-                        f"document:{command.space_id}:{command.memory_scope_id}:"
-                        f"{command.source_type}:{command.source_external_id}:{body_hash}"
-                    )
-                )
-                key = scoped_idempotency_key(
-                    "ingest_document",
-                    command.memory_scope_id,
-                    command.thread_id,
-                    raw_key,
-                )
-            existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
-            if existing:
-                if existing.fingerprint != body_hash:
-                    raise MemoryConflictError("Idempotency key was used with different document")
-                document = await uow.documents.get_by_id(existing.result_id)
-                if document is None:
-                    raise MemoryInvariantError("Idempotency result points to missing document")
-                chunks = await uow.documents.list_chunks(str(document.id))
-                return IngestDocumentResult(
-                    document=document,
-                    chunks=tuple(chunks),
-                    duplicate_chunks=len(chunks),
-                    indexing_status="already_indexed_or_pending",
-                )
-
-            existing_document = await uow.documents.find_active_by_content_hash(
-                space_id=str(command.space_id),
-                memory_scope_id=str(command.memory_scope_id),
-                thread_id=str(command.thread_id) if command.thread_id else None,
-                content_hash=body_hash,
-            )
-            if existing_document is not None:
-                chunks = await uow.documents.list_chunks(str(existing_document.id))
-                if command.idempotency_key or managed_benchmark:
-                    await uow.idempotency.save(
-                        IdempotencyRecord(
-                            space_id=str(command.space_id),
-                            key=key,
-                            fingerprint=body_hash,
-                            result_type="document",
-                            result_id=str(existing_document.id),
-                        )
-                    )
+                if existing is not None:
                     try:
-                        await uow.commit()
-                    except MemoryConflictError as exc:
-                        existing = await uow.idempotency.find(
-                            space_id=str(command.space_id),
-                            key=key,
+                        return await replay_document_receipt(
+                            uow,
+                            command,
+                            existing,
+                            modern_hash=document_content_digest(command.text),
                         )
-                        if existing is None:
+                    except MemoryConflictError:
+                        if lookup_key == keys[0]:
                             raise
-                        if existing.fingerprint != body_hash:
-                            raise MemoryConflictError(
-                                "Idempotency key was used with different document"
-                            ) from exc
-                        document = await uow.documents.get_by_id(existing.result_id)
-                        if document is None:
-                            raise MemoryInvariantError(
-                                "Idempotency result points to missing document"
-                            ) from exc
-                        chunks = await uow.documents.list_chunks(str(document.id))
-                        return IngestDocumentResult(
-                            document=document,
-                            chunks=tuple(chunks),
-                            duplicate_chunks=len(chunks),
-                            indexing_status="already_indexed_or_pending",
-                        )
-                return IngestDocumentResult(
-                    document=existing_document,
-                    chunks=tuple(chunks),
-                    duplicate_chunks=len(chunks),
-                    indexing_status="already_indexed_or_pending",
-                )
+            duplicate = await find_document_duplicate(
+                uow, command, body_hash=body_hash, managed=managed_benchmark
+            )
+            if duplicate is not None:
+                if command.idempotency_key or managed_benchmark:
+                    await self._record_duplicate_receipt(
+                        uow, command, duplicate, key=key, body_hash=body_hash
+                    )
+                return duplicate
 
             now = self._clock.now()
             document = MemoryDocument.create(
@@ -156,24 +169,7 @@ class IngestDocumentUseCase:
                 now=now,
                 classification=command.classification,
             )
-            try:
-                saved_document = await uow.documents.create(document)
-            except MemoryConflictError:
-                existing_document = await uow.documents.find_active_by_content_hash(
-                    space_id=str(command.space_id),
-                    memory_scope_id=str(command.memory_scope_id),
-                    thread_id=str(command.thread_id) if command.thread_id else None,
-                    content_hash=body_hash,
-                )
-                if existing_document is None:
-                    raise
-                chunks = await uow.documents.list_chunks(str(existing_document.id))
-                return IngestDocumentResult(
-                    document=existing_document,
-                    chunks=tuple(chunks),
-                    duplicate_chunks=len(chunks),
-                    indexing_status="already_indexed_or_pending",
-                )
+            saved_document = await uow.documents.create(document)
             stored_chunks = []
             duplicate_chunks = 0
             for piece in fragment_document_text(command.text):
@@ -261,49 +257,26 @@ class IngestDocumentUseCase:
                     result_id=str(saved_document.id),
                 )
             )
-            try:
-                await uow.commit()
-            except MemoryConflictError as exc:
-                existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
-                if existing:
-                    if existing.fingerprint != body_hash:
-                        raise MemoryConflictError(
-                            "Idempotency key was used with different document"
-                        ) from exc
-                    document = await uow.documents.get_by_id(existing.result_id)
-                    if document is None:
-                        raise MemoryInvariantError(
-                            "Idempotency result points to missing document"
-                        ) from exc
-                    chunks = await uow.documents.list_chunks(str(document.id))
-                    return IngestDocumentResult(
-                        document=document,
-                        chunks=tuple(chunks),
-                        duplicate_chunks=len(chunks),
-                        indexing_status="already_indexed_or_pending",
-                    )
-                existing_document = await uow.documents.find_active_by_content_hash(
-                    space_id=str(command.space_id),
-                    memory_scope_id=str(command.memory_scope_id),
-                    thread_id=str(command.thread_id) if command.thread_id else None,
-                    content_hash=body_hash,
-                )
-                if existing_document is None:
-                    raise
-                chunks = await uow.documents.list_chunks(str(existing_document.id))
-                return IngestDocumentResult(
-                    document=existing_document,
-                    chunks=tuple(chunks),
-                    duplicate_chunks=len(chunks),
-                    indexing_status="already_indexed_or_pending",
-                )
-
+            await uow.commit()
         return IngestDocumentResult(
             document=saved_document,
             chunks=tuple(stored_chunks),
             duplicate_chunks=duplicate_chunks,
             indexing_status="pending",
         )
+
+    @staticmethod
+    async def _record_duplicate_receipt(uow, command, result, *, key: str, body_hash: str) -> None:
+        await uow.idempotency.save(
+            IdempotencyRecord(
+                space_id=str(command.space_id),
+                key=key,
+                fingerprint=body_hash,
+                result_type="document",
+                result_id=str(result.document.id),
+            )
+        )
+        await uow.commit()
 
 
 def _can_project_document_to_external_memory(classification: str) -> bool:

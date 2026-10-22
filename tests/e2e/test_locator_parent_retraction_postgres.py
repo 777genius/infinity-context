@@ -44,6 +44,7 @@ async def _assert_parent_retraction(database_url: str) -> None:
             assert upgraded.applied == (
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
             await _assert_coordinate_edit_egress(engine)
             await _assert_classification_tightening(engine, asyncpg)

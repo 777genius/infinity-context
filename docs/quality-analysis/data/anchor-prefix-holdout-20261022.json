@@ -1,0 +1,92 @@
+{
+  "case_count": 24,
+  "baseline_sufficient": 18,
+  "counterfactual_sufficient": 22,
+  "improved": [
+    "hold-00",
+    "hold-03",
+    "hold-05",
+    "hold-06"
+  ],
+  "regressed": [],
+  "new_selected_decoys": {
+    "hold-12": [
+      "h-12-00"
+    ],
+    "hold-13": [
+      "h-13-01"
+    ],
+    "hold-14": [
+      "h-14-01"
+    ],
+    "hold-15": [
+      "h-15-01"
+    ]
+  },
+  "new_admitted_decoys": {
+    "hold-12": [
+      "h-12-00"
+    ],
+    "hold-13": [
+      "h-13-01"
+    ],
+    "hold-14": [
+      "h-14-01"
+    ],
+    "hold-15": [
+      "h-15-01"
+    ]
+  },
+  "anchors_unchanged": true,
+  "compatibility": {
+    "case_id": "compat-old-anchor-development",
+    "category": "compatibility-development",
+    "required_source": "note-01-02",
+    "anchor_count_before": 9,
+    "anchor_rows_unchanged": true,
+    "anchor_rows_sha256": "c7fbc8cd883c9e66d27a0fb80dcdcefd36041f7654bff15655d80f312554b651",
+    "newly_selected_decoys": [],
+    "newly_admitted_decoys": [
+      "note-01-03"
+    ]
+  },
+  "compatibility_sufficient": {
+    "baseline": false,
+    "counterfactual": true
+  },
+  "by_category": {
+    "owner": {
+      "n": 2,
+      "baseline": 2,
+      "counterfactual": 2
+    },
+    "polarity": {
+      "n": 2,
+      "baseline": 2,
+      "counterfactual": 2
+    },
+    "positive": {
+      "n": 8,
+      "baseline": 2,
+      "counterfactual": 6
+    },
+    "russian": {
+      "n": 8,
+      "baseline": 8,
+      "counterfactual": 8
+    },
+    "temporal": {
+      "n": 2,
+      "baseline": 2,
+      "counterfactual": 2
+    },
+    "unrelated": {
+      "n": 2,
+      "baseline": 2,
+      "counterfactual": 2
+    }
+  },
+  "seconds": 8.053911003000394,
+  "post_source_sha256": "5751179b748f7c61b6400648602332678f7c11086a7992ba8635fce0877a2f3c",
+  "gate_passed": false
+}
