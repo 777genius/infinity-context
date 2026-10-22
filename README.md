@@ -226,8 +226,8 @@ coverage is still one source short of the 207/216 target.
 These results measure **source coverage**, not LLM answer accuracy. Both sets have
 now been used for diagnosis; the 48-question set is no longer an untouched holdout.
 They are not a full LongMemEval result, a production qualification, or a matched
-comparison with competing memory systems. Broader quality still needs a fresh
-holdout and end-to-end answer evaluation.
+comparison with competing memory systems; broader qualification still needs a
+fresh holdout.
 
 An end-to-end answer-quality measurement (2026-10-20, PR 79) closes that gap
 with a paired ablation on both frozen sets: every question was answered twice —
@@ -243,9 +243,18 @@ empty-context arm answered nothing, so every correct answer came from the
 retrieved memory. Details and caveats:
 docs/quality-analysis/answer-quality-paired-eval-r1.md.
 
-PR #75 reduced median context latency from **6.334 s to 5.586 s (11.8%)** in
-three alternating ASGI before/after pairs on **one query**. This is a small paired
-measurement, not an overall p95 latency estimate.
+Updated on **2026-10-21** (PR 80, PR 81, PR 82 merged): a snippet-windowing fix
+keeps facts that continue just past the focused window visible in the packed
+context — on rebuilt item texts, questions whose gold evidence became visible
+went 56 to 59 of 100 with no previously visible question regressing; the frozen
+coverage table above is unchanged because it packs precomputed frozen items.
+A paired answer test of the newly visible cases found 0 answer-level
+conversions, consistent with the rest of the diagnosis: the dominant remaining
+failures are answers the model fails to extract from visible evidence (42 of
+94 residual failures) and facts fragmented across chunks (29 of 94), not
+retrieval gaps. The full failure-vein map, the measured dead-ends, and the
+replay probes that produced these numbers are in
+docs/quality-analysis/answer-failure-vein-map-r1.md.
 
 The citation remediation is [PR #76](https://github.com/777genius/infinity-context/pull/76):
 quote previews and query-snippet diagnostics now quote the verbatim chunk body
