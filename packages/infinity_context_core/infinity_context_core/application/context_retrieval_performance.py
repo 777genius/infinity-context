@@ -33,6 +33,7 @@ class TermFrequencyMemo:
 
     counts: Counter[str] | None = None
     frequencies: dict[tuple[str, ...], int] = field(default_factory=dict)
+    length_buckets: dict[int, tuple[tuple[int, str, int], ...]] | None = None
 
 
 @dataclass

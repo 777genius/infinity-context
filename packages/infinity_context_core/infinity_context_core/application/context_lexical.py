@@ -512,6 +512,20 @@ def query_term_frequency(term: LexicalQueryTerm, text_counts: Mapping[str, int])
     return _approximate_term_frequency(term.variants, text_counts)
 
 
+def _length_buckets(
+    text_counts: Mapping[str, int],
+) -> dict[int, tuple[tuple[int, str, int], ...]]:
+    """Group candidates by length with their text_counts position for order replay."""
+
+    buckets: dict[int, list[tuple[int, str, int]]] = {}
+    for position, (candidate, frequency) in enumerate(text_counts.items()):
+        candidate_length = len(candidate)
+        if candidate_length < 6:
+            continue
+        buckets.setdefault(candidate_length, []).append((position, candidate, frequency))
+    return {length: tuple(entries) for length, entries in buckets.items()}
+
+
 def query_term_frequency_for_text(
     term: LexicalQueryTerm,
     text: str,
@@ -533,7 +547,17 @@ def query_term_frequency_for_text(
         return cached
     if memo.counts is None:
         memo.counts, _ = text_variant_profile(text, min_chars=min_chars)
-    frequency = query_term_frequency(term, memo.counts)
+    exact_frequency = max((memo.counts.get(variant, 0) for variant in variants), default=0)
+    if exact_frequency > 0:
+        memo.frequencies[variants] = exact_frequency
+        return exact_frequency
+    if memo.length_buckets is None:
+        memo.length_buckets = _length_buckets(memo.counts)
+    frequency = _approximate_term_frequency(
+        variants,
+        memo.counts,
+        length_buckets=memo.length_buckets,
+    )
     memo.frequencies[variants] = frequency
     return frequency
 
@@ -719,16 +743,25 @@ def _expand_cross_language_aliases(values: Iterable[str]) -> tuple[str, ...]:
 def _approximate_term_frequency(
     variants: tuple[str, ...],
     text_counts: Counter[str],
+    *,
+    length_buckets: Mapping[int, tuple[tuple[int, str, int], ...]] | None = None,
 ) -> int:
     long_variants = tuple(
         variant for variant in variants if len(variant) >= 6 and not variant.startswith("date_")
     )
     if not long_variants:
         return 0
+    if length_buckets is None:
+        length_buckets = _length_buckets(text_counts)
     for variant in long_variants:
-        for candidate, frequency in text_counts.items():
-            if len(candidate) < 6 or abs(len(candidate) - len(variant)) > 1:
-                continue
+        variant_length = len(variant)
+        nearby: list[tuple[int, str, int]] = []
+        for bucket_length in (variant_length - 1, variant_length, variant_length + 1):
+            nearby.extend(length_buckets.get(bucket_length, ()))
+        if not nearby:
+            continue
+        nearby.sort(key=lambda entry: entry[0])
+        for _, candidate, frequency in nearby:
             if _edit_distance_at_most_one(variant, candidate):
                 return frequency
     return 0
@@ -741,10 +774,12 @@ def _edit_distance_at_most_one(left: str, right: str) -> bool:
         return False
     if len(left) > len(right):
         left, right = right, left
+    left_length = len(left)
+    right_length = len(right)
     mismatch_count = 0
     left_index = 0
     right_index = 0
-    while left_index < len(left) and right_index < len(right):
+    while left_index < left_length and right_index < right_length:
         if left[left_index] == right[right_index]:
             left_index += 1
             right_index += 1
@@ -752,7 +787,7 @@ def _edit_distance_at_most_one(left: str, right: str) -> bool:
         mismatch_count += 1
         if mismatch_count > 1:
             return False
-        if len(left) == len(right):
+        if left_length == right_length:
             left_index += 1
         right_index += 1
     return True

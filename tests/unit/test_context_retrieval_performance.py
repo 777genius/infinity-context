@@ -164,10 +164,11 @@ def test_request_cache_reuses_approximate_term_frequency_per_text(
     def counting_approximate(
         variants: tuple[str, ...],
         text_counts: object,
+        **kwargs: object,
     ) -> int:
         nonlocal call_count
         call_count += 1
-        return real_approximate(variants, text_counts)
+        return real_approximate(variants, text_counts, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(
         lexical_module,
@@ -205,6 +206,58 @@ def test_query_term_frequency_for_text_matches_uncached_frequency() -> None:
     assert cached_first == cached_second == uncached == expected
 
 
+def test_request_cache_builds_length_buckets_once_per_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = 0
+    real_length_buckets = lexical_module._length_buckets
+
+    def counting_length_buckets(text_counts: object) -> object:
+        nonlocal call_count
+        call_count += 1
+        return real_length_buckets(text_counts)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        lexical_module,
+        "_length_buckets",
+        counting_length_buckets,
+    )
+
+    text = "aleksandra visited atlas cafe museum"
+    first_term = lexical_module.LexicalQueryTerm(raw="aleksandry", variants=("aleksandry",))
+    second_term = lexical_module.LexicalQueryTerm(raw="visite", variants=("visite",))
+
+    @with_request_retrieval_performance_cache
+    async def exercise() -> tuple[int, int]:
+        return (
+            lexical_module.query_term_frequency_for_text(first_term, text),
+            lexical_module.query_term_frequency_for_text(second_term, text),
+        )
+
+    first_frequency, second_frequency = asyncio.run(exercise())
+    assert first_frequency == 1
+    assert second_frequency == 1
+    assert call_count == 1
+
+
+def test_approximate_term_frequency_replays_text_order_across_length_buckets() -> None:
+    # The first edit-distance hit in text order is a length+1 candidate, while a
+    # length-1 candidate sits in an earlier bucket; position replay must win.
+    counts = lexical_module.Counter({"visitingg": 5, "visitin": 3, "atlascafe": 2})
+    term = lexical_module.LexicalQueryTerm(raw="visiting", variants=("visiting",))
+    buckets = lexical_module._length_buckets(counts)
+
+    assert (
+        lexical_module._approximate_term_frequency(
+            ("visiting",),
+            counts,
+            length_buckets=buckets,
+        )
+        == 5
+    )
+    assert lexical_module.query_term_frequency(term, counts) == 5
+
+
 def test_score_query_relevance_reuses_frequency_work_within_one_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -214,10 +267,11 @@ def test_score_query_relevance_reuses_frequency_work_within_one_request(
     def counting_approximate(
         variants: tuple[str, ...],
         text_counts: object,
+        **kwargs: object,
     ) -> int:
         nonlocal call_count
         call_count += 1
-        return real_approximate(variants, text_counts)
+        return real_approximate(variants, text_counts, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(
         lexical_module,
