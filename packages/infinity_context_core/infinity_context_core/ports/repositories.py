@@ -427,6 +427,14 @@ class DocumentRepositoryPort(Protocol):
     ) -> list[MemoryChunk]:
         """List active chunks for a document."""
 
+    async def list_chunks_by_document_ids(
+        self,
+        document_ids: tuple[str, ...],
+        *,
+        limit_per_document: int,
+    ) -> list[MemoryChunk]:
+        """List active chunks for many documents with a per-document cap."""
+
     async def list_for_scope(
         self,
         *,
@@ -511,8 +519,14 @@ class ChunkRepositoryPort(Protocol):
         source_external_id_groups: tuple[str, ...],
         exclude_chunk_ids: tuple[str, ...],
         limit: int,
+        limit_per_group: int | None = None,
     ) -> list[MemoryChunk]:
-        """List active chunks from tightly related source-external-id groups."""
+        """List active chunks from tightly related source-external-id groups.
+
+        ``limit`` caps the whole result; ``limit_per_group`` instead keeps at most
+        that many chunks per requested group (a row matching several groups counts
+        toward the earliest one only).
+        """
 
     async def keyword_search(
         self,
