@@ -5,6 +5,7 @@ import asyncio
 import infinity_context_core.application.context_lexical as lexical_module
 import infinity_context_core.application.safe_payload as safe_payload_module
 import pytest
+from infinity_context_core.application.context_relevance import score_query_relevance
 from infinity_context_core.application.context_retrieval_performance import (
     with_request_retrieval_performance_cache,
 )
@@ -152,3 +153,87 @@ def test_request_cache_redacts_each_unique_diagnostic_text_once(
     asyncio.run(exercise())
 
     assert calls == ["token=private-value"]
+
+
+def test_request_cache_reuses_approximate_term_frequency_per_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = 0
+    real_approximate = lexical_module._approximate_term_frequency
+
+    def counting_approximate(
+        variants: tuple[str, ...],
+        text_counts: object,
+    ) -> int:
+        nonlocal call_count
+        call_count += 1
+        return real_approximate(variants, text_counts)
+
+    monkeypatch.setattr(
+        lexical_module,
+        "_approximate_term_frequency",
+        counting_approximate,
+    )
+
+    term = lexical_module.LexicalQueryTerm(raw="aleksandry", variants=("aleksandry",))
+    text = "aleksandra visited atlas cafe"
+
+    @with_request_retrieval_performance_cache
+    async def exercise() -> int:
+        first = lexical_module.query_term_frequency_for_text(term, text)
+        second = lexical_module.query_term_frequency_for_text(term, text)
+        assert first == second
+        return first
+
+    assert asyncio.run(exercise()) == 1
+    assert call_count == 1
+
+
+def test_query_term_frequency_for_text_matches_uncached_frequency() -> None:
+    term = lexical_module.LexicalQueryTerm(raw="aleksandry", variants=("aleksandry",))
+    text = "aleksandra visited atlas cafe"
+    expected = lexical_module.query_term_frequency(term, lexical_module.text_variant_counts(text))
+
+    @with_request_retrieval_performance_cache
+    async def exercise() -> tuple[int, int]:
+        with_cache = lexical_module.query_term_frequency_for_text(term, text)
+        without_cache = lexical_module.query_term_frequency_for_text(term, text)
+        return with_cache, without_cache
+
+    cached_first, cached_second = asyncio.run(exercise())
+    uncached = lexical_module.query_term_frequency_for_text(term, text)
+    assert cached_first == cached_second == uncached == expected
+
+
+def test_score_query_relevance_reuses_frequency_work_within_one_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    call_count = 0
+    real_approximate = lexical_module._approximate_term_frequency
+
+    def counting_approximate(
+        variants: tuple[str, ...],
+        text_counts: object,
+    ) -> int:
+        nonlocal call_count
+        call_count += 1
+        return real_approximate(variants, text_counts)
+
+    monkeypatch.setattr(
+        lexical_module,
+        "_approximate_term_frequency",
+        counting_approximate,
+    )
+
+    query = "aleksandry"
+    text = "aleksandra visited atlas cafe"
+
+    @with_request_retrieval_performance_cache
+    async def exercise() -> object:
+        first = score_query_relevance(query=query, text=text)
+        second = score_query_relevance(query=query, text=text)
+        assert first == second
+        return first
+
+    assert asyncio.run(exercise()) is not None
+    assert call_count == 1

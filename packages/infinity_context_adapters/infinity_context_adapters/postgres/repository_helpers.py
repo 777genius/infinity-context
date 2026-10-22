@@ -7,9 +7,8 @@ from hashlib import sha256
 
 from infinity_context_core.application.context_lexical import (
     LexicalQueryTerm,
-    query_term_frequency,
+    query_term_frequency_for_text,
     query_terms,
-    text_variant_counts,
 )
 from sqlalchemy import case, func, literal_column, or_
 
@@ -28,8 +27,7 @@ def _terms(query: str) -> tuple[LexicalQueryTerm, ...]:
 
 
 def _score(text: str, terms: tuple[LexicalQueryTerm, ...]) -> int:
-    counts = text_variant_counts(text)
-    unique_hits = sum(1 for term in terms if query_term_frequency(term, counts) > 0)
+    unique_hits = sum(1 for term in terms if query_term_frequency_for_text(term, text) > 0)
     if unique_hits == 0:
         return 0
     density_penalty = len(text) // 800

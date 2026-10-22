@@ -10,8 +10,8 @@ from infinity_context_core.application.context_lexical import (
     LexicalQueryTerm,
     lexical_variants,
     query_term_frequency,
+    query_term_frequency_for_text,
     query_terms,
-    text_variant_counts,
     text_variant_profile,
 )
 
@@ -141,11 +141,13 @@ _RELATIONSHIP_DURATION_TEXT_TIME_RE = re.compile(
 
 def score_query_relevance(*, query: str, text: str, max_boost: float = 0.12) -> QueryRelevance:
     text_counts, text_variants = text_variant_profile(text)
-    return score_query_relevance_against_profile(
-        query=query,
+    terms = query_terms(query)
+    return score_query_terms_relevance_against_profile(
+        terms=terms,
         text_counts=text_counts,
         text_variants=text_variants,
         max_boost=max_boost,
+        frequencies=tuple(query_term_frequency_for_text(term, text) for term in terms),
     )
 
 
@@ -171,6 +173,7 @@ def score_query_terms_relevance_against_profile(
     text_counts: Mapping[str, int],
     text_variants: tuple[tuple[str, ...], ...],
     max_boost: float = 0.12,
+    frequencies: tuple[int, ...] | None = None,
 ) -> QueryRelevance:
     if not terms:
         return QueryRelevance(
@@ -180,7 +183,8 @@ def score_query_terms_relevance_against_profile(
             capped_frequency_hits=0,
             hit_ratio=0.0,
         )
-    frequencies = tuple(query_term_frequency(term, text_counts) for term in terms)
+    if frequencies is None:
+        frequencies = tuple(query_term_frequency(term, text_counts) for term in terms)
     unique_hits = sum(1 for frequency in frequencies if frequency > 0)
     capped_frequency_hits = sum(min(frequency, 3) for frequency in frequencies)
     hit_ratio = unique_hits / len(terms)
@@ -247,8 +251,7 @@ def is_query_relevance_specific_enough(
     )
     if not specific_terms:
         return True
-    counts = text_variant_counts(text)
-    return any(query_term_frequency(term, counts) > 0 for term in specific_terms)
+    return any(query_term_frequency_for_text(term, text) > 0 for term in specific_terms)
 
 
 def is_fact_candidate_relevance_sufficient(relevance: QueryRelevance) -> bool:
