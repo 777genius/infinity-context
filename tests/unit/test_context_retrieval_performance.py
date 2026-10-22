@@ -192,9 +192,7 @@ def test_request_cache_reuses_approximate_term_frequency_per_text(
 def test_query_term_frequency_for_text_matches_uncached_frequency() -> None:
     term = lexical_module.LexicalQueryTerm(raw="aleksandry", variants=("aleksandry",))
     text = "aleksandra visited atlas cafe"
-    expected = lexical_module.query_term_frequency(
-        term, lexical_module.text_variant_counts(text)
-    )
+    expected = lexical_module.query_term_frequency(term, lexical_module.text_variant_counts(text))
 
     @with_request_retrieval_performance_cache
     async def exercise() -> tuple[int, int]:

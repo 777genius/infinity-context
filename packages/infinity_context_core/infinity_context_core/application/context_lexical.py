@@ -528,12 +528,13 @@ def query_term_frequency_for_text(
     if memo is None:
         return query_term_frequency(term, text_variant_counts(text, min_chars=min_chars))
     variants = term.variants
-    cached = memo.get(variants)
+    cached = memo.frequencies.get(variants)
     if cached is not None:
         return cached
-    counts, _ = text_variant_profile(text, min_chars=min_chars)
-    frequency = query_term_frequency(term, counts)
-    memo[variants] = frequency
+    if memo.counts is None:
+        memo.counts, _ = text_variant_profile(text, min_chars=min_chars)
+    frequency = query_term_frequency(term, memo.counts)
+    memo.frequencies[variants] = frequency
     return frequency
 
 

@@ -7,7 +7,7 @@ repository port or retaining memory text between requests.
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -27,7 +27,12 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
-_TermFrequencyMemo = dict[tuple[str, ...], int]
+@dataclass
+class TermFrequencyMemo:
+    """Request-local scratch for one text: one profile copy plus its frequencies."""
+
+    counts: Counter[str] | None = None
+    frequencies: dict[tuple[str, ...], int] = field(default_factory=dict)
 
 
 @dataclass
@@ -39,7 +44,7 @@ class _RequestRetrievalCache:
     safe_texts: OrderedDict[str, str] = field(default_factory=OrderedDict)
     safe_text_chars: int = 0
     # Scratch memo for per-term frequency lookups; lifetime follows profiles.
-    freq_memos: dict[_ProfileKey, _TermFrequencyMemo] = field(default_factory=dict)
+    freq_memos: dict[_ProfileKey, TermFrequencyMemo] = field(default_factory=dict)
 
     def get(self, key: _ProfileKey) -> TextVariantProfileSnapshot | None:
         profile = self.profiles.get(key)
@@ -142,7 +147,7 @@ def cached_profile_frequency_memo(
     text: str,
     *,
     min_chars: int,
-) -> _TermFrequencyMemo | None:
+) -> TermFrequencyMemo | None:
     """Return the request-local term-frequency memo for one text.
 
     Memo entries stay correct for the whole request because they are keyed by
@@ -156,7 +161,7 @@ def cached_profile_frequency_memo(
     key = (text, min_chars)
     memo = cache.freq_memos.get(key)
     if memo is None:
-        memo = {}
+        memo = TermFrequencyMemo()
         cache.freq_memos[key] = memo
     return memo
 
@@ -173,6 +178,7 @@ def remember_safe_metadata_text(text: str, safe_text: str) -> None:
 
 
 __all__ = (
+    "TermFrequencyMemo",
     "TextVariantProfileSnapshot",
     "cached_profile_frequency_memo",
     "cached_safe_metadata_text",
