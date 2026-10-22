@@ -51,8 +51,8 @@ def bigrams(tokens: list[str]) -> list[str]:
 
 def distinctiveness(
     token: str,
-    pool_df: "collections.Counter[str]",
-    store_df: "collections.Counter[str]",
+    pool_df: collections.Counter[str],
+    store_df: collections.Counter[str],
 ) -> float:
     return pool_df[token] / store_df[token]
 
