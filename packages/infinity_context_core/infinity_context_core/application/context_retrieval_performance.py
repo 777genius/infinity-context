@@ -27,6 +27,9 @@ _P = ParamSpec("_P")
 _R = TypeVar("_R")
 
 
+_TermFrequencyMemo = dict[tuple[str, ...], int]
+
+
 @dataclass
 class _RequestRetrievalCache:
     profiles: OrderedDict[_ProfileKey, TextVariantProfileSnapshot] = field(
@@ -35,6 +38,8 @@ class _RequestRetrievalCache:
     text_chars: int = 0
     safe_texts: OrderedDict[str, str] = field(default_factory=OrderedDict)
     safe_text_chars: int = 0
+    # Scratch memo for per-term frequency lookups; lifetime follows profiles.
+    freq_memos: dict[_ProfileKey, _TermFrequencyMemo] = field(default_factory=dict)
 
     def get(self, key: _ProfileKey) -> TextVariantProfileSnapshot | None:
         profile = self.profiles.get(key)
@@ -60,6 +65,7 @@ class _RequestRetrievalCache:
         ):
             evicted_key, _ = self.profiles.popitem(last=False)
             self.text_chars -= len(evicted_key[0])
+            self.freq_memos.pop(evicted_key, None)
 
     def get_safe_text(self, text: str) -> str | None:
         safe_text = self.safe_texts.get(text)
@@ -132,6 +138,29 @@ def remember_text_variant_profile(
         cache.remember((text, min_chars), profile)
 
 
+def cached_profile_frequency_memo(
+    text: str,
+    *,
+    min_chars: int,
+) -> _TermFrequencyMemo | None:
+    """Return the request-local term-frequency memo for one text.
+
+    Memo entries stay correct for the whole request because they are keyed by
+    (text, min_chars) and frequencies are a pure function of those inputs;
+    entries are dropped together with the matching profile on eviction.
+    """
+
+    cache = _REQUEST_RETRIEVAL_CACHE.get()
+    if cache is None:
+        return None
+    key = (text, min_chars)
+    memo = cache.freq_memos.get(key)
+    if memo is None:
+        memo = {}
+        cache.freq_memos[key] = memo
+    return memo
+
+
 def cached_safe_metadata_text(text: str) -> str | None:
     cache = _REQUEST_RETRIEVAL_CACHE.get()
     return cache.get_safe_text(text) if cache is not None else None
@@ -145,6 +174,7 @@ def remember_safe_metadata_text(text: str, safe_text: str) -> None:
 
 __all__ = (
     "TextVariantProfileSnapshot",
+    "cached_profile_frequency_memo",
     "cached_safe_metadata_text",
     "cached_text_variant_profile",
     "remember_safe_metadata_text",

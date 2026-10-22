@@ -13,6 +13,7 @@ from infinity_context_core.application.anchor_identity_normalization import (
     normalize_cyrillic_project_case,
 )
 from infinity_context_core.application.context_retrieval_performance import (
+    cached_profile_frequency_memo,
     cached_text_variant_profile,
     remember_text_variant_profile,
 )
@@ -509,6 +510,31 @@ def query_term_frequency(term: LexicalQueryTerm, text_counts: Mapping[str, int])
     if exact_frequency > 0:
         return exact_frequency
     return _approximate_term_frequency(term.variants, text_counts)
+
+
+def query_term_frequency_for_text(
+    term: LexicalQueryTerm,
+    text: str,
+    *,
+    min_chars: int = 2,
+) -> int:
+    """Same frequency as query_term_frequency against the text profile.
+
+    Frequencies are memoized per text inside the request-local retrieval cache,
+    so repeated scoring of the same chunk skips the approximate scan entirely.
+    """
+
+    memo = cached_profile_frequency_memo(text, min_chars=min_chars)
+    if memo is None:
+        return query_term_frequency(term, text_variant_counts(text, min_chars=min_chars))
+    variants = term.variants
+    cached = memo.get(variants)
+    if cached is not None:
+        return cached
+    counts, _ = text_variant_profile(text, min_chars=min_chars)
+    frequency = query_term_frequency(term, counts)
+    memo[variants] = frequency
+    return frequency
 
 
 def matching_token_spans(
