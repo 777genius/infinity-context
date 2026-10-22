@@ -5,13 +5,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 from collections.abc import Iterable
-from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import uuid4
 
 from infinity_context_adapters.postgres import create_schema
 from infinity_context_adapters.postgres.models import MemoryOutboxRow
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -113,25 +113,48 @@ class OutboxWorker:
             interval_seconds=settings.asset_storage_maintenance_interval_seconds,
         )
 
-    async def _handle_with_heartbeat(self, job: ClaimedOutboxJob) -> None:
-        heartbeat = asyncio.create_task(self._heartbeat_running_job(job.id))
+    async def _handle_with_heartbeat(self, job: ClaimedOutboxJob) -> bool:
+        # A batch may wait behind other handlers long enough to be reclaimed.
+        if not await self._refresh_running_job(job):
+            return False
+        handler = asyncio.create_task(self._handle(job))
+        heartbeat = asyncio.create_task(self._heartbeat_running_job(job))
         try:
-            await self._handle(job)
-        finally:
-            heartbeat.cancel()
-            with suppress(asyncio.CancelledError):
+            finished, _ = await asyncio.wait(
+                (handler, heartbeat), return_when=asyncio.FIRST_COMPLETED
+            )
+            if heartbeat in finished:
+                # A finished heartbeat either lost ownership or failed. Do not
+                # leave the handler running until its next provider response.
                 await heartbeat
+                return False
+            await handler
+            return True
+        finally:
+            for task in (handler, heartbeat):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(handler, heartbeat, return_exceptions=True)
 
-    async def _heartbeat_running_job(self, job_id: int) -> None:
+    async def _heartbeat_running_job(self, job: ClaimedOutboxJob) -> None:
         interval = max(0.05, self._running_heartbeat_interval.total_seconds())
         while True:
             await asyncio.sleep(interval)
-            async with AsyncSession(self._container.engine) as session:
-                row = await session.get(MemoryOutboxRow, job_id)
-                if row is None or row.status != "running":
-                    return
-                row.updated_at = self._container.clock.now()
-                await session.commit()
+            if not await self._refresh_running_job(job):
+                return
+
+    async def _refresh_running_job(self, job: ClaimedOutboxJob) -> bool:
+        if not job.claim_token:
+            return False
+        async with AsyncSession(self._container.engine) as session:
+            changed = await session.scalar(
+                update(MemoryOutboxRow)
+                .where(*_owned_running_job(job))
+                .values(updated_at=self._container.clock.now())
+                .returning(MemoryOutboxRow.id)
+            )
+            await session.commit()
+        return changed is not None
 
     async def _process_claimed_jobs(
         self,
@@ -156,11 +179,12 @@ class OutboxWorker:
 
     async def _process_claimed_job(self, job: ClaimedOutboxJob) -> None:
         try:
-            await self._handle_with_heartbeat(job)
+            completed = await self._handle_with_heartbeat(job)
         except Exception as exc:
-            await self._mark_retry_or_dead(job.id, exc)
+            await self._mark_retry_or_dead(job, exc)
         else:
-            await self._mark_done(job.id)
+            if completed:
+                await self._mark_done(job)
 
     async def _claim_pending(self, *, limit: int) -> list[ClaimedOutboxJob]:
         now = self._container.clock.now()
@@ -194,6 +218,10 @@ class OutboxWorker:
             )
             query = _apply_worker_filter(query, self._filter)
             rows = list((await session.execute(query)).scalars())
+            for row in rows:
+                row.status = "running"
+                row.claim_token = uuid4().hex
+                row.updated_at = now
             claimed = [
                 ClaimedOutboxJob(
                     id=row.id,
@@ -205,12 +233,10 @@ class OutboxWorker:
                     fairness_key=row.fairness_key,
                     payload_json=dict(row.payload_json),
                     aggregate_type=row.aggregate_type,
+                    claim_token=row.claim_token,
                 )
                 for row in rows
             ]
-            for row in rows:
-                row.status = "running"
-                row.updated_at = now
             await session.commit()
             return claimed
 
@@ -235,6 +261,7 @@ class OutboxWorker:
         query = _apply_worker_filter(query, self._filter)
         rows = list((await session.execute(query)).scalars())
         for row in rows:
+            row.claim_token = None
             row.attempt_count += 1
             row.last_safe_error = "Worker lease expired"
             row.last_safe_diagnostic_code = "worker.lease_expired"
@@ -248,41 +275,76 @@ class OutboxWorker:
     async def _handle(self, job: ClaimedOutboxJob) -> None:
         await self._dispatcher.handle(job)
 
-    async def _mark_done(self, job_id: int) -> None:
+    async def _mark_done(self, job: ClaimedOutboxJob) -> bool:
+        if not job.claim_token:
+            return False
         now = self._container.clock.now()
         async with AsyncSession(self._container.engine) as session:
-            row = await session.get(MemoryOutboxRow, job_id)
-            if row:
-                row.status = "done"
-                row.last_safe_error = None
-                row.last_safe_diagnostic_code = None
-                row.updated_at = now
+            changed = await session.scalar(
+                update(MemoryOutboxRow)
+                .where(*_owned_running_job(job))
+                .values(
+                    status="done",
+                    claim_token=None,
+                    last_safe_error=None,
+                    last_safe_diagnostic_code=None,
+                    updated_at=now,
+                )
+                .returning(MemoryOutboxRow.id)
+            )
             await session.commit()
+        return changed is not None
 
-    async def _mark_retry_or_dead(self, job_id: int, exc: Exception) -> None:
+    async def _mark_retry_or_dead(self, job: ClaimedOutboxJob, exc: Exception) -> bool:
+        if not job.claim_token:
+            return False
         now = self._container.clock.now()
         async with AsyncSession(self._container.engine) as session:
-            row = await session.get(MemoryOutboxRow, job_id)
-            if row:
-                row.last_safe_error = _safe_error(exc)[:400]
-                diagnostic_code = _safe_diagnostic_code(exc)[:120]
-                row.last_safe_diagnostic_code = diagnostic_code
-                row.updated_at = now
-                retry_after_at = _retry_after_from_exception(exc)
-                if diagnostic_code in {
-                    "asset_extraction.lease_active",
-                    "asset_extraction.retry_not_ready",
-                }:
-                    row.status = "retry_pending"
-                    row.next_attempt_at = retry_after_at or now + timedelta(seconds=30)
-                else:
-                    row.attempt_count += 1
-                    if row.attempt_count >= MAX_ATTEMPTS:
-                        row.status = "dead"
-                    else:
-                        row.status = "retry_pending"
-                        row.next_attempt_at = now + timedelta(seconds=2**row.attempt_count)
+            attempt_count = await session.scalar(
+                select(MemoryOutboxRow.attempt_count)
+                .where(*_owned_running_job(job))
+                .with_for_update()
+            )
+            if attempt_count is None:
+                return False
+            diagnostic_code = _safe_diagnostic_code(exc)[:120]
+            deferred = diagnostic_code in {
+                "asset_extraction.lease_active",
+                "asset_extraction.retry_not_ready",
+            }
+            next_attempt_count = attempt_count if deferred else attempt_count + 1
+            values = {
+                "claim_token": None,
+                "last_safe_error": _safe_error(exc)[:400],
+                "last_safe_diagnostic_code": diagnostic_code,
+                "updated_at": now,
+                "attempt_count": next_attempt_count,
+                "status": "retry_pending",
+            }
+            if deferred:
+                values["next_attempt_at"] = _retry_after_from_exception(exc) or now + timedelta(
+                    seconds=30
+                )
+            elif next_attempt_count >= MAX_ATTEMPTS:
+                values["status"] = "dead"
+            else:
+                values["next_attempt_at"] = now + timedelta(seconds=2**next_attempt_count)
+            changed = await session.scalar(
+                update(MemoryOutboxRow)
+                .where(*_owned_running_job(job))
+                .values(**values)
+                .returning(MemoryOutboxRow.id)
+            )
             await session.commit()
+        return changed is not None
+
+
+def _owned_running_job(job: ClaimedOutboxJob) -> tuple:
+    return (
+        MemoryOutboxRow.id == job.id,
+        MemoryOutboxRow.status == "running",
+        MemoryOutboxRow.claim_token == job.claim_token,
+    )
 
 
 def _safe_error(exc: Exception) -> str:

@@ -110,7 +110,7 @@ def test_document_listing_migration_is_explicit_nontransactional_and_split() -> 
 def test_pr57_history_through_0051_has_exact_appended_0052_sequence_pending() -> None:
     migrations = migration_runner._load_migrations()
     migration_ids = tuple(migration.migration_id for migration in migrations)
-    pr57_migrations = migrations[:-10]
+    pr57_migrations = tuple(item for item in migrations if item.migration_id < "0052_")
     history = {migration.migration_id: migration.checksum for migration in pr57_migrations}
     document_index_migrations = tuple(
         migration.migration_id
@@ -118,7 +118,7 @@ def test_pr57_history_through_0051_has_exact_appended_0052_sequence_pending() ->
         if migration.migration_id.endswith("_document_scope_listing_indexes")
     )
 
-    assert migration_ids[-11:] == (
+    assert migration_ids[-12:] == (
         "0051_locator_profile_acl_search_path_hardening",
         "0052_document_scope_listing_indexes",
         "0052_reconciliation_outbox_binding_index",
@@ -130,8 +130,9 @@ def test_pr57_history_through_0051_has_exact_appended_0052_sequence_pending() ->
         "0058_suggestion_server_thread_scope",
         "0059_locator_parent_lifecycle",
         "0060_memory_outbox_aggregate_id_width",
+        "0061_outbox_claim_ownership",
     )
-    assert migrations[-1].migration_id == "0060_memory_outbox_aggregate_id_width"
+    assert migrations[-1].migration_id == "0061_outbox_claim_ownership"
     assert document_index_migrations == ("0052_document_scope_listing_indexes",)
     migration_runner._validate_history(migrations, history)
     assert migration_runner._first_pending_out_of_transaction(migrations, history) == len(

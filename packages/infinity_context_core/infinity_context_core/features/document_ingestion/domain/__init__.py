@@ -11,6 +11,13 @@ from infinity_context_core.features.document_ingestion.domain.chunking import (
     DocumentTextRange,
     estimate_token_count,
 )
+from infinity_context_core.features.document_ingestion.domain.content_identity import (
+    LegacyDocumentFragmentEvidence,
+    document_content_digest,
+    document_fragment_span_is_valid,
+    legacy_document_content_digest,
+    proves_legacy_document_source,
+)
 from infinity_context_core.features.document_ingestion.domain.errors import (
     DocumentIngestionError,
     DocumentIngestionInvariantError,
@@ -53,6 +60,11 @@ from infinity_context_core.features.document_ingestion.domain.source_document im
 )
 
 __all__ = (
+    "LegacyDocumentFragmentEvidence",
+    "document_content_digest",
+    "document_fragment_span_is_valid",
+    "legacy_document_content_digest",
+    "proves_legacy_document_source",
     "CHUNKING_POLICY_VERSION",
     "ChunkingPolicy",
     "DocumentChunk",

@@ -723,13 +723,19 @@ def test_repository_atomically_persists_receipt_links_and_done_status() -> None:
                     session, ProjectionReceiptAuthenticator(b"r" * 32)
                 ).persist_and_mark_done(replace(receipt, receipt_mac_sha256="0" * 64))
         async with sessions() as session, session.begin():
+            outbox = await session.get(MemoryOutboxRow, 7)
+            outbox.claim_token = "a" * 32
             created = await PostgresProjectionReceiptRepository(
                 session, ProjectionReceiptAuthenticator(b"r" * 32)
             ).persist_and_mark_done(receipt)
+            assert outbox.claim_token is None
         async with sessions() as session, session.begin():
+            outbox = await session.get(MemoryOutboxRow, 7)
+            outbox.claim_token = "b" * 32
             replayed = await PostgresProjectionReceiptRepository(
                 session, ProjectionReceiptAuthenticator(b"r" * 32)
             ).persist_and_mark_done(receipt)
+            assert outbox.claim_token is None
         async with sessions() as session:
             outbox = await session.get(MemoryOutboxRow, 7)
             stored = await session.get(MemoryProjectionResultReceiptRow, 7)

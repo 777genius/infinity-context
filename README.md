@@ -229,32 +229,30 @@ They are not a full LongMemEval result, a production qualification, or a matched
 comparison with competing memory systems; broader qualification still needs a
 fresh holdout.
 
-An end-to-end answer-quality measurement (2026-10-20, PR 79) closes that gap
-with a paired ablation on both frozen sets: every question was answered twice —
-once with the real packed context and once with an empty context — by one
-answerer model per set (Qwen3.8-Flash on the frozen 100, gpt-5.6-terra on the
-held-48 after a provider outage switched the answerer), and a blind judge
-graded each answer against the official gold answer. The memory context turned
-36/100 vs 0/100 (frozen 100) and 18/48 vs 0/48 (held-48) correct: every gain
-came from memory, none of the questions with incomplete source coverage could
-be answered, and the empty-context arm never guessed anything right. The
-paired design measures LongMemEval memorization directly: on these sets the
-empty-context arm answered nothing, so every correct answer came from the
-retrieved memory. Details and caveats:
-docs/quality-analysis/answer-quality-paired-eval-r1.md.
+A frozen-context answer replay (2026-10-20, PR 79) compared packed and empty
+context using one answerer per set and a blind judge. It reported 36/100 vs
+0/100 correct on Main-100 (Qwen3.8-Flash) and 18/48 vs 0/48 on held-48
+(gpt-5.6-terra after a provider outage). Main-100 has eight unresolved arm
+records, so corrected resolved-pair improvement/regression counts require the
+private per-case records; held-48 reports no unresolved arms. These results
+support a benefit from supplied context under the tested prompts. Empty-arm
+observations do not directly measure memorization or establish the exclusive
+origin of each correct answer. Ingestion and retrieval were not rerun in this
+answer experiment. Details: [paired evaluation and artifact
+contract](docs/quality-analysis/answer-quality-paired-eval-r1.md).
 
 Updated on **2026-10-21** (PR 80, PR 81, PR 82 merged): a snippet-windowing fix
 keeps facts that continue just past the focused window visible in the packed
-context — on rebuilt item texts, questions whose gold evidence became visible
-went 56 to 59 of 100 with no previously visible question regressing; the frozen
-coverage table above is unchanged because it packs precomputed frozen items.
-A paired answer test of the newly visible cases found 0 answer-level
-conversions, consistent with the rest of the diagnosis: the dominant remaining
-failures are answers the model fails to extract from visible evidence (42 of
-94 residual failures) and facts fragmented across chunks (29 of 94), not
-retrieval gaps. The full failure-vein map, the measured dead-ends, and the
-replay probes that produced these numbers are in
-docs/quality-analysis/answer-failure-vein-map-r1.md.
+context. On rebuilt item texts the lexical gold-containment counter rose from
+56 to 59 of 100 (four up-flips, one down-flip); the frozen coverage table is
+unchanged because it packs precomputed items. A small paired answer probe
+found zero answer-level conversions. The diagnostic ladder places 42 of 94
+non-correct or unresolved cases in a gold-string/token-match bucket and 29 in
+a scattered-token bucket. Those lexical matches do not establish the correct
+subject, relation, time or polarity, or prove the answerer caused the failure.
+See the [failure map](docs/quality-analysis/answer-failure-vein-map-r1.md) and
+the [2026-10-22 verification
+report](docs/quality-analysis/memory-quality-e2e-20261022.md).
 
 The citation remediation is [PR #76](https://github.com/777genius/infinity-context/pull/76):
 quote previews and query-snippet diagnostics now quote the verbatim chunk body

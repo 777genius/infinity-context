@@ -92,6 +92,7 @@ async def _assert_upgrade_and_fresh(database_url: str) -> None:
             assert result.applied == (
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
             await _assert_staged_repair(engine)
             await _assert_benchmark_fence_persistence(engine, asyncpg)
@@ -109,7 +110,7 @@ async def _assert_upgrade_and_fresh(database_url: str) -> None:
         engine = build_async_engine(database.app_url)
         try:
             fresh = await upgrade_schema(engine)
-            assert fresh.current == "0060_memory_outbox_aggregate_id_width"
+            assert fresh.current == "0061_outbox_claim_ownership"
             assert fresh.applied[0] == "0001_core_facts"
             await build_locator_retrieval_indexes(engine, statement_timeout_ms=30_000)
             await _assert_catalog(engine)

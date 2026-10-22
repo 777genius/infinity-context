@@ -372,7 +372,7 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
                 outbox_columns = {
                     column["name"]: column
                     for column in inspector.get_columns("memory_outbox")
-                    if column["name"] == "message_key"
+                    if column["name"] in {"message_key", "claim_token"}
                 }
                 fact_relation_temporal_columns = {
                     column["name"]: column
@@ -475,7 +475,8 @@ def test_create_schema_adds_classification_to_existing_memory_tables(tmp_path: P
         "repository_id",
         "code_scope_id",
     }
-    assert set(columns["memory_outbox"]) == {"message_key"}
+    assert set(columns["memory_outbox"]) == {"message_key", "claim_token"}
+    assert columns["memory_outbox"]["claim_token"]["nullable"] is True
     assert set(columns["memory_fact_relation_temporal"]) == {
         "thread_id",
         "observed_at",

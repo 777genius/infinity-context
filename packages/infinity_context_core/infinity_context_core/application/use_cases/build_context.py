@@ -25,6 +25,7 @@ from infinity_context_core.application.context_collectors import (
     RagContextCollector,
     VectorContextCollector,
 )
+from infinity_context_core.application.context_derived_collection import collect_derived_context
 from infinity_context_core.application.context_diagnostics import (
     normalize_context_bundle_diagnostics,
 )
@@ -330,30 +331,27 @@ class BuildContextUseCase:
             graph_items = ()
             rag_items = ()
         else:
-            stage_started_at = perf_counter()
-            vector_chunks = await self._vector_collector.collect(
-                query=query,
-                memory_scope_ids=memory_scope_ids,
+            vector_chunks, graph_items, rag_items = await collect_derived_context(
+                vector=lambda lane: self._vector_collector.collect(
+                    query=query,
+                    memory_scope_ids=memory_scope_ids,
+                    diagnostics=lane,
+                    query_plan=query_expansion_plan,
+                ),
+                graph=lambda lane: self._graph_collector.collect(
+                    query=query,
+                    memory_scope_ids=memory_scope_ids,
+                    diagnostics=lane,
+                    query_plan=query_expansion_plan,
+                ),
+                rag=lambda lane: self._rag_collector.collect(
+                    query=query,
+                    memory_scope_ids=memory_scope_ids,
+                    diagnostics=lane,
+                    query_plan=query_expansion_plan,
+                ),
                 diagnostics=diagnostics,
-                query_plan=query_expansion_plan,
             )
-            _record_stage_timing(diagnostics, "vector_collect", stage_started_at)
-            stage_started_at = perf_counter()
-            graph_items = await self._graph_collector.collect(
-                query=query,
-                memory_scope_ids=memory_scope_ids,
-                diagnostics=diagnostics,
-                query_plan=query_expansion_plan,
-            )
-            _record_stage_timing(diagnostics, "graph_collect", stage_started_at)
-            stage_started_at = perf_counter()
-            rag_items = await self._rag_collector.collect(
-                query=query,
-                memory_scope_ids=memory_scope_ids,
-                diagnostics=diagnostics,
-                query_plan=query_expansion_plan,
-            )
-            _record_stage_timing(diagnostics, "rag_collect", stage_started_at)
 
         enrichment_started_at = perf_counter()
         items: list[ContextItem] = []

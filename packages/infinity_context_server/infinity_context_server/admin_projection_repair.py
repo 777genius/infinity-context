@@ -692,6 +692,7 @@ async def _resume_rebuild_event(
     elif event.status == "dead":
         event.payload_json = payload
         event.status = "pending"
+        event.claim_token = None
         event.attempt_count = 0
         event.next_attempt_at = now
         event.last_safe_error = None

@@ -521,6 +521,7 @@ class PostgresProjectionReceiptRepository(ProjectionReceiptClaimRepositoryMixin)
     @staticmethod
     def _mark_done(outbox: MemoryOutboxRow, completed_at: datetime) -> None:
         outbox.status = "done"
+        outbox.claim_token = None
         outbox.last_safe_error = None
         outbox.last_safe_diagnostic_code = None
         outbox.updated_at = completed_at

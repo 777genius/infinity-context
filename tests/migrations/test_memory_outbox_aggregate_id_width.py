@@ -14,8 +14,10 @@ MIGRATION = (
 
 def test_0060_widens_only_the_outbox_aggregate_id() -> None:
     migrations = migration_runner._load_migrations()
-    assert migrations[-2].migration_id == "0059_locator_parent_lifecycle"
-    assert migrations[-1].migration_id == "0060_memory_outbox_aggregate_id_width"
+    ids = [migration.migration_id for migration in migrations]
+    assert ids[ids.index("0059_locator_parent_lifecycle") + 1] == (
+        "0060_memory_outbox_aggregate_id_width"
+    )
     assert MIGRATION.read_text(encoding="utf-8") == (
         "SET LOCAL lock_timeout = '5s';\n"
         "SET LOCAL statement_timeout = '30s';\n"

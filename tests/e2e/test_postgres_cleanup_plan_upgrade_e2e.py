@@ -55,8 +55,9 @@ async def _assert_pr57_history_upgrade(database_url: str) -> None:
                 "0058_suggestion_server_thread_scope",
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
-            assert upgrade.current == "0060_memory_outbox_aggregate_id_width"
+            assert upgrade.current == "0061_outbox_claim_ownership"
             assert (await upgrade_schema(engine)).applied == ()
             await _assert_cleanup_plan_schema(engine)
         finally:
@@ -112,6 +113,7 @@ async def _assert_cleanup_plan_upgrade(database_url: str) -> None:
                 "0058_suggestion_server_thread_scope",
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
             await _assert_cleanup_plan_schema(engine)
             await _assert_projection_receipt_schema(engine)

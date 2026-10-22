@@ -163,6 +163,7 @@ _ADDITIVE_SCHEMA_COLUMNS = {
     "memory_chunks": (("classification", "VARCHAR(40) NOT NULL DEFAULT 'unknown'"),),
     "memory_outbox": (
         ("message_key", "VARCHAR(160)"),
+        ("claim_token", "VARCHAR(32)"),
         ("workload_class", "VARCHAR(80) NOT NULL DEFAULT 'projection'"),
         ("fairness_key", "VARCHAR(160)"),
         ("last_safe_diagnostic_code", "VARCHAR(120)"),

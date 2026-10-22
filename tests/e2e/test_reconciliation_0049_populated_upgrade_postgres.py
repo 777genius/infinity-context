@@ -96,6 +96,7 @@ async def _assert_populated_upgrade(database_url: str) -> None:
             assert result.applied == (
                 "0059_locator_parent_lifecycle",
                 "0060_memory_outbox_aggregate_id_width",
+                "0061_outbox_claim_ownership",
             )
             async with engine.connect() as connection:
                 legacy_operation = (
