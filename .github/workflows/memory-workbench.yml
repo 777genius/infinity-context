@@ -15,7 +15,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.11.15"
+          python-version: "3.13.5"
       - name: Export tracked source and locked offline dependencies
         run: |
           mkdir -p workbench/wheels
@@ -23,22 +23,11 @@ jobs:
           git archive HEAD | gzip > workbench/source.tar.gz
           python -m pip install --disable-pip-version-check 'uv==0.11.28'
           uv export --extra dev --extra qdrant --frozen --no-hashes --no-emit-project -o workbench/requirements.txt
-          python -m pip download --only-binary=:all: --dest workbench/wheels -r workbench/requirements.txt
-      - name: Attempt an isolated read-only Codex invocation without credentials
-        run: |
-          set +e
-          timeout --signal=TERM --kill-after=5s 60s npx --yes @openai/codex --version > workbench/codex-version.txt 2>&1
-          version_status=$?
-          printf 'version_exit=%s\n' "$version_status" > workbench/codex-probe.txt
-          if test "$version_status" -eq 0; then
-            timeout --signal=TERM --kill-after=5s 25s npx --yes @openai/codex exec --skip-git-repo-check --sandbox read-only 'Reply with exactly READY. Do not run tools or inspect files.' > workbench/codex-probe-output.txt 2>&1
-            printf 'exec_exit=%s\n' "$?" >> workbench/codex-probe.txt
-          fi
-          exit 0
+          python -m pip download --only-binary=:all: --dest workbench/wheels -r workbench/requirements.txt 'setuptools>=80' wheel
       - uses: actions/upload-artifact@v7.0.1
         if: always()
         with:
-          name: memory-workbench-44ac164a
+          name: memory-workbench-py313-44ac164a
           path: workbench/
           retention-days: 7
           if-no-files-found: error
