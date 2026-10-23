@@ -21,7 +21,6 @@
   "packages/infinity_context_core/infinity_context_core/application/context_temporal_query.py": 1358,
   "packages/infinity_context_core/infinity_context_core/application/context_temporal_source_turn.py": 1290,
   "packages/infinity_context_core/infinity_context_core/application/use_cases/anchors.py": 1165,
-  "packages/infinity_context_core/infinity_context_core/application/use_cases/asset_extractions.py": 1454,
   "packages/infinity_context_core/infinity_context_core/application/use_cases/context_link_suggestions.py": 1060,
   "packages/infinity_context_mcp/infinity_context_mcp/agent_behavior_bench.py": 1731,
   "packages/infinity_context_server/infinity_context_server/eval.py": 3066,
