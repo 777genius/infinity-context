@@ -23,8 +23,8 @@ from infinity_context_core.application.context_query_expansion import (
 )
 from infinity_context_core.ports.adapters import PortStatus, VectorUpsertItem
 
+from tests.context_retrieval_test_support import DeterministicBatchEmbeddings
 from tests.e2e.test_context_derived_collection_postgres import postgres_context_runtime
-from tests.unit.test_context_provider_consistency import FakeEmbeddingAdapter
 
 
 @asynccontextmanager
@@ -100,7 +100,7 @@ def mount_builder(client, container, provider):
         ids=container.ids,
         vector_index=provider,
         graph_index=NoopGraphMemoryAdapter(),
-        embedder=FakeEmbeddingAdapter(),
+        embedder=DeterministicBatchEmbeddings(),
         clock=container.clock,
     )
     client._transport.app.state.container = replace(container, build_context=builder)
