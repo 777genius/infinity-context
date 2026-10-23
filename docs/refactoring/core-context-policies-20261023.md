@@ -1,6 +1,6 @@
 # Core context policy decomposition plan
 
-Status: draft for independent critique; implementation prohibited until two review-and-fix rounds by two independent critics have completed and the coordinator releases the gate.
+Status: both independent plan-review rounds completed and coordinator released implementation after plan PR publication. Implementation and mandatory validation are complete; final independent code-review evidence is recorded below.
 
 ## Outcome and evidence
 
@@ -130,3 +130,73 @@ Round 2 completed independently by the same server and lifecycle direction owner
 - No further blocking or medium findings. No production code was edited during either plan-review round. Implementation remains blocked until the coordinator releases the gate.
 
 Additional unchanged-source baseline: real local HTTP `tests/e2e/test_memory_quality_e2e.py`: 2 passed in 12.27s. Initial sandbox execution could not create sockets; the identical command passed after approved localhost-capable execution. This is not a product failure or an optional skip.
+
+
+## Implementation and final verification
+
+Pinned source base: `44ac164a8395c5847ae8792dded95d0dfe4526dd`. The coordinator published the reviewed plan before releasing implementation.
+
+Commits in order:
+
+- `81fa1241`: captured behavior/import characterization while both production modules were unchanged. Seven fixed synthetic scenarios (inventory ownership, aggregation, state, relationship, place, temporal and support) each exercise three candidates under normal/tight budgets. Full adjustments, selected item order/content/source refs/diagnostics and rendered evidence are frozen. The contract fixture also captured original callable signatures, both DTO families and an actual pre-move legacy pickle.
+- `3b77d671`: extracted domain policies and the specifically legacy DTO; retained the distinct existing alternate DTO/producers. The old module is an explicit compatibility export list.
+- `c53a008d`: extracted answer-support content/evidence/geography/temporal/family/ordering policies. The old module retains candidate orchestration and direct compatibility exports. The agreed shared query/source/marker helpers moved to existing utils.
+
+All original function/class/constant declarations are preserved. Independent root and lifecycle audits matched all **212 domain declarations** and **175 original packer/utils declarations**, exactly once, with identical ASTs. No scoring expression, regex, reason set, guard, branch, helper signature or packing algorithm changed. Original legacy type `__module__` identity is deliberately retained for historical import/pickle compatibility; the existing alternate class remains distinct. The only extra cross-policy domain dependencies are social → inventory for exact inventory evidence and social → state for the shared transition regex; these are acyclic and avoid duplicate definitions.
+
+| Module | Final lines |
+| --- | ---: |
+| Existing domain signal compatibility module | 261 (was 2,391) |
+| Legacy signal contract | 30 |
+| Inventory policies | 545 |
+| Social policies | 639 |
+| State policies | 599 |
+| Preference policies | 695 |
+| Existing answer-support orchestration/compatibility module | 527 (was 3,101) |
+| Answer content | 617 |
+| Exact/domain evidence | 610 |
+| Family/source grouping | 482 |
+| Geography/residence evidence | 256 |
+| Query ordering | 821 |
+| Temporal evidence | 188 |
+| Existing shared utils | 541 (was 473) |
+
+Every new or modified production code file is below 1,000 lines. Exactly the two owned legacy ceilings were removed. The shared brittle baseline cardinality assertion was deleted while all real size/monotonicity checks remain. Existing oversized pattern/slot modules, ranking, collection/query/vector files, application consumers and all server/adapters/lifecycle code are unchanged.
+
+### Exact final gates
+
+Run inside the core worktree with `.venv` pointing at the coordinator-managed frozen environment:
+
+```bash
+.venv/bin/python -m pytest -q \
+  tests/unit/test_context_packer*.py tests/unit/test_context_*ranking*.py \
+  tests/unit/test_context_domain_rerank*.py \
+  tests/unit/test_context_recommendation_answer_support.py \
+  tests/unit/test_context_location_inventory.py \
+  tests/unit/test_context_item_collection_inventory.py \
+  tests/unit/test_context_policy_behavior_snapshots.py \
+  tests/unit/test_context_policy_import_contracts.py
+
+.venv/bin/python -m pytest -q tests/architecture
+
+FILE_SIZE_BASE_REF=44ac164a8395c5847ae8792dded95d0dfe4526dd \
+  make infinity-context-lint PYTHON=.venv/bin/python RUFF=.venv/bin/ruff
+
+.venv/bin/python -m pytest -q tests/e2e/test_memory_quality_e2e.py
+```
+
+Results at source commit `c53a008d`:
+
+- **999 focused tests passed** in 21.31s: 986 existing tests plus 13 frozen behavior/import/pickle/fresh-process import checks. Untouched baseline for the same 986 existing tests passed in 22.47s. No expected golden changed after source extraction.
+- **216 architecture tests passed** in 94.08s.
+- **Repository Ruff passed** and the pinned-base file-size monotonicity gate passed with 105 remaining legacy ceilings; no new/increased exception.
+- **2 real local HTTP memory-quality E2E tests passed** in 12.30s after extraction (unchanged baseline: 2 passed in 12.27s). This required approved socket-capable execution; the restricted sandbox cannot create localhost sockets. No service/config/source changes or skipped gates were used to work around that environment constraint.
+
+The characterization/import fixtures remain the bytes captured before production edits. Each fixture is below 600 lines; the full diagnostic maps account for most of the fixture data. Fresh-process import checks exercise leaf/facade orders in both directions. Tests preserve the existing outputs without claiming improved retrieval quality or changed lifecycle guarantees.
+
+### Independent code review
+
+- Lifecycle direction owner approved domain stage `3b77d671` and final packer stage `c53a008d`, with no substantive findings. Independently verified all 387 declarations, direct old-path exports (137 packer declaration names), acyclic imports/no facade backedges, and query/source guard colocation. Temporary review records: `plans/review-code-core-domain-by-lifecycle.md` and `plans/review-code-core-by-lifecycle.md`.
+- Root independently verified all 387 declarations and unchanged golden fixtures and reported no substantive concern.
+- Server direction owner approved source commit `c53a008d`, with no substantive findings. Independently matched all 212 domain and all 137 packer declarations, inspected actual DTO/source-query/ordering imports, baseline identity/pickle/rendered snapshots and acyclic/no-facade-backedge graph. Temporary review record: `plans/review-code-core-by-server.md`.
+- Root independently verified the combined 387 original domain + packer/utils declarations exactly once and the acyclic dependency graph; no substantive concerns. Both independent peer code reviews and all direction-specific gates are complete. The coordinator owns final integrated CI and merge; this direction makes no remote merge itself.
