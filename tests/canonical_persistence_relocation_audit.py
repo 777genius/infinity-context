@@ -153,7 +153,7 @@ def source_nodes(module_name: str) -> dict[str, ast.AST]:
     for node in ast.parse(Path(module.__file__).read_text()).body:
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             nodes[node.name] = node
-        elif isinstance(node, ast.Assign):
+        elif isinstance(node, ast.Assign) and not isinstance(node.value, ast.Name):
             for target in node.targets:
                 if isinstance(target, ast.Name):
                     nodes[target.id] = node

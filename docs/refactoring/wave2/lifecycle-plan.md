@@ -158,3 +158,16 @@ The approved focused schema/error/repository suite passed against unchanged prod
 focused invocation; coordinator separately proved all six targeted real-Postgres baseline cases
 on the isolated PostgreSQL 18.6 runtime. Post-change real-PG evidence remains mandatory and will
 run when coordinator releases that shared runtime after the broader baseline E2E.
+
+L1 relocation reduces `unit_of_work.py` from **996 to 317 LOC**. Schema compatibility owns
+**477 LOC** and runtime bootstrap owns **301 LOC**. All 31 recorded definition bodies, dependency
+bindings, evaluated annotations and legacy aliases/reference pickles match the frozen contract;
+the actual fifteen-operation callback trace, callback global identity, fresh import orders and
+one-session/one-clock UoW check pass. The three longest private names use explicit static aliases
+to keep imports within the style limit; no wrapper, dynamic forwarding or lint exemption exists.
+
+Post-change focused schema/error/repository tests plus the real HTTP/worker extraction E2E:
+**40 passed, 1 skipped in 15.78s**. The same absent-DSN fence case is the skip. Repository Ruff,
+`git diff --check` and the pinned-base monotonic size gate pass with **102** unchanged frozen
+ceilings. Full architecture, mandatory post-change PostgreSQL and independent implementation
+reviews are pending; no completion claim is made for those gates yet.
