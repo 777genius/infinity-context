@@ -120,6 +120,8 @@ def describe(value: object) -> object:
         return {"module": value.__name__}
     if inspect.isclass(value) or inspect.isfunction(value):
         return {"reference": reference(value)}
+    if value is importlib.import_module("sqlalchemy").func:
+        return {"singleton": "sqlalchemy.func"}
     return {"repr": repr(value)}
 
 
@@ -322,7 +324,7 @@ def check(path: Path) -> None:
         )
         subprocess.run([sys.executable, "-c", code], check=True, cwd=ROOT)
     print(
-        f"verified {len(OWNERS)} bodies/bindings/aliases/hints; schema trace and session lifetime"
+        f"verified {len(OWNERS)} bodies/bindings/aliases/hints; slice {SLICE} and session lifetime"
     )
 
 

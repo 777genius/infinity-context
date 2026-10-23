@@ -240,7 +240,7 @@
               "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
             },
             "func": {
-              "repr": "<sqlalchemy.sql.functions._FunctionGenerator object at 0x7f2ebad69010>"
+              "singleton": "sqlalchemy.func"
             },
             "select": {
               "reference": "sqlalchemy.sql._selectable_constructors.select"
@@ -618,7 +618,7 @@
               "reference": "builtins.enumerate"
             },
             "func": {
-              "repr": "<sqlalchemy.sql.functions._FunctionGenerator object at 0x7f2ebad69010>"
+              "singleton": "sqlalchemy.func"
             },
             "int": {
               "reference": "builtins.int"
@@ -1201,7 +1201,7 @@
               "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
             },
             "func": {
-              "repr": "<sqlalchemy.sql.functions._FunctionGenerator object at 0x7f2ebad69010>"
+              "singleton": "sqlalchemy.func"
             },
             "int": {
               "reference": "builtins.int"
@@ -1472,7 +1472,7 @@
               "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
             },
             "func": {
-              "repr": "<sqlalchemy.sql.functions._FunctionGenerator object at 0x7f2ebad69010>"
+              "singleton": "sqlalchemy.func"
             },
             "int": {
               "reference": "builtins.int"
@@ -1620,5 +1620,8 @@
     "PostgresSuggestionRepository": "gASVVAAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwcUG9zdGdyZXNTdWdnZXN0aW9uUmVwb3NpdG9yeZSTlC4=",
     "PostgresIdempotencyRepository": "gASVXAAAAAAAAACMNmluZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVjb3JkX3JlcG9zaXRvcmllc5SMHVBvc3RncmVzSWRlbXBvdGVuY3lSZXBvc2l0b3J5lJOULg==",
     "PostgresOutbox": "gASVTQAAAAAAAACMNmluZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVjb3JkX3JlcG9zaXRvcmllc5SMDlBvc3RncmVzT3V0Ym94lJOULg=="
-  }
+  },
+  "capture_corrections": [
+    "Only SQLAlchemy func provenance: replace process-address repr with exact sqlalchemy.func singleton; independently verified in unchanged arch-lifecycle repositories at 72df6f13. No AST, method/global inventory, hint, pickle or behavior output changed."
+  ]
 }

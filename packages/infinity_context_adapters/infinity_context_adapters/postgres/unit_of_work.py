@@ -22,6 +22,9 @@ from sqlalchemy.ext.asyncio import (
 from infinity_context_adapters.features.memory_facts.postgres_fact_store import (
     PostgresMemoryFactTransaction,
 )
+from infinity_context_adapters.postgres.anchor_repositories import (
+    PostgresAnchorRepository,
+)
 from infinity_context_adapters.postgres.asset_repositories import (
     PostgresAssetExtractionRepository,
     PostgresAssetRepository,
@@ -37,8 +40,18 @@ from infinity_context_adapters.postgres.benchmark_writer_fence import (
 from infinity_context_adapters.postgres.benchmark_writer_fence import (
     BENCHMARK_WRITER_FENCE_SQLSTATE as _BENCHMARK_WRITER_FENCE_SQLSTATE,
 )
+from infinity_context_adapters.postgres.capture_repositories import (
+    PostgresCaptureRepository,
+)
+from infinity_context_adapters.postgres.document_repositories import (
+    PostgresChunkRepository,
+    PostgresDocumentRepository,
+)
 from infinity_context_adapters.postgres.document_source_ref_coordination import (
     coordinate_document_source_ref_write,
+)
+from infinity_context_adapters.postgres.episode_repositories import (
+    PostgresEpisodeRepository,
 )
 from infinity_context_adapters.postgres.fact_repositories import (
     PostgresFactRelationRepository,
@@ -47,14 +60,6 @@ from infinity_context_adapters.postgres.fact_repositories import (
 from infinity_context_adapters.postgres.record_repositories import (
     PostgresIdempotencyRepository,
     PostgresOutbox,
-)
-from infinity_context_adapters.postgres.repositories import (
-    PostgresAnchorRepository,
-    PostgresCaptureRepository,
-    PostgresChunkRepository,
-    PostgresDocumentRepository,
-    PostgresEpisodeRepository,
-    PostgresSuggestionRepository,
 )
 from infinity_context_adapters.postgres.schema_compatibility import (
     _ADDITIVE_SCHEMA_COLUMNS as _ADDITIVE_SCHEMA_COLUMNS,
@@ -132,6 +137,9 @@ from infinity_context_adapters.postgres.schema_runtime import (
     create_schema as create_schema,
 )
 from infinity_context_adapters.postgres.scope_repositories import PostgresScopeRepository
+from infinity_context_adapters.postgres.suggestion_repositories import (
+    PostgresSuggestionRepository,
+)
 from infinity_context_adapters.postgres.suggestion_resolution_receipts import (
     PostgresSuggestionResolutionReceiptRepository,
 )
