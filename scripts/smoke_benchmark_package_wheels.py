@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from typing import get_origin, get_type_hints
 
 
@@ -48,6 +49,7 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
         import base64
 
         from infinity_context_server import memory_comparison_intent as legacy_intent
+        from infinity_context_server.memory_comparison_rerank import query_retrieval_intent
 
         for name, encoded in intent_contract["legacy_reference_pickles"].items():
             assert pickle.loads(base64.b64decode(encoded)) is getattr(legacy_intent, name)
@@ -55,6 +57,20 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
             value = pickle.loads(base64.b64decode(encoded))
             assert type(value) is getattr(retrieval_intent, name)
             assert pickle.loads(pickle.dumps(value)) == value
+        for case in intent_cases:
+            result = query_retrieval_intent(
+                SimpleNamespace(
+                    question=case["intent"]["question"], metadata={"category": case["category"]}
+                )
+            )
+            actual = {
+                "intent": dataclasses.asdict(result),
+                "diagnostics": result.to_diagnostics(),
+                "profile": result.to_query_profile(),
+            }
+            assert json.loads(json.dumps(actual)) == {
+                key: case[key] for key in ("intent", "diagnostics", "profile")
+            }
 
     annotations = get_type_hints(evidence.EvidenceBundleCandidate)
     assert get_type_hints(evidence.PlannedEvidenceItem)["candidate"] is (
