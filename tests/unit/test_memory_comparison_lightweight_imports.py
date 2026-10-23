@@ -11,6 +11,7 @@ def test_quality_risk_helpers_import_without_benchmark_model_dependencies() -> N
     pythonpath = os.pathsep.join(
         (
             str(repo_root / "packages" / "infinity_context_server"),
+            str(repo_root / "packages" / "infinity_context_benchmarks"),
             str(repo_root / "packages" / "infinity_context_core"),
             str(repo_root),
             os.environ.get("PYTHONPATH", ""),
@@ -38,6 +39,7 @@ def test_top_evidence_preflight_imports_without_http_client_dependencies() -> No
     pythonpath = os.pathsep.join(
         (
             str(repo_root / "packages" / "infinity_context_server"),
+            str(repo_root / "packages" / "infinity_context_benchmarks"),
             str(repo_root / "packages" / "infinity_context_core"),
             str(repo_root),
             os.environ.get("PYTHONPATH", ""),
@@ -63,6 +65,7 @@ def test_top_evidence_preflight_import_does_not_require_httpx() -> None:
     pythonpath = os.pathsep.join(
         (
             str(repo_root / "packages" / "infinity_context_server"),
+            str(repo_root / "packages" / "infinity_context_benchmarks"),
             str(repo_root / "packages" / "infinity_context_core"),
             str(repo_root),
             os.environ.get("PYTHONPATH", ""),
@@ -99,6 +102,7 @@ def test_public_benchmark_models_imports_without_httpx_dependency() -> None:
     pythonpath = os.pathsep.join(
         (
             str(repo_root / "packages" / "infinity_context_server"),
+            str(repo_root / "packages" / "infinity_context_benchmarks"),
             str(repo_root / "packages" / "infinity_context_core"),
             str(repo_root),
             os.environ.get("PYTHONPATH", ""),

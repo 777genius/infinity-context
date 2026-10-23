@@ -13,7 +13,7 @@ ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "scripts" / "multimodal_live_provider_canary.py"
 PACKAGE_PATHS = (
     "packages/infinity_context_core",
-    "packages/infinity_context_server",
+    "packages/infinity_context_server", "packages/infinity_context_benchmarks",
     "packages/infinity_context_adapters",
     "packages/infinity_context_sdk",
     "packages/infinity_context_mcp",

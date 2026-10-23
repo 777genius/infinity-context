@@ -17,7 +17,7 @@ BRIDGE_ROOT = (
     / "infinity_context_runtime_bridge"
 )
 SERVER_DEBT_MAX_FILES = 483
-SERVER_DEBT_MAX_LINES = 212_528
+SERVER_DEBT_MAX_LINES = 208_182
 CORE_DEBT_MAX_FILES = 21
 CORE_DEBT_MAX_LINES = 7_205
 SERVER_DEBT_MARKERS = ("benchmark", "memory_comparison", "publishable_")
@@ -92,7 +92,9 @@ def test_external_runtime_bridge_does_not_depend_on_product_layers() -> None:
 
 
 def test_core_does_not_depend_on_runtime_or_server_details() -> None:
-    forbidden = ("infinity_context_runtime_bridge", "infinity_context_server")
+    forbidden = (
+        "infinity_context_runtime_bridge", "infinity_context_server", "infinity_context_benchmarks"
+    )
     violations: list[str] = []
     for path in sorted(CORE_ROOT.rglob("*.py")):
         for imported in sorted(_imports(path)):
@@ -112,3 +114,18 @@ def test_benchmark_debt_cannot_grow_inside_product_packages() -> None:
     assert _line_count(server) <= SERVER_DEBT_MAX_LINES
     assert len(core) <= CORE_DEBT_MAX_FILES
     assert _line_count(core) <= CORE_DEBT_MAX_LINES
+
+
+def test_benchmark_package_depends_only_on_public_product_contracts() -> None:
+    root = REPO_ROOT / "packages/infinity_context_benchmarks/infinity_context_benchmarks"
+    assert (root / "__init__.py").is_file()
+    forbidden = (
+        "infinity_context_server", "infinity_context_adapters", "infinity_context_core.application"
+    )
+    violations = [
+        f"{path.relative_to(root)} -> {imported}"
+        for path in sorted(root.rglob("*.py"))
+        for imported in sorted(_imports(path))
+        if imported.startswith(forbidden)
+    ]
+    assert not violations, "benchmark package imports product internals: " + repr(violations)

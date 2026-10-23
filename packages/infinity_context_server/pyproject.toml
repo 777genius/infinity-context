@@ -12,6 +12,7 @@ dependencies = [
   "sqlalchemy>=2.0.50,<3.0.0",
   "uvicorn>=0.48.0,<1.0.0",
   "infinity-context-runtime-bridge==0.1.0",
+  "infinity-context-benchmarks==0.1.0",
 ]
 
 [project.scripts]
