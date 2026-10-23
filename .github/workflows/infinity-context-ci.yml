@@ -205,7 +205,7 @@ jobs:
           tests/e2e/test_selfhost_identity_bootstrap_postgres.py::test_pg16_logical_restore_transfers_application_ownership
 
   qdrant-locator-acceptance:
-    name: Real Qdrant 16,385-point locator acceptance
+    name: Real Qdrant locator and memory retrieval acceptance
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -227,6 +227,8 @@ jobs:
           --memory 2g
       qdrant:
         image: qdrant/qdrant:v1.18.0
+        env:
+          QDRANT__TELEMETRY_DISABLED: "true"
         ports:
           - 6333:6333
         options: >-
@@ -321,9 +323,10 @@ jobs:
           docker logs "${{ job.services.qdrant.id }}"
           exit 1
 
-      - name: Run mandatory provider-free locator acceptance
+      - name: Run mandatory provider-free locator and retrieval acceptance
         run: |
           mkdir -p test-results
+          git rev-parse HEAD > test-results/source-sha.txt
           set +e
           sudo \
             --preserve-env=INFINITY_CONTEXT_TEST_POSTGRES_URL,INFINITY_SANDBOX_QDRANT_URL,INFINITY_RUN_LOCATOR_QDRANT_E2E,HF_HUB_OFFLINE,TRANSFORMERS_OFFLINE,PYTEST_DISABLE_PLUGIN_AUTOLOAD \
@@ -331,10 +334,13 @@ jobs:
             GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0=safe.directory \
             GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            INFINITY_CONTEXT_RETRIEVAL_BENCH_REPORT="$GITHUB_WORKSPACE/test-results/retrieval-benchmark.json" \
             timeout --signal=TERM --kill-after=30s 40m \
             .venv/bin/python -m pytest -q \
             --junitxml=test-results/qdrant-locator-acceptance.xml \
-            tests/e2e/test_locator_retrieval_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes
+            tests/e2e/test_locator_retrieval_qdrant_e2e.py::test_real_qdrant_large_profile_resumes_attests_and_physically_deletes \
+            tests/e2e/test_context_derived_collection_postgres.py \
+            tests/e2e/test_context_vector_recall_qdrant.py
           acceptance_status=$?
           set -e
           if test ! -s test-results/qdrant-locator-acceptance.xml; then
@@ -350,12 +356,24 @@ jobs:
           fi
           exit "$acceptance_status"
 
+      - name: Reject incomplete real-store evidence
+        run: |
+          .venv/bin/python - <<'PYTEST_EVIDENCE'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          cases = list(ET.parse("test-results/qdrant-locator-acceptance.xml").getroot().iter("testcase"))
+          assert len(cases) == 8, f"Expected eight real-store cases, got {len(cases)}"
+          assert not any(case.find(tag) is not None for case in cases
+                         for tag in ("failure", "error", "skipped"))
+          assert Path("test-results/retrieval-benchmark.json").is_file()
+          PYTEST_EVIDENCE
+
       - name: Upload locator acceptance JUnit evidence
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: qdrant-locator-acceptance-junit-${{ github.event.pull_request.head.sha || github.sha }}
-          path: test-results/qdrant-locator-acceptance.xml
+          path: test-results/
           if-no-files-found: error
           retention-days: 14
 

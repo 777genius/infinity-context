@@ -31,6 +31,10 @@ from infinity_context_core.application.context_snippets import (
     query_snippet_score_signals,
     source_refs_with_query_snippet,
 )
+from infinity_context_core.application.context_vector_candidates import (
+    select_visible_vector_candidates,
+    vector_candidate_window,
+)
 from infinity_context_core.application.document_text import document_chunk_retrieval_text
 from infinity_context_core.application.dto import BuildContextQuery, ContextItem
 from infinity_context_core.application.source_refs import (
@@ -434,7 +438,7 @@ class VectorContextCollector:
         vector_queries = tuple(zip(retrieval_queries, embedding.vectors, strict=False))
         diagnostics["vector_embedding_vector_count"] = len(embedding.vectors)
         diagnostics["vector_search_count"] = len(vector_queries)
-        diagnostics["vector_query_limit"] = _per_query_retrieval_limit(
+        diagnostics["vector_query_limit"] = _vector_query_candidate_limit(
             total_limit=query.max_chunks,
             query_count=len(vector_queries),
         )
@@ -487,7 +491,13 @@ class VectorContextCollector:
         diagnostics["vector_query_degraded_count"] = degraded_count
         if degraded_reason:
             diagnostics["vector_degraded_reason"] = degraded_reason
-        chunk_ids = _fused_ranked_keys(rankings, limit=_candidate_pool_limit(query.max_chunks))
+        primary_ids, chunk_ids = vector_candidate_window(
+            rankings,
+            query_limit=_per_query_retrieval_limit(
+                total_limit=query.max_chunks, query_count=len(vector_queries)
+            ),
+            pool_limit=_candidate_pool_limit(query.max_chunks),
+        )
         if not chunk_ids:
             diagnostics["vector_status"] = "degraded" if degraded_count else "ok"
             return ()
@@ -515,7 +525,9 @@ class VectorContextCollector:
         diagnostics["stale_vector_drop_count"] = sum(
             1 for chunk_id in chunk_ids if chunk_id not in hydrated_ids
         )
-        return chunks
+        return select_visible_vector_candidates(
+            primary_ids=primary_ids, candidate_ids=chunk_ids, chunks=chunks
+        )
 
 
 class GraphContextCollector:
@@ -920,6 +932,14 @@ def _per_query_retrieval_limit(*, total_limit: int, query_count: int) -> int:
     if query_count <= 1:
         return total_limit
     return min(total_limit, max(4, (total_limit + 1) // 2))
+
+
+def _vector_query_candidate_limit(*, total_limit: int, query_count: int) -> int:
+    # Reserve room for canonical drops without changing final prompt budgets.
+    return min(
+        _candidate_pool_limit(total_limit),
+        2 * _per_query_retrieval_limit(total_limit=total_limit, query_count=query_count),
+    )
 
 
 def _candidate_pool_limit(total_limit: int) -> int:
