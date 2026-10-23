@@ -1,0 +1,207 @@
+name: Memory E2E completion (2026-10-23)
+
+# Verification-only branch: do not merge this one-off workflow into main.
+on:
+  push:
+    branches: [verify/memory-e2e-20261023]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: memory-e2e-completion-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SOURCE_SHA: 88d47260f5ef17ba55abb67178952ee7fa413855
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  MEM0_TELEMETRY: "false"
+  MEM0_TELEMETRY_SAMPLE_RATE: "0"
+  QDRANT__TELEMETRY_DISABLED: "true"
+  PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+  PYTHONHASHSEED: "0"
+  OPENAI_API_KEY: ""
+  MEMORY_OPENAI_API_KEY: ""
+  MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+  MEM0_API_KEY: ""
+  ANTHROPIC_API_KEY: ""
+  GOOGLE_API_KEY: ""
+  GEMINI_API_KEY: ""
+  COHERE_API_KEY: ""
+  VOYAGE_API_KEY: ""
+  AZURE_OPENAI_API_KEY: ""
+  AWS_ACCESS_KEY_ID: ""
+  AWS_SECRET_ACCESS_KEY: ""
+  AWS_SESSION_TOKEN: ""
+  HF_TOKEN: ""
+  HUGGINGFACE_HUB_TOKEN: ""
+
+jobs:
+  deferred:
+    name: Synthetic 2040 contract ${{ matrix.index }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [0, 1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 88d47260f5ef17ba55abb67178952ee7fa413855
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.15"
+      - name: Verify source and install locked dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -m pip install --disable-pip-version-check "uv==0.11.28"
+          uv sync --extra dev --frozen
+          mkdir -p test-results
+          git rev-parse HEAD > test-results/source-sha.txt
+          uv pip freeze > test-results/dependencies.txt
+      - name: Run one exact deferred contract from the existing manifest
+        env:
+          CONTRACT_INDEX: ${{ matrix.index }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+          from scripts.run_provider_free_benchmark_ci import (
+              _provider_free_environment, load_suites,
+          )
+          suites, _ = load_suites()
+          nodes = suites["root"].deferred_node_ids
+          assert len(nodes) == 5, "Expected the five audited deferred contracts"
+          node = nodes[int(os.environ["CONTRACT_INDEX"])]
+          Path("test-results/selection.txt").write_text(node + "\n", encoding="utf-8")
+          print("Exact selection:", node, flush=True)
+          result = subprocess.run(
+              [sys.executable, "-m", "pytest", "-q", "-ra", "--tb=short",
+               "-o", "addopts=", "--junitxml=test-results/deferred.xml", node],
+              env=_provider_free_environment(), check=False,
+          )
+          raise SystemExit(result.returncode)
+          PY
+      - name: Reject missing, failed or skipped evidence
+        if: always()
+        run: |
+          .venv/bin/python - <<'PY'
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          node = Path("test-results/selection.txt").read_text().strip()
+          cases = list(ET.parse("test-results/deferred.xml").getroot().iter("testcase"))
+          assert len(cases) == 1, f"Expected one executed test, got {len(cases)}"
+          assert cases[0].get("name") == node.rsplit("::", 1)[1]
+          assert not any(cases[0].find(tag) is not None for tag in ("failure", "error", "skipped"))
+          print("Verified one passing, unskipped deferred contract:", node)
+          PY
+      - name: Preserve execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: deferred-2040-${{ matrix.index }}-${{ env.SOURCE_SHA }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
+
+  stores:
+    name: PostgreSQL and Qdrant memory lifecycle E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        ports: [6333:6333]
+    env:
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+      INFINITY_SANDBOX_QDRANT_URL: http://127.0.0.1:6333
+      INFINITY_RUN_LOCATOR_QDRANT_E2E: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 88d47260f5ef17ba55abb67178952ee7fa413855
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+      - name: Verify source and install locked dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -m pip install --disable-pip-version-check "uv==0.11.28"
+          uv sync --extra dev --extra qdrant --frozen --link-mode copy
+          mkdir -p test-results
+          git rev-parse HEAD > test-results/source-sha.txt
+          uv pip freeze > test-results/dependencies.txt
+      - name: Prepare disposable identity-separated runtime
+        run: |
+          case "$GITHUB_WORKSPACE" in "$HOME"/*) ;; *) exit 1 ;; esac
+          ancestor="$GITHUB_WORKSPACE"
+          while :; do
+            chmod o+x "$ancestor"
+            test "$ancestor" = "$HOME" && break
+            ancestor="$(dirname "$ancestor")"
+          done
+          chmod -R o+rX "$GITHUB_WORKSPACE/.venv"
+          sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"
+          sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c "from importlib.metadata import version; assert version('qdrant-client')"
+      - name: Wait for real Qdrant
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:6333/healthz; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Run all four locator cases and integrity/concurrency E2E
+        run: |
+          sudo \
+            --preserve-env=INFINITY_CONTEXT_TEST_POSTGRES_URL,INFINITY_SANDBOX_QDRANT_URL,INFINITY_RUN_LOCATOR_QDRANT_E2E,HF_HUB_OFFLINE,TRANSFORMERS_OFFLINE,PYTEST_DISABLE_PLUGIN_AUTOLOAD,PYTHONHASHSEED \
+            env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \
+            timeout --signal=TERM --kill-after=30s 35m \
+            .venv/bin/python -m pytest -q -ra --tb=short \
+            --junitxml=test-results/stores.xml \
+            tests/e2e/test_locator_retrieval_qdrant_e2e.py \
+            tests/e2e/test_context_derived_collection_postgres.py \
+            tests/e2e/test_document_content_identity_postgres.py \
+            tests/e2e/test_outbox_claim_ownership_postgres.py
+      - name: Reject missing, failed or skipped E2E evidence
+        if: always()
+        run: |
+          .venv/bin/python - <<'PY'
+          from xml.etree import ElementTree as ET
+          cases = list(ET.parse("test-results/stores.xml").getroot().iter("testcase"))
+          names = {case.get("name") for case in cases}
+          required = {
+              "test_real_qdrant_locator_profile_is_exact_and_fail_closed",
+              "test_real_qdrant_profile_targets_are_independent_and_version_deleted",
+              "test_real_qdrant_large_profile_resumes_attests_and_physically_deletes",
+              "test_recoverable_fresh_process_launcher_smoke",
+              "test_populated_qdrant_mounted_context_preserves_output_and_rejects_stale_hit",
+          }
+          assert required <= names, f"Missing tests: {required - names}"
+          assert not any(case.find(tag) is not None for case in cases
+                         for tag in ("failure", "error", "skipped"))
+          print(f"Verified {len(cases)} passing, unskipped real-store E2E tests")
+          PY
+      - name: Preserve execution evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: real-stores-e2e-${{ env.SOURCE_SHA }}
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
