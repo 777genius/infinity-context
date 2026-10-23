@@ -1,0 +1,108 @@
+name: Focused memory retrieval verification
+# Diagnostic execution branch; do not merge this one-off workflow.
+on:
+  push:
+    branches: [verify/memory-retrieval-final-20261023]
+    paths: [.github/workflows/memory-retrieval-final-check.yml]
+permissions:
+  contents: read
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: infinity_context
+          POSTGRES_PASSWORD: infinity_context
+          POSTGRES_DB: infinity_context
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U infinity_context -d infinity_context"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      qdrant:
+        image: qdrant/qdrant:v1.18.0
+        env:
+          QDRANT__TELEMETRY_DISABLED: "true"
+        ports: [6333:6333]
+    env:
+      SOURCE_SHA: a61e0f9a4a0dfc4d2432f0548b31044443574940
+      INFINITY_CONTEXT_TEST_POSTGRES_URL: postgresql+asyncpg://infinity_context:infinity_context@127.0.0.1:5432/infinity_context
+      INFINITY_SANDBOX_QDRANT_URL: http://127.0.0.1:6333
+      INFINITY_CONTEXT_RETRIEVAL_BENCH_REPORT: test-results/retrieval-benchmark.json
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      OPENAI_API_KEY: ""
+      MEMORY_OPENAI_API_KEY: ""
+      MEMORY_AGENT_BENCH_OPENAI_API_KEY: ""
+      MEM0_API_KEY: ""
+      ANTHROPIC_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      GEMINI_API_KEY: ""
+      COHERE_API_KEY: ""
+      VOYAGE_API_KEY: ""
+      AZURE_OPENAI_API_KEY: ""
+      AWS_ACCESS_KEY_ID: ""
+      AWS_SECRET_ACCESS_KEY: ""
+      AWS_SESSION_TOKEN: ""
+      HF_TOKEN: ""
+      HUGGINGFACE_HUB_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: a61e0f9a4a0dfc4d2432f0548b31044443574940
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13.5"
+      - name: Verify source and install locked dependencies
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python -m pip install --disable-pip-version-check 'uv==0.11.28'
+          uv sync --extra dev --extra qdrant --frozen
+          mkdir -p test-results
+          git rev-parse HEAD > test-results/source-sha.txt
+          uv pip freeze > test-results/dependencies.txt
+      - name: Wait for real Qdrant
+        run: |
+          for attempt in {1..60}; do
+            if curl --fail --silent --show-error http://127.0.0.1:6333/healthz; then exit 0; fi
+            sleep 2
+          done
+          exit 1
+      - name: Execute mounted real-store retrieval and cancellation checks
+        run: |
+          timeout --signal=TERM --kill-after=30s 10m \
+            .venv/bin/python -m pytest -q -ra --tb=short \
+            --junitxml=test-results/retrieval.xml \
+            tests/e2e/test_context_derived_collection_postgres.py \
+            tests/e2e/test_context_vector_recall_qdrant.py
+      - name: Verify exact complete evidence
+        run: |
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          from xml.etree import ElementTree as ET
+          cases = list(ET.parse('test-results/retrieval.xml').getroot().iter('testcase'))
+          assert len(cases) == 7, f'Expected seven real-store cases, got {len(cases)}'
+          assert not any(case.find(tag) is not None for case in cases
+                         for tag in ('failure', 'error', 'skipped'))
+          report = json.loads(Path('test-results/retrieval-benchmark.json').read_text())
+          assert len(report['profiles']) == 2
+          for profile in report['profiles']:
+              assert profile['identical_rendered_evidence'] is True
+              assert profile['provider_calls_per_request'] == 8
+              for mode, peak in (('serial', 1), ('bounded', 4)):
+                  assert len(profile['samples_ms'][mode]) == 5
+                  assert profile['peak_inflight'][mode] == [peak] * 5
+          print(json.dumps(report, indent=2))
+          PY
+      - uses: actions/upload-artifact@v7.0.1
+        if: always()
+        with:
+          name: memory-retrieval-a61e0f9a
+          path: test-results/
+          if-no-files-found: error
+          retention-days: 14
