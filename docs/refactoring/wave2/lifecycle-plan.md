@@ -171,3 +171,17 @@ Post-change focused schema/error/repository tests plus the real HTTP/worker extr
 `git diff --check` and the pinned-base monotonic size gate pass with **102** unchanged frozen
 ceilings. Full architecture, mandatory post-change PostgreSQL and independent implementation
 reviews are pending; no completion claim is made for those gates yet.
+
+## L1 final acceptance
+
+All required L1 gates are complete. Full architecture: **219 passed in 67.56s**. On the
+isolated official PostgreSQL 18.6 runtime, clean/unversioned legacy schema upgrades and canonical
+writer/cleanup fencing both passed: **2 passed in 8.66s**, no skips. The earlier absent-DSN
+focused-suite skip is therefore covered by actual PostgreSQL acceptance, alongside the already
+recorded **40 passed** focused plus real HTTP/worker tests and exact source/global audit.
+
+Both independent implementation reviewers approved source commit `72df6f13` without blockers
+and independently reran the body/global/annotation/alias/pickle/callback/session audit. Their
+reports are under `reviews/review-code-l1-by-{core,runtime}.md`. All production definitions and
+UoW transaction/error/cleanup semantics remain unchanged. Publication and merge remain the
+coordinator's responsibility; L2 has its own branch/PR and separate acceptance evidence.
