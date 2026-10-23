@@ -18,6 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PACKAGE_PATHS = [
     PROJECT_ROOT / "packages" / "infinity_context_core",
     PROJECT_ROOT / "packages" / "infinity_context_server",
+    PROJECT_ROOT / "packages" / "infinity_context_benchmarks",
     PROJECT_ROOT / "packages" / "infinity_context_adapters",
     PROJECT_ROOT / "packages" / "infinity_context_sdk",
     PROJECT_ROOT / "packages" / "infinity_context_obsidian",

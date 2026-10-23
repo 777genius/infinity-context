@@ -22,6 +22,7 @@ _LEGACY_INSTALLED_SCHEMA = "infinity-context.installed-build.v1"
 _MAX_BYTES = 16_384
 _RUNTIME_PACKAGES = (
     "infinity_context_adapters",
+    "infinity_context_benchmarks",
     "infinity_context_contracts",
     "infinity_context_core",
     "infinity_context_server",

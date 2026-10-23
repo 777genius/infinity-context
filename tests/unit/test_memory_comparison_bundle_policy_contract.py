@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import base64
+import importlib
 import inspect
 import json
+import os
 import pickle
+import subprocess
+import sys
 from dataclasses import MISSING, FrozenInstanceError, fields
 from pathlib import Path
 from typing import get_origin, get_type_hints
@@ -59,10 +63,11 @@ def test_complete_planner_payload_matches_untouched_base(path: Path) -> None:
         for item in result.items:
             assert type(item.reason_codes) is tuple
             assert type(item.candidate.required_terms) is frozenset
-        assert {
+        actual = {
             'items': [item.to_payload() for item in result.items],
             'diagnostics': result.to_diagnostics(),
-        } == case['expected'], case['source']
+        }
+        assert json.dumps(actual) == json.dumps(case['expected']), case['source']
 
 
 def test_original_public_and_private_call_signatures_are_preserved() -> None:
@@ -89,7 +94,15 @@ def test_dataclass_fields_defaults_and_frozen_contract_are_preserved(name: str) 
         ],
         'frozen': cls.__dataclass_params__.frozen,
     }
-    assert actual == CONTRACT['dataclasses'][name]
+    expected = CONTRACT['dataclasses'][name]
+    if name in {'EvidenceBundleCandidate', 'PlannedEvidenceItem'}:
+        assert expected['module'] == 'infinity_context_server.memory_comparison_bundle_planner'
+        assert actual['module'] == 'infinity_context_benchmarks.evidence_bundle.models'
+        assert {key: value for key, value in actual.items() if key != 'module'} == {
+            key: value for key, value in expected.items() if key != 'module'
+        }
+    else:
+        assert actual == expected
 
 
 @pytest.mark.parametrize('name', CONTRACT['legacy_pickles'])
@@ -99,3 +112,45 @@ def test_pickles_from_original_module_remain_readable(name: str) -> None:
     assert pickle.loads(pickle.dumps(value)) == value
     with pytest.raises(FrozenInstanceError):
         value.extra_attribute = True
+
+
+@pytest.mark.parametrize('facade_first', [False, True])
+def test_contracts_and_facade_import_in_either_order(facade_first: bool) -> None:
+    modules = [
+        'infinity_context_benchmarks.evidence_bundle.models',
+        'infinity_context_server.memory_comparison_bundle_planner',
+    ]
+    if facade_first:
+        modules.reverse()
+    code = (
+        'import importlib; '
+        f'a, b = [importlib.import_module(name) for name in {modules!r}]; '
+        'assert a.EvidenceBundleCandidate is b.EvidenceBundleCandidate; '
+        'assert a.PlannedEvidenceItem is b.PlannedEvidenceItem'
+    )
+    subprocess.run(
+        [sys.executable, '-c', code],
+        env={**os.environ, 'PYTHONPATH': os.pathsep.join(sys.path)},
+        check=True, capture_output=True, text=True,
+    )
+
+
+def test_source_and_public_safety_import_signatures_remain_compatible() -> None:
+    contract = json.loads((FIXTURES / 'source_contract.json').read_text())
+    for module_name, signatures in contract['signatures'].items():
+        module = importlib.import_module(module_name)
+        actual = {
+            name: str(inspect.signature(getattr(module, name))) for name in signatures
+        }
+        assert actual == signatures
+    for original_name, encoded in contract['legacy_pickles'].items():
+        module_name, name = original_name.rsplit('.', 1)
+        assert pickle.loads(base64.b64decode(encoded)) is getattr(
+            importlib.import_module(module_name), name
+        )
+    old = importlib.import_module('infinity_context_core.application.sensitive_text')
+    public = importlib.import_module('infinity_context_core.sensitive_text')
+    assert old.contains_sensitive_text is public.contains_sensitive_text
+    assert old.redact_sensitive_text is public.redact_sensitive_text
+    assert old._SECRET_PATTERNS is public._SECRET_PATTERNS
+    assert old._USERINFO_PATTERN is public._USERINFO_PATTERN

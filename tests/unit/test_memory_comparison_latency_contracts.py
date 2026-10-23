@@ -213,6 +213,7 @@ def test_importing_contract_slice_does_not_load_benchmark_or_provider_helpers() 
     import_paths = [
         str(root / "packages" / "infinity_context_core"),
         str(root / "packages" / "infinity_context_server"),
+        str(root / "packages" / "infinity_context_benchmarks"),
     ]
     module_names = [
         "memory_comparison_latency",

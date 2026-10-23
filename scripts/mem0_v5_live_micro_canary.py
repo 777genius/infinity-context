@@ -21,6 +21,7 @@ for _repository_path in (
     _PROJECT_ROOT,
     _PROJECT_ROOT / "packages" / "infinity_context_core",
     _PROJECT_ROOT / "packages" / "infinity_context_server",
+    _PROJECT_ROOT / "packages" / "infinity_context_benchmarks",
 ):
     if str(_repository_path) not in sys.path:
         sys.path.insert(0, str(_repository_path))
