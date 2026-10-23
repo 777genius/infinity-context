@@ -1,7 +1,8 @@
-"""Context rank dedupe and merge policy."""
+"""Rank dedupe policy; one implementation authority."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import replace
 
 from infinity_context_core.application.context_diagnostics import (
@@ -14,10 +15,14 @@ from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
 )
+from infinity_context_core.application.context_rerank_relevance import _numeric_signal
 from infinity_context_core.application.dto import ContextItem
 from infinity_context_core.domain.entities import MAX_SOURCE_REFS_PER_ITEM, SourceRef
 
 _DUPLICATE_SOURCE_SCORE_TOLERANCE = 0.015
+
+
+_DIALOGUE_MARKER_RE = re.compile(r"\bD\d+:\d+\b")
 
 
 def dedupe_rank_items(items: tuple[ContextItem, ...]) -> tuple[ContextItem, ...]:
@@ -90,6 +95,10 @@ def _merge_context_items(*, primary: ContextItem, secondary: ContextItem) -> Con
 def _preferred_merge_body_item(*, primary: ContextItem, secondary: ContextItem) -> ContextItem:
     if (primary.item_type, primary.item_id) != (secondary.item_type, secondary.item_id):
         return primary
+    primary_exact_answer_rank = _exact_source_sibling_answer_body_rank(primary)
+    secondary_exact_answer_rank = _exact_source_sibling_answer_body_rank(secondary)
+    if primary_exact_answer_rank != secondary_exact_answer_rank:
+        return primary if primary_exact_answer_rank < secondary_exact_answer_rank else secondary
     primary_exact_source_sibling = _is_strong_exact_source_sibling_turn(primary)
     secondary_exact_source_sibling = _is_strong_exact_source_sibling_turn(secondary)
     if primary_exact_source_sibling and not secondary_exact_source_sibling:
@@ -111,6 +120,44 @@ def _preferred_merge_body_item(*, primary: ContextItem, secondary: ContextItem) 
     return primary
 
 
+def _exact_source_sibling_answer_body_rank(item: ContextItem) -> int:
+    turn_ref_count = sum(1 for ref in item.source_refs if _source_ref_is_turn(ref))
+    if turn_ref_count <= 0:
+        return 4
+    if _has_dialogue_turn_body_for_source_ref(item):
+        return 0 if len(item.source_refs) == 1 else 1
+    if "keyword_source_sibling_chunks" not in diagnostic_retrieval_sources(item.diagnostics):
+        return 4
+    diagnostics = safe_diagnostic_mapping(item.diagnostics)
+    signals = safe_score_signals(diagnostics.get("score_signals"))
+    if _numeric_signal(signals.get("source_sibling_answer_evidence")) <= 0:
+        return 4
+    if len(item.source_refs) == 1:
+        return 2
+    return 3
+
+
+def _has_dialogue_turn_body_for_source_ref(item: ContextItem) -> bool:
+    for ref in item.source_refs:
+        marker = _source_ref_dialogue_marker(ref)
+        if marker and _text_has_dialogue_turn_body(item.text, marker=marker):
+            return True
+    return False
+
+
+def _source_ref_dialogue_marker(ref: SourceRef) -> str:
+    match = _DIALOGUE_MARKER_RE.search(str(ref.source_id or ""))
+    return match.group(0) if match is not None else ""
+
+
+def _text_has_dialogue_turn_body(text: str, *, marker: str) -> bool:
+    for match in re.finditer(rf"\b{re.escape(marker)}\b", text):
+        following = text[match.end() : match.end() + 64]
+        if re.match(r"\s+(?!\.\.\.)[A-Z][^:\n]{0,40}:", following):
+            return True
+    return False
+
+
 def _is_strong_exact_source_sibling_turn(item: ContextItem) -> bool:
     if "keyword_source_sibling_chunks" not in diagnostic_retrieval_sources(item.diagnostics):
         return False
@@ -118,6 +165,8 @@ def _is_strong_exact_source_sibling_turn(item: ContextItem) -> bool:
         return False
     diagnostics = safe_diagnostic_mapping(item.diagnostics)
     signals = safe_score_signals(diagnostics.get("score_signals"))
+    if _numeric_signal(signals.get("source_sibling_answer_evidence")) > 0:
+        return True
     if _numeric_signal(signals.get("query_expansion_reason_priority")) < 3:
         return False
     return _numeric_signal(signals.get("distinctive_term_hits")) >= 4
@@ -161,11 +210,3 @@ def _hybrid_boost(*, retrieval_source_count: int, source_ref_count: int) -> floa
     source_boost = 0.035 * (retrieval_source_count - 1)
     provenance_boost = 0.01 * min(3, max(0, source_ref_count - 1))
     return min(0.08, source_boost + provenance_boost)
-
-
-def _numeric_signal(value: object) -> float:
-    if isinstance(value, bool):
-        return 0.0
-    if isinstance(value, int | float):
-        return float(value)
-    return 0.0

@@ -1,4 +1,4 @@
-"""Query anchor intent ranking policy."""
+"""Anchor intent ranking policy; one implementation authority."""
 
 from __future__ import annotations
 
@@ -9,20 +9,23 @@ from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
 )
+from infinity_context_core.application.context_internal_diagnostics import (
+    provenance_flag_is_true as _provenance_flag_is_true,
+)
 from infinity_context_core.application.context_query_intent import (
     QueryAnchorIntent,
     match_query_anchor_intent_to_text,
 )
 from infinity_context_core.application.dto import ContextItem
 
-QUERY_ANCHOR_INTENT_MAX_BOOST = 0.035
+_QUERY_ANCHOR_INTENT_MAX_BOOST = 0.035
 
 
 def apply_query_anchor_intent_boosts(
     items: tuple[ContextItem, ...],
     *,
     intent: QueryAnchorIntent,
-    max_boost: float = QUERY_ANCHOR_INTENT_MAX_BOOST,
+    max_boost: float = _QUERY_ANCHOR_INTENT_MAX_BOOST,
 ) -> tuple[ContextItem, ...]:
     if not items or intent.empty or max_boost <= 0:
         return items
@@ -77,8 +80,4 @@ def _with_query_anchor_intent_boost(
 def _query_anchor_intent_already_applied(item: ContextItem) -> bool:
     return _provenance_flag_is_true(item.diagnostics, "query_anchor_intent_applied")
 
-
-def _provenance_flag_is_true(diagnostics: object, flag: str) -> bool:
-    normalized_diagnostics = normalize_context_diagnostics(diagnostics)
-    provenance = safe_diagnostic_mapping(normalized_diagnostics.get("provenance"))
-    return provenance.get(flag) is True
+QUERY_ANCHOR_INTENT_MAX_BOOST = _QUERY_ANCHOR_INTENT_MAX_BOOST

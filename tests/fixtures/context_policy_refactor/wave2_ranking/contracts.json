@@ -1,0 +1,3020 @@
+{
+  "base_sha": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "source_sha256": {
+    "packages/infinity_context_core/infinity_context_core/application/context_ranking.py": "4ab4eadd3ea245ea3fce56f0f19b76ca600a12bd562f2d306d30720b046a9a62",
+    "packages/infinity_context_core/infinity_context_core/application/context_rank_dedupe.py": "0880c5413c8adc4fd3879dd27fee63d27db383f34af8e263b7ed9aacc245655e",
+    "packages/infinity_context_core/infinity_context_core/application/context_rank_fusion.py": "c679a8d476622f51220b71ddcb201755a8d92c6fd9774a78c307820b2c5170c6",
+    "packages/infinity_context_core/infinity_context_core/application/context_bm25_ranking.py": "19422300d1f1fd7f53c8bb6532535f25e6617d39aa8621fa63eea787c2baf68a",
+    "packages/infinity_context_core/infinity_context_core/application/context_query_relevance_ranking.py": "5795b53178fdac0068d6fa411cc176bec708891f570c5ccbe54b20bd1df13a8e",
+    "packages/infinity_context_core/infinity_context_core/application/context_keyword_ranking.py": "f30e1497173f7db2040a9379e676cb2a9e76142f3a502905746700a5b3bc8082",
+    "packages/infinity_context_core/infinity_context_core/application/context_anchor_intent_ranking.py": "7926f3e46ef4118230b65341a8a1c81da5f3fb857415948da3c7e43516ca8b43",
+    "packages/infinity_context_core/infinity_context_core/application/context_requirement_ranking.py": "2bfd539a9a658cafceb3876631d5b88969355c3ac9408f7b1e67e91551b9cf5e",
+    "packages/infinity_context_core/infinity_context_core/application/context_requirement_signals.py": "e355c7422e1426fb271a78721e98c7706e51791fab8e45369306cc1f9eb7b556",
+    "packages/infinity_context_core/infinity_context_core/application/context_rerank_relevance.py": "9ddc0d03ee1bafeb0b2ae1f01312defb38a7a987cb5e6c4b4fee553cdfb64389",
+    "packages/infinity_context_core/infinity_context_core/application/context_rerank_evidence_signals.py": "75951f118487cf436c79a209aed332ed19d3dc260d621b2135f67ee8bb1834a0",
+    "packages/infinity_context_core/infinity_context_core/application/context_rerank_domain_heuristics.py": "875b3120ae40483fd0b33d7a243e87729b4d9d3cf7636e9e263a519021cd306b"
+  },
+  "definitions": {
+    "dedupe_rank_items": {
+      "signature": "(items: 'tuple[ContextItem, ...]') -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVSwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBFkZWR1cGVfcmFua19pdGVtc5STlC4=",
+      "globals": {
+        "normalize_context_item_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_item_diagnostics"
+        ],
+        "_should_replace_context_item": [
+          "infinity_context_core.application.context_ranking",
+          "_should_replace_context_item"
+        ],
+        "_merge_context_items": [
+          "infinity_context_core.application.context_ranking",
+          "_merge_context_items"
+        ],
+        "context_rank_key": [
+          "infinity_context_core.application.context_diagnostics_ranking",
+          "context_rank_key"
+        ]
+      }
+    },
+    "apply_rank_fusion_boosts": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, rank_constant: 'float' = 60.0, max_rank_per_source: 'int' = 50, max_boost: 'float' = 0.045, source_weights: 'Mapping[str, float] | None' = None) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "rank_constant": "<class 'float'>",
+        "max_rank_per_source": "<class 'int'>",
+        "max_boost": "<class 'float'>",
+        "source_weights": "collections.abc.Mapping[str, float] | None",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhhcHBseV9yYW5rX2Z1c2lvbl9ib29zdHOUk5Qu",
+      "globals": {
+        "_ranked_items_by_retrieval_source": [
+          "infinity_context_core.application.context_ranking",
+          "_ranked_items_by_retrieval_source"
+        ],
+        "reciprocal_rank_fusion_scores": [
+          "infinity_context_core.application.context_ranking",
+          "reciprocal_rank_fusion_scores"
+        ]
+      }
+    },
+    "apply_bm25_lexical_boosts": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, query: 'str', k1: 'float' = 1.2, b: 'float' = 0.75, max_boost: 'float' = 0.035) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "query": "<class 'str'>",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "max_boost": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBlhcHBseV9ibTI1X2xleGljYWxfYm9vc3RzlJOULg==",
+      "globals": {
+        "query_terms": [
+          "infinity_context_core.application.context_lexical",
+          "query_terms"
+        ],
+        "_bm25_raw_scores": [
+          "infinity_context_core.application.context_ranking",
+          "_bm25_raw_scores"
+        ]
+      }
+    },
+    "apply_query_plan_bm25_lexical_boosts": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, plan: 'QueryExpansionPlan', bm25_text_stats_cache: 'dict[str, tuple[Mapping[str, int], int]] | None' = None, k1: 'float' = 1.2, b: 'float' = 0.75, max_boost: 'float' = 0.035) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "bm25_text_stats_cache": "dict[str, tuple[collections.abc.Mapping[str, int], int]] | None",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "max_boost": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVXgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCRhcHBseV9xdWVyeV9wbGFuX2JtMjVfbGV4aWNhbF9ib29zdHOUk5Qu",
+      "globals": {
+        "_best_bm25_query_matches": [
+          "infinity_context_core.application.context_ranking",
+          "_best_bm25_query_matches"
+        ]
+      }
+    },
+    "apply_query_anchor_intent_boosts": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, intent: 'QueryAnchorIntent', max_boost: 'float' = 0.035) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "max_boost": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBhcHBseV9xdWVyeV9hbmNob3JfaW50ZW50X2Jvb3N0c5STlC4=",
+      "globals": {}
+    },
+    "apply_context_requirement_boosts": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, query: 'str', query_anchor_intent: 'QueryAnchorIntent', max_boost: 'float' = 0.04) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "max_boost": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBhcHBseV9jb250ZXh0X3JlcXVpcmVtZW50X2Jvb3N0c5STlC4=",
+      "globals": {
+        "context_requirement_coverage": [
+          "infinity_context_core.application.context_requirement_coverage",
+          "context_requirement_coverage"
+        ],
+        "_coverage_value_set": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_value_set"
+        ]
+      }
+    },
+    "apply_deterministic_rerank_adjustments": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, query: 'str', plan: 'QueryExpansionPlan', query_anchor_intent: 'QueryAnchorIntent', query_relevance_cache: 'dict[str, tuple[str, str, QueryRelevance]] | None' = None, max_boost: 'float' = 0.055, max_penalty: 'float' = 0.11) -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "query": "<class 'str'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "query_relevance_cache": "dict[str, tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]] | None",
+        "max_boost": "<class 'float'>",
+        "max_penalty": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZhcHBseV9kZXRlcm1pbmlzdGljX3JlcmFua19hZGp1c3RtZW50c5STlC4=",
+      "globals": {
+        "context_requirement_coverage": [
+          "infinity_context_core.application.context_requirement_coverage",
+          "context_requirement_coverage"
+        ],
+        "build_temporal_query_intent": [
+          "infinity_context_core.application.context_temporal_query",
+          "build_temporal_query_intent"
+        ],
+        "_coverage_int": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_int"
+        ],
+        "has_multi_evidence_aggregation_candidate": [
+          "infinity_context_core.application.context_domain_rerank_inventory",
+          "has_multi_evidence_aggregation_candidate"
+        ],
+        "apply_attributed_speaker_exact_name_disambiguation": [
+          "infinity_context_core.application.context_speaker_disambiguation",
+          "apply_attributed_speaker_exact_name_disambiguation"
+        ],
+        "_apply_same_person_topic_disambiguation_penalties": [
+          "infinity_context_core.application.context_ranking",
+          "_apply_same_person_topic_disambiguation_penalties"
+        ],
+        "apply_conflicting_evidence_currentness_rerank": [
+          "infinity_context_core.application.context_conflicting_evidence_rerank",
+          "apply_conflicting_evidence_currentness_rerank"
+        ]
+      }
+    },
+    "reciprocal_rank_fusion_scores": {
+      "signature": "(rankings: 'Mapping[str, Sequence[ContextItem]]', *, rank_constant: 'float' = 60.0, max_rank_per_source: 'int' = 50, source_weights: 'Mapping[str, float] | None' = None) -> 'dict[tuple[str, str], float]'",
+      "annotations": {
+        "rankings": "collections.abc.Mapping[str, collections.abc.Sequence[infinity_context_core.application.dto_context.ContextItem]]",
+        "rank_constant": "<class 'float'>",
+        "max_rank_per_source": "<class 'int'>",
+        "source_weights": "collections.abc.Mapping[str, float] | None",
+        "return": "dict[tuple[str, str], float]"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1yZWNpcHJvY2FsX3JhbmtfZnVzaW9uX3Njb3Jlc5STlC4=",
+      "globals": {
+        "_bounded_source_weight": [
+          "infinity_context_core.application.context_ranking",
+          "_bounded_source_weight"
+        ]
+      }
+    },
+    "_query_expansion_terms": {
+      "signature": "(plan: 'QueryExpansionPlan') -> '_QueryExpansionTerms'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "return": "tuple[tuple[str, str, tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]], ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBZfcXVlcnlfZXhwYW5zaW9uX3Rlcm1zlJOULg==",
+      "globals": {}
+    },
+    "best_query_relevance": {
+      "signature": "(plan: 'QueryExpansionPlan', *, text: 'str') -> 'tuple[str, str, QueryRelevance]'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "text": "<class 'str'>",
+        "return": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRiZXN0X3F1ZXJ5X3JlbGV2YW5jZZSTlC4=",
+      "globals": {
+        "text_variant_profile": [
+          "infinity_context_core.application.context_lexical",
+          "text_variant_profile"
+        ],
+        "_query_expansion_terms": [
+          "infinity_context_core.application.context_ranking",
+          "_query_expansion_terms"
+        ]
+      }
+    },
+    "query_relevance_rank_key": {
+      "signature": "(item: 'tuple[str, str, QueryRelevance]') -> 'tuple[bool, int, int, int, float, bool]'",
+      "annotations": {
+        "item": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]",
+        "return": "tuple[bool, int, int, int, float, bool]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhxdWVyeV9yZWxldmFuY2VfcmFua19rZXmUk5Qu",
+      "globals": {
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "_query_reason_priority_for_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "_query_reason_priority_for_relevance"
+        ]
+      }
+    },
+    "_query_relevance_rank_key_for_plan": {
+      "signature": "(plan: 'QueryExpansionPlan', item: 'tuple[str, str, QueryRelevance]') -> 'tuple[bool, int, int, int, float, bool]'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "item": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]",
+        "return": "tuple[bool, int, int, int, float, bool]"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfcXVlcnlfcmVsZXZhbmNlX3Jhbmtfa2V5X2Zvcl9wbGFulJOULg==",
+      "globals": {
+        "_query_reason_priority_for_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "_query_reason_priority_for_relevance"
+        ],
+        "_is_direct_visual_text_query": [
+          "infinity_context_core.application.context_ranking",
+          "_is_direct_visual_text_query"
+        ],
+        "_is_direct_quantity_query": [
+          "infinity_context_core.application.context_ranking",
+          "_is_direct_quantity_query"
+        ],
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ]
+      }
+    },
+    "_is_direct_visual_text_query": {
+      "signature": "(query: 'str') -> 'bool'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBxfaXNfZGlyZWN0X3Zpc3VhbF90ZXh0X3F1ZXJ5lJOULg==",
+      "globals": {}
+    },
+    "_is_direct_quantity_query": {
+      "signature": "(query: 'str') -> 'bool'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVUwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBlfaXNfZGlyZWN0X3F1YW50aXR5X3F1ZXJ5lJOULg==",
+      "globals": {}
+    },
+    "_query_relevance_false_friend": {
+      "signature": "(*, plan: 'QueryExpansionPlan', item: 'tuple[str, str, QueryRelevance]', text: 'str') -> 'bool'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "item": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]",
+        "text": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fcXVlcnlfcmVsZXZhbmNlX2ZhbHNlX2ZyaWVuZJSTlC4=",
+      "globals": {}
+    },
+    "_strict_query_reason_below_minimum": {
+      "signature": "(*, reason: 'str', relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfc3RyaWN0X3F1ZXJ5X3JlYXNvbl9iZWxvd19taW5pbXVtlJOULg==",
+      "globals": {}
+    },
+    "_query_reason_priority_for_relevance": {
+      "signature": "(reason: 'str', relevance: 'QueryRelevance') -> 'int'",
+      "annotations": {
+        "reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'int'>"
+      },
+      "doc": null,
+      "pickle": "gASVXgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCRfcXVlcnlfcmVhc29uX3ByaW9yaXR5X2Zvcl9yZWxldmFuY2WUk5Qu",
+      "globals": {}
+    },
+    "keyword_chunk_score": {
+      "signature": "(relevance: 'QueryRelevance', *, query_expansion_reason: 'str') -> 'float'",
+      "annotations": {
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "query_expansion_reason": "<class 'str'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVTQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBNrZXl3b3JkX2NodW5rX3Njb3JllJOULg==",
+      "globals": {}
+    },
+    "keyword_chunk_source_score_boost": {
+      "signature": "(relevance: 'QueryRelevance', *, query_expansion_reason: 'str', source_external_id: 'str') -> 'float'",
+      "annotations": {
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "query_expansion_reason": "<class 'str'>",
+        "source_external_id": "<class 'str'>",
+        "return": "<class 'float'>"
+      },
+      "doc": "Prefer compact derived observations/summaries for broad aggregation answers.",
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBrZXl3b3JkX2NodW5rX3NvdXJjZV9zY29yZV9ib29zdJSTlC4=",
+      "globals": {}
+    },
+    "query_expansion_reason_priority": {
+      "signature": "(reason: 'str') -> 'int'",
+      "annotations": {
+        "reason": "<class 'str'>",
+        "return": "<class 'int'>"
+      },
+      "doc": null,
+      "pickle": "gASVWQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB9xdWVyeV9leHBhbnNpb25fcmVhc29uX3ByaW9yaXR5lJOULg==",
+      "globals": {}
+    },
+    "apply_keyword_chunk_source_score_boost": {
+      "signature": "(score: 'float', relevance: 'QueryRelevance', *, query_expansion_reason: 'str', source_external_id: 'str') -> 'tuple[float, float]'",
+      "annotations": {
+        "score": "<class 'float'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "query_expansion_reason": "<class 'str'>",
+        "source_external_id": "<class 'str'>",
+        "return": "tuple[float, float]"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZhcHBseV9rZXl3b3JkX2NodW5rX3NvdXJjZV9zY29yZV9ib29zdJSTlC4=",
+      "globals": {
+        "keyword_chunk_source_score_boost": [
+          "infinity_context_core.application.context_ranking",
+          "keyword_chunk_source_score_boost"
+        ]
+      }
+    },
+    "_should_replace_context_item": {
+      "signature": "(*, candidate: 'ContextItem', existing: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "candidate": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "existing": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBxfc2hvdWxkX3JlcGxhY2VfY29udGV4dF9pdGVtlJOULg==",
+      "globals": {
+        "_context_item_reason_priority": [
+          "infinity_context_core.application.context_ranking",
+          "_context_item_reason_priority"
+        ],
+        "context_duplicate_primary_key": [
+          "infinity_context_core.application.context_diagnostics_ranking",
+          "context_duplicate_primary_key"
+        ]
+      }
+    },
+    "_context_item_reason_priority": {
+      "signature": "(item: 'ContextItem') -> 'float'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fY29udGV4dF9pdGVtX3JlYXNvbl9wcmlvcml0eZSTlC4=",
+      "globals": {
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ]
+      }
+    },
+    "_merge_context_items": {
+      "signature": "(*, primary: 'ContextItem', secondary: 'ContextItem') -> 'ContextItem'",
+      "annotations": {
+        "primary": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "secondary": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRfbWVyZ2VfY29udGV4dF9pdGVtc5STlC4=",
+      "globals": {
+        "_merge_source_refs": [
+          "infinity_context_core.application.context_ranking",
+          "_merge_source_refs"
+        ],
+        "merge_diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "merge_diagnostic_retrieval_sources"
+        ],
+        "_hybrid_boost": [
+          "infinity_context_core.application.context_ranking",
+          "_hybrid_boost"
+        ],
+        "_preferred_merge_body_item": [
+          "infinity_context_core.application.context_ranking",
+          "_preferred_merge_body_item"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ],
+        "merge_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "merge_context_diagnostics"
+        ]
+      }
+    },
+    "_preferred_merge_body_item": {
+      "signature": "(*, primary: 'ContextItem', secondary: 'ContextItem') -> 'ContextItem'",
+      "annotations": {
+        "primary": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "secondary": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVVAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBpfcHJlZmVycmVkX21lcmdlX2JvZHlfaXRlbZSTlC4=",
+      "globals": {
+        "_exact_source_sibling_answer_body_rank": [
+          "infinity_context_core.application.context_ranking",
+          "_exact_source_sibling_answer_body_rank"
+        ],
+        "_is_strong_exact_source_sibling_turn": [
+          "infinity_context_core.application.context_ranking",
+          "_is_strong_exact_source_sibling_turn"
+        ],
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ]
+      }
+    },
+    "_exact_source_sibling_answer_body_rank": {
+      "signature": "(item: 'ContextItem') -> 'int'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'int'>"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfZXhhY3Rfc291cmNlX3NpYmxpbmdfYW5zd2VyX2JvZHlfcmFua5STlC4=",
+      "globals": {
+        "_has_dialogue_turn_body_for_source_ref": [
+          "infinity_context_core.application.context_ranking",
+          "_has_dialogue_turn_body_for_source_ref"
+        ],
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "_numeric_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_numeric_signal"
+        ]
+      }
+    },
+    "_has_dialogue_turn_body_for_source_ref": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfaGFzX2RpYWxvZ3VlX3R1cm5fYm9keV9mb3Jfc291cmNlX3JlZpSTlC4=",
+      "globals": {
+        "_source_ref_dialogue_marker": [
+          "infinity_context_core.application.context_ranking",
+          "_source_ref_dialogue_marker"
+        ],
+        "_text_has_dialogue_turn_body": [
+          "infinity_context_core.application.context_ranking",
+          "_text_has_dialogue_turn_body"
+        ]
+      }
+    },
+    "_source_ref_dialogue_marker": {
+      "signature": "(ref: 'SourceRef') -> 'str'",
+      "annotations": {
+        "ref": "<class 'infinity_context_core.domain.source_refs.SourceRef'>",
+        "return": "<class 'str'>"
+      },
+      "doc": null,
+      "pickle": "gASVVQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfc291cmNlX3JlZl9kaWFsb2d1ZV9tYXJrZXKUk5Qu",
+      "globals": {}
+    },
+    "_text_has_dialogue_turn_body": {
+      "signature": "(text: 'str', *, marker: 'str') -> 'bool'",
+      "annotations": {
+        "text": "<class 'str'>",
+        "marker": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBxfdGV4dF9oYXNfZGlhbG9ndWVfdHVybl9ib2R5lJOULg==",
+      "globals": {}
+    },
+    "_is_strong_exact_source_sibling_turn": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCRfaXNfc3Ryb25nX2V4YWN0X3NvdXJjZV9zaWJsaW5nX3R1cm6Uk5Qu",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "_numeric_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_numeric_signal"
+        ]
+      }
+    },
+    "_source_ref_is_turn": {
+      "signature": "(ref: 'SourceRef') -> 'bool'",
+      "annotations": {
+        "ref": "<class 'infinity_context_core.domain.source_refs.SourceRef'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVTQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBNfc291cmNlX3JlZl9pc190dXJulJOULg==",
+      "globals": {}
+    },
+    "_merge_source_refs": {
+      "signature": "(primary: 'tuple[SourceRef, ...]', secondary: 'tuple[SourceRef, ...]') -> 'tuple[SourceRef, ...]'",
+      "annotations": {
+        "primary": "tuple[infinity_context_core.domain.source_refs.SourceRef, ...]",
+        "secondary": "tuple[infinity_context_core.domain.source_refs.SourceRef, ...]",
+        "return": "tuple[infinity_context_core.domain.source_refs.SourceRef, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVTAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBJfbWVyZ2Vfc291cmNlX3JlZnOUk5Qu",
+      "globals": {}
+    },
+    "_hybrid_boost": {
+      "signature": "(*, retrieval_source_count: 'int', source_ref_count: 'int') -> 'float'",
+      "annotations": {
+        "retrieval_source_count": "<class 'int'>",
+        "source_ref_count": "<class 'int'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVRwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA1faHlicmlkX2Jvb3N0lJOULg==",
+      "globals": {}
+    },
+    "_ranked_items_by_retrieval_source": {
+      "signature": "(items: 'tuple[ContextItem, ...]') -> 'dict[str, tuple[ContextItem, ...]]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "return": "dict[str, tuple[infinity_context_core.application.dto_context.ContextItem, ...]]"
+      },
+      "doc": null,
+      "pickle": "gASVWwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCFfcmFua2VkX2l0ZW1zX2J5X3JldHJpZXZhbF9zb3VyY2WUk5Qu",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "context_rank_key": [
+          "infinity_context_core.application.context_diagnostics_ranking",
+          "context_rank_key"
+        ]
+      }
+    },
+    "_bounded_source_weight": {
+      "signature": "(value: 'float') -> 'float'",
+      "annotations": {
+        "value": "<class 'float'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVUAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBZfYm91bmRlZF9zb3VyY2Vfd2VpZ2h0lJOULg==",
+      "globals": {}
+    },
+    "_Bm25Document": {
+      "signature": "(item: 'ContextItem', term_frequencies: 'tuple[int, ...]', length: 'int') -> None",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "term_frequencies": "tuple[int, ...]",
+        "length": "<class 'int'>"
+      },
+      "doc": "_Bm25Document(item: 'ContextItem', term_frequencies: 'tuple[int, ...]', length: 'int')",
+      "pickle": "gASVRwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA1fQm0yNURvY3VtZW50lJOULg==",
+      "globals": {},
+      "instance_pickle": "gASVPwEAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA1fQm0yNURvY3VtZW50lJOUKYGUfZQojARpdGVtlIwtaW5maW5pdHlfY29udGV4dF9jb3JlLmFwcGxpY2F0aW9uLmR0b19jb250ZXh0lIwLQ29udGV4dEl0ZW2Uk5QpgZR9lCiMB2l0ZW1faWSUjAtwcml2YXRlLWR0b5SMCWl0ZW1fdHlwZZSMBWNodW5rlIwEdGV4dJSMCEV2aWRlbmNllIwFc2NvcmWURz/mZmZmZmZmjAtzb3VyY2VfcmVmc5QpjA5pc19pbnN0cnVjdGlvbpSJjAtkaWFnbm9zdGljc5ROdWKMEHRlcm1fZnJlcXVlbmNpZXOUSwGFlIwGbGVuZ3RolEsBdWIu",
+      "fields": [
+        "item",
+        "term_frequencies",
+        "length"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "item",
+            {
+              "kind": "dataclass",
+              "module": "infinity_context_core.application.dto_context",
+              "name": "ContextItem",
+              "fields": {
+                "item_id": "private-dto",
+                "item_type": "chunk",
+                "text": "Evidence",
+                "score": 0.7,
+                "source_refs": {
+                  "kind": "tuple",
+                  "items": []
+                },
+                "is_instruction": false,
+                "diagnostics": null
+              }
+            }
+          ],
+          [
+            "term_frequencies",
+            {
+              "kind": "tuple",
+              "items": [
+                1
+              ]
+            }
+          ],
+          [
+            "length",
+            1
+          ]
+        ]
+      }
+    },
+    "_Bm25PreparedItem": {
+      "signature": "(item: 'ContextItem', text_counts: 'Mapping[str, int]', length: 'int') -> None",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "text_counts": "collections.abc.Mapping[str, int]",
+        "length": "<class 'int'>"
+      },
+      "doc": "_Bm25PreparedItem(item: 'ContextItem', text_counts: 'Mapping[str, int]', length: 'int')",
+      "pickle": "gASVSwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBFfQm0yNVByZXBhcmVkSXRlbZSTlC4=",
+      "globals": {},
+      "instance_pickle": "gASVSgEAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBFfQm0yNVByZXBhcmVkSXRlbZSTlCmBlH2UKIwEaXRlbZSMLWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5kdG9fY29udGV4dJSMC0NvbnRleHRJdGVtlJOUKYGUfZQojAdpdGVtX2lklIwLcHJpdmF0ZS1kdG+UjAlpdGVtX3R5cGWUjAVjaHVua5SMBHRleHSUjAhFdmlkZW5jZZSMBXNjb3JllEc/5mZmZmZmZowLc291cmNlX3JlZnOUKYwOaXNfaW5zdHJ1Y3Rpb26UiYwLZGlhZ25vc3RpY3OUTnVijAt0ZXh0X2NvdW50c5R9lIwIZXZpZGVuY2WUSwFzjAZsZW5ndGiUSwF1Yi4=",
+      "fields": [
+        "item",
+        "text_counts",
+        "length"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "item",
+            {
+              "kind": "dataclass",
+              "module": "infinity_context_core.application.dto_context",
+              "name": "ContextItem",
+              "fields": {
+                "item_id": "private-dto",
+                "item_type": "chunk",
+                "text": "Evidence",
+                "score": 0.7,
+                "source_refs": {
+                  "kind": "tuple",
+                  "items": []
+                },
+                "is_instruction": false,
+                "diagnostics": null
+              }
+            }
+          ],
+          [
+            "text_counts",
+            {
+              "kind": "mapping",
+              "items": [
+                [
+                  "evidence",
+                  1
+                ]
+              ]
+            }
+          ],
+          [
+            "length",
+            1
+          ]
+        ]
+      }
+    },
+    "_Bm25QueryMatch": {
+      "signature": "(normalized_score: 'float', query_term_count: 'int', matched_term_count: 'int', query_reason: 'str', query_coverage: 'float' = 0.0) -> None",
+      "annotations": {
+        "normalized_score": "<class 'float'>",
+        "query_term_count": "<class 'int'>",
+        "matched_term_count": "<class 'int'>",
+        "query_reason": "<class 'str'>",
+        "query_coverage": "<class 'float'>"
+      },
+      "doc": "_Bm25QueryMatch(normalized_score: 'float', query_term_count: 'int', matched_term_count: 'int', query_reason: 'str', query_coverage: 'float' = 0.0)",
+      "pickle": "gASVSQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA9fQm0yNVF1ZXJ5TWF0Y2iUk5Qu",
+      "globals": {},
+      "instance_pickle": "gASV0wAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA9fQm0yNVF1ZXJ5TWF0Y2iUk5QpgZR9lCiMEG5vcm1hbGl6ZWRfc2NvcmWURz/gAAAAAAAAjBBxdWVyeV90ZXJtX2NvdW50lEsBjBJtYXRjaGVkX3Rlcm1fY291bnSUSwGMDHF1ZXJ5X3JlYXNvbpSMDm9yaWdpbmFsX3F1ZXJ5lIwOcXVlcnlfY292ZXJhZ2WURz/wAAAAAAAAdWIu",
+      "fields": [
+        "normalized_score",
+        "query_term_count",
+        "matched_term_count",
+        "query_reason",
+        "query_coverage"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "normalized_score",
+            0.5
+          ],
+          [
+            "query_term_count",
+            1
+          ],
+          [
+            "matched_term_count",
+            1
+          ],
+          [
+            "query_reason",
+            "original_query"
+          ],
+          [
+            "query_coverage",
+            1.0
+          ]
+        ]
+      }
+    },
+    "_DeterministicRerankSignals": {
+      "signature": "(boost: 'float', penalty: 'float', reasons: 'tuple[str, ...]', rank_signals: 'tuple[tuple[str, float], ...]', source_count: 'int', strong_source_count: 'int', coverage_ratio: 'float', anchor_conflict: 'bool', query_reason: 'str') -> None",
+      "annotations": {
+        "boost": "<class 'float'>",
+        "penalty": "<class 'float'>",
+        "reasons": "tuple[str, ...]",
+        "rank_signals": "tuple[tuple[str, float], ...]",
+        "source_count": "<class 'int'>",
+        "strong_source_count": "<class 'int'>",
+        "coverage_ratio": "<class 'float'>",
+        "anchor_conflict": "<class 'bool'>",
+        "query_reason": "<class 'str'>"
+      },
+      "doc": "_DeterministicRerankSignals(boost: 'float', penalty: 'float', reasons: 'tuple[str, ...]', rank_signals: 'tuple[tuple[str, float], ...]', source_count: 'int', strong_source_count: 'int', coverage_ratio: 'float', anchor_conflict: 'bool', query_reason: 'str')",
+      "pickle": "gASVVQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfRGV0ZXJtaW5pc3RpY1JlcmFua1NpZ25hbHOUk5Qu",
+      "globals": {},
+      "instance_pickle": "gASVKgEAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfRGV0ZXJtaW5pc3RpY1JlcmFua1NpZ25hbHOUk5QpgZR9lCiMBWJvb3N0lEc/hHrhR64Ue4wHcGVuYWx0eZRHAAAAAAAAAACMB3JlYXNvbnOUjAZmcm96ZW6UhZSMDHJhbmtfc2lnbmFsc5RoCEc/8AAAAAAAAIaUhZSMDHNvdXJjZV9jb3VudJRLAYwTc3Ryb25nX3NvdXJjZV9jb3VudJRLAYwOY292ZXJhZ2VfcmF0aW+URz/wAAAAAAAAjA9hbmNob3JfY29uZmxpY3SUiYwMcXVlcnlfcmVhc29ulIwOb3JpZ2luYWxfcXVlcnmUdWIu",
+      "fields": [
+        "boost",
+        "penalty",
+        "reasons",
+        "rank_signals",
+        "source_count",
+        "strong_source_count",
+        "coverage_ratio",
+        "anchor_conflict",
+        "query_reason"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "boost",
+            0.01
+          ],
+          [
+            "penalty",
+            0.0
+          ],
+          [
+            "reasons",
+            {
+              "kind": "tuple",
+              "items": [
+                "frozen"
+              ]
+            }
+          ],
+          [
+            "rank_signals",
+            {
+              "kind": "tuple",
+              "items": [
+                {
+                  "kind": "tuple",
+                  "items": [
+                    "frozen",
+                    1.0
+                  ]
+                }
+              ]
+            }
+          ],
+          [
+            "source_count",
+            1
+          ],
+          [
+            "strong_source_count",
+            1
+          ],
+          [
+            "coverage_ratio",
+            1.0
+          ],
+          [
+            "anchor_conflict",
+            false
+          ],
+          [
+            "query_reason",
+            "original_query"
+          ]
+        ]
+      }
+    },
+    "_RequirementCoverageSignals": {
+      "signature": "(ratio: 'float', requested_anchor_kinds: 'frozenset[str]', covered_anchor_kinds: 'frozenset[str]', missing_anchor_kinds: 'frozenset[str]', requested_modalities: 'frozenset[str]', missing_modalities: 'frozenset[str]', requested_evidence_features: 'frozenset[str]', missing_evidence_features: 'frozenset[str]', requested_answer_shapes: 'frozenset[str]', covered_answer_shapes: 'frozenset[str]', missing_answer_shapes: 'frozenset[str]') -> None",
+      "annotations": {
+        "ratio": "<class 'float'>",
+        "requested_anchor_kinds": "frozenset[str]",
+        "covered_anchor_kinds": "frozenset[str]",
+        "missing_anchor_kinds": "frozenset[str]",
+        "requested_modalities": "frozenset[str]",
+        "missing_modalities": "frozenset[str]",
+        "requested_evidence_features": "frozenset[str]",
+        "missing_evidence_features": "frozenset[str]",
+        "requested_answer_shapes": "frozenset[str]",
+        "covered_answer_shapes": "frozenset[str]",
+        "missing_answer_shapes": "frozenset[str]"
+      },
+      "doc": "_RequirementCoverageSignals(ratio: 'float', requested_anchor_kinds: 'frozenset[str]', covered_anchor_kinds: 'frozenset[str]', missing_anchor_kinds: 'frozenset[str]', requested_modalities: 'frozenset[str]', missing_modalities: 'frozenset[str]', requested_evidence_features: 'frozenset[str]', missing_evidence_features: 'frozenset[str]', requested_answer_shapes: 'frozenset[str]', covered_answer_shapes: 'frozenset[str]', missing_answer_shapes: 'frozenset[str]')",
+      "pickle": "gASVVQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfUmVxdWlyZW1lbnRDb3ZlcmFnZVNpZ25hbHOUk5Qu",
+      "globals": {},
+      "instance_pickle": "gASVgwEAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfUmVxdWlyZW1lbnRDb3ZlcmFnZVNpZ25hbHOUk5QpgZR9lCiMBXJhdGlvlEcAAAAAAAAAAIwWcmVxdWVzdGVkX2FuY2hvcl9raW5kc5QokZSMFGNvdmVyZWRfYW5jaG9yX2tpbmRzlCiRlIwUbWlzc2luZ19hbmNob3Jfa2luZHOUKJGUjBRyZXF1ZXN0ZWRfbW9kYWxpdGllc5QokZSMEm1pc3NpbmdfbW9kYWxpdGllc5QokZSMG3JlcXVlc3RlZF9ldmlkZW5jZV9mZWF0dXJlc5QokZSMGW1pc3NpbmdfZXZpZGVuY2VfZmVhdHVyZXOUKJGUjBdyZXF1ZXN0ZWRfYW5zd2VyX3NoYXBlc5QokZSMFWNvdmVyZWRfYW5zd2VyX3NoYXBlc5QokZSMFW1pc3NpbmdfYW5zd2VyX3NoYXBlc5QokZR1Yi4=",
+      "fields": [
+        "ratio",
+        "requested_anchor_kinds",
+        "covered_anchor_kinds",
+        "missing_anchor_kinds",
+        "requested_modalities",
+        "missing_modalities",
+        "requested_evidence_features",
+        "missing_evidence_features",
+        "requested_answer_shapes",
+        "covered_answer_shapes",
+        "missing_answer_shapes"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "ratio",
+            0.0
+          ],
+          [
+            "requested_anchor_kinds",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "covered_anchor_kinds",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "missing_anchor_kinds",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "requested_modalities",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "missing_modalities",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "requested_evidence_features",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "missing_evidence_features",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "requested_answer_shapes",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "covered_answer_shapes",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ],
+          [
+            "missing_answer_shapes",
+            {
+              "kind": "frozenset",
+              "items": []
+            }
+          ]
+        ]
+      }
+    },
+    "_SamePersonTopicProfile": {
+      "signature": "(item: 'ContextItem', matches_query_person: 'bool', has_anchor_conflict: 'bool', topic_hits: 'int', covers_topic: 'bool', explicit_topic_decoy_shape: 'bool') -> None",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "matches_query_person": "<class 'bool'>",
+        "has_anchor_conflict": "<class 'bool'>",
+        "topic_hits": "<class 'int'>",
+        "covers_topic": "<class 'bool'>",
+        "explicit_topic_decoy_shape": "<class 'bool'>"
+      },
+      "doc": "_SamePersonTopicProfile(item: 'ContextItem', matches_query_person: 'bool', has_anchor_conflict: 'bool', topic_hits: 'int', covers_topic: 'bool', explicit_topic_decoy_shape: 'bool')",
+      "pickle": "gASVUQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBdfU2FtZVBlcnNvblRvcGljUHJvZmlsZZSTlC4=",
+      "globals": {},
+      "instance_pickle": "gASVkwEAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBdfU2FtZVBlcnNvblRvcGljUHJvZmlsZZSTlCmBlH2UKIwEaXRlbZSMLWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5kdG9fY29udGV4dJSMC0NvbnRleHRJdGVtlJOUKYGUfZQojAdpdGVtX2lklIwLcHJpdmF0ZS1kdG+UjAlpdGVtX3R5cGWUjAVjaHVua5SMBHRleHSUjAhFdmlkZW5jZZSMBXNjb3JllEc/5mZmZmZmZowLc291cmNlX3JlZnOUKYwOaXNfaW5zdHJ1Y3Rpb26UiYwLZGlhZ25vc3RpY3OUTnVijBRtYXRjaGVzX3F1ZXJ5X3BlcnNvbpSIjBNoYXNfYW5jaG9yX2NvbmZsaWN0lImMCnRvcGljX2hpdHOUSwGMDGNvdmVyc190b3BpY5SIjBpleHBsaWNpdF90b3BpY19kZWNveV9zaGFwZZSJdWIu",
+      "fields": [
+        "item",
+        "matches_query_person",
+        "has_anchor_conflict",
+        "topic_hits",
+        "covers_topic",
+        "explicit_topic_decoy_shape"
+      ],
+      "instance_fields": {
+        "kind": "mapping",
+        "items": [
+          [
+            "item",
+            {
+              "kind": "dataclass",
+              "module": "infinity_context_core.application.dto_context",
+              "name": "ContextItem",
+              "fields": {
+                "item_id": "private-dto",
+                "item_type": "chunk",
+                "text": "Evidence",
+                "score": 0.7,
+                "source_refs": {
+                  "kind": "tuple",
+                  "items": []
+                },
+                "is_instruction": false,
+                "diagnostics": null
+              }
+            }
+          ],
+          [
+            "matches_query_person",
+            true
+          ],
+          [
+            "has_anchor_conflict",
+            false
+          ],
+          [
+            "topic_hits",
+            1
+          ],
+          [
+            "covers_topic",
+            true
+          ],
+          [
+            "explicit_topic_decoy_shape",
+            false
+          ]
+        ]
+      }
+    },
+    "_best_bm25_query_matches": {
+      "signature": "(*, items: 'tuple[ContextItem, ...]', plan: 'QueryExpansionPlan', k1: 'float', b: 'float', bm25_text_stats_cache: 'dict[str, tuple[Mapping[str, int], int]] | None' = None) -> 'tuple[_Bm25QueryMatch, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "bm25_text_stats_cache": "dict[str, tuple[collections.abc.Mapping[str, int], int]] | None",
+        "return": "tuple[infinity_context_core.application.context_ranking._Bm25QueryMatch, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfYmVzdF9ibTI1X3F1ZXJ5X21hdGNoZXOUk5Qu",
+      "globals": {
+        "_query_expansion_terms": [
+          "infinity_context_core.application.context_ranking",
+          "_query_expansion_terms"
+        ],
+        "_bm25_raw_scores_for_prepared": [
+          "infinity_context_core.application.context_ranking",
+          "_bm25_raw_scores_for_prepared"
+        ],
+        "_bm25_query_coverage": [
+          "infinity_context_core.application.context_ranking",
+          "_bm25_query_coverage"
+        ],
+        "_Bm25QueryMatch": [
+          "infinity_context_core.application.context_ranking",
+          "_Bm25QueryMatch"
+        ]
+      }
+    },
+    "_select_bm25_query_match": {
+      "signature": "(best: '_Bm25QueryMatch', candidate: '_Bm25QueryMatch') -> '_Bm25QueryMatch'",
+      "annotations": {
+        "best": "<class 'infinity_context_core.application.context_ranking._Bm25QueryMatch'>",
+        "candidate": "<class 'infinity_context_core.application.context_ranking._Bm25QueryMatch'>",
+        "return": "<class 'infinity_context_core.application.context_ranking._Bm25QueryMatch'>"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfc2VsZWN0X2JtMjVfcXVlcnlfbWF0Y2iUk5Qu",
+      "globals": {}
+    },
+    "_bm25_raw_scores": {
+      "signature": "(*, items: 'tuple[ContextItem, ...]', terms: 'tuple[LexicalQueryTerm, ...]', k1: 'float', b: 'float') -> 'tuple[tuple[_Bm25Document, ...], tuple[float, ...]]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "terms": "tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "return": "tuple[tuple[infinity_context_core.application.context_ranking._Bm25Document, ...], tuple[float, ...]]"
+      },
+      "doc": null,
+      "pickle": "gASVSgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBBfYm0yNV9yYXdfc2NvcmVzlJOULg==",
+      "globals": {
+        "_bm25_raw_scores_for_prepared": [
+          "infinity_context_core.application.context_ranking",
+          "_bm25_raw_scores_for_prepared"
+        ]
+      }
+    },
+    "_bm25_raw_scores_for_prepared": {
+      "signature": "(*, prepared_items: 'tuple[_Bm25PreparedItem, ...]', terms: 'tuple[LexicalQueryTerm, ...]', k1: 'float', b: 'float', term_frequency_cache: '_Bm25TermFrequencyCache | None' = None) -> 'tuple[tuple[_Bm25Document, ...], tuple[float, ...]]'",
+      "annotations": {
+        "prepared_items": "tuple[infinity_context_core.application.context_ranking._Bm25PreparedItem, ...]",
+        "terms": "tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "term_frequency_cache": "dict[tuple[int, infinity_context_core.application.context_lexical.LexicalQueryTerm], int] | None",
+        "return": "tuple[tuple[infinity_context_core.application.context_ranking._Bm25Document, ...], tuple[float, ...]]"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fYm0yNV9yYXdfc2NvcmVzX2Zvcl9wcmVwYXJlZJSTlC4=",
+      "globals": {}
+    },
+    "_bm25_query_coverage": {
+      "signature": "(*, matched_term_count: 'int', query_term_count: 'int') -> 'float'",
+      "annotations": {
+        "matched_term_count": "<class 'int'>",
+        "query_term_count": "<class 'int'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRfYm0yNV9xdWVyeV9jb3ZlcmFnZZSTlC4=",
+      "globals": {}
+    },
+    "_bm25_document": {
+      "signature": "(*, prepared: '_Bm25PreparedItem', prepared_index: 'int', terms: 'tuple[LexicalQueryTerm, ...]', term_frequency_cache: '_Bm25TermFrequencyCache | None' = None) -> '_Bm25Document'",
+      "annotations": {
+        "prepared": "<class 'infinity_context_core.application.context_ranking._Bm25PreparedItem'>",
+        "prepared_index": "<class 'int'>",
+        "terms": "tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]",
+        "term_frequency_cache": "dict[tuple[int, infinity_context_core.application.context_lexical.LexicalQueryTerm], int] | None",
+        "return": "<class 'infinity_context_core.application.context_ranking._Bm25Document'>"
+      },
+      "doc": null,
+      "pickle": "gASVSAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA5fYm0yNV9kb2N1bWVudJSTlC4=",
+      "globals": {
+        "_Bm25Document": [
+          "infinity_context_core.application.context_ranking",
+          "_Bm25Document"
+        ]
+      }
+    },
+    "_bm25_term_frequency": {
+      "signature": "(*, prepared: '_Bm25PreparedItem', prepared_index: 'int', term: 'LexicalQueryTerm', term_frequency_cache: '_Bm25TermFrequencyCache | None') -> 'int'",
+      "annotations": {
+        "prepared": "<class 'infinity_context_core.application.context_ranking._Bm25PreparedItem'>",
+        "prepared_index": "<class 'int'>",
+        "term": "<class 'infinity_context_core.application.context_lexical.LexicalQueryTerm'>",
+        "term_frequency_cache": "dict[tuple[int, infinity_context_core.application.context_lexical.LexicalQueryTerm], int] | None",
+        "return": "<class 'int'>"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRfYm0yNV90ZXJtX2ZyZXF1ZW5jeZSTlC4=",
+      "globals": {
+        "query_term_frequency": [
+          "infinity_context_core.application.context_lexical",
+          "query_term_frequency"
+        ]
+      }
+    },
+    "_bm25_prepared_item": {
+      "signature": "(item: 'ContextItem', *, text_stats_cache: 'dict[str, tuple[Mapping[str, int], int]] | None' = None) -> '_Bm25PreparedItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "text_stats_cache": "dict[str, tuple[collections.abc.Mapping[str, int], int]] | None",
+        "return": "<class 'infinity_context_core.application.context_ranking._Bm25PreparedItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVTQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBNfYm0yNV9wcmVwYXJlZF9pdGVtlJOULg==",
+      "globals": {
+        "_Bm25PreparedItem": [
+          "infinity_context_core.application.context_ranking",
+          "_Bm25PreparedItem"
+        ],
+        "text_variant_stats": [
+          "infinity_context_core.application.context_lexical",
+          "text_variant_stats"
+        ]
+      }
+    },
+    "_bm25_score": {
+      "signature": "(*, term_frequencies: 'tuple[int, ...]', document_frequencies: 'tuple[int, ...]', document_count: 'int', document_length: 'int', average_document_length: 'float', k1: 'float', b: 'float') -> 'float'",
+      "annotations": {
+        "term_frequencies": "tuple[int, ...]",
+        "document_frequencies": "tuple[int, ...]",
+        "document_count": "<class 'int'>",
+        "document_length": "<class 'int'>",
+        "average_document_length": "<class 'float'>",
+        "k1": "<class 'float'>",
+        "b": "<class 'float'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVRQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjAtfYm0yNV9zY29yZZSTlC4=",
+      "globals": {}
+    },
+    "_with_bm25_lexical_boost": {
+      "signature": "(item: 'ContextItem', *, raw_score: 'float', max_raw_score: 'float', max_boost: 'float', query_term_count: 'int', matched_term_count: 'int', query_reason: 'str' = 'original_query', query_coverage: 'float | None' = None) -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "raw_score": "<class 'float'>",
+        "max_raw_score": "<class 'float'>",
+        "max_boost": "<class 'float'>",
+        "query_term_count": "<class 'int'>",
+        "matched_term_count": "<class 'int'>",
+        "query_reason": "<class 'str'>",
+        "query_coverage": "float | None",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfd2l0aF9ibTI1X2xleGljYWxfYm9vc3SUk5Qu",
+      "globals": {
+        "_bm25_lexical_already_applied": [
+          "infinity_context_core.application.context_ranking",
+          "_bm25_lexical_already_applied"
+        ],
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_bm25_lexical_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fYm0yNV9sZXhpY2FsX2FscmVhZHlfYXBwbGllZJSTlC4=",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_with_query_anchor_intent_boost": {
+      "signature": "(item: 'ContextItem', *, match: 'object', max_boost: 'float') -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "match": "<class 'object'>",
+        "max_boost": "<class 'float'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVWQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB9fd2l0aF9xdWVyeV9hbmNob3JfaW50ZW50X2Jvb3N0lJOULg==",
+      "globals": {
+        "_query_anchor_intent_already_applied": [
+          "infinity_context_core.application.context_ranking",
+          "_query_anchor_intent_already_applied"
+        ],
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_query_anchor_intent_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCRfcXVlcnlfYW5jaG9yX2ludGVudF9hbHJlYWR5X2FwcGxpZWSUk5Qu",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_with_context_requirement_boost": {
+      "signature": "(item: 'ContextItem', *, query: 'str', query_anchor_intent: 'QueryAnchorIntent', requested_anchor_kinds: 'frozenset[str]', requested_modalities: 'frozenset[str]', requested_features: 'frozenset[str]', requested_answer_shapes: 'frozenset[str]', max_boost: 'float') -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "requested_anchor_kinds": "frozenset[str]",
+        "requested_modalities": "frozenset[str]",
+        "requested_features": "frozenset[str]",
+        "requested_answer_shapes": "frozenset[str]",
+        "max_boost": "<class 'float'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVWQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB9fd2l0aF9jb250ZXh0X3JlcXVpcmVtZW50X2Jvb3N0lJOULg==",
+      "globals": {
+        "_context_requirement_boost_already_applied": [
+          "infinity_context_core.application.context_ranking",
+          "_context_requirement_boost_already_applied"
+        ],
+        "normalize_context_item_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_item_diagnostics"
+        ],
+        "context_requirement_coverage": [
+          "infinity_context_core.application.context_requirement_coverage",
+          "context_requirement_coverage"
+        ],
+        "_sorted_coverage_matches": [
+          "infinity_context_core.application.context_ranking",
+          "_sorted_coverage_matches"
+        ],
+        "_coverage_value_set": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_value_set"
+        ],
+        "_typed_answer_unit_mismatch_shapes": [
+          "infinity_context_core.application.context_ranking",
+          "_typed_answer_unit_mismatch_shapes"
+        ],
+        "has_exact_count_cardinality_evidence": [
+          "infinity_context_core.application.context_count_cardinality",
+          "has_exact_count_cardinality_evidence"
+        ],
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_context_requirement_boost_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVZAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCpfY29udGV4dF9yZXF1aXJlbWVudF9ib29zdF9hbHJlYWR5X2FwcGxpZWSUk5Qu",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_typed_answer_unit_mismatch_shapes": {
+      "signature": "(*, requested_answer_shapes: 'frozenset[str]', covered_answer_shapes: 'frozenset[str]') -> 'tuple[str, ...]'",
+      "annotations": {
+        "requested_answer_shapes": "frozenset[str]",
+        "covered_answer_shapes": "frozenset[str]",
+        "return": "tuple[str, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfdHlwZWRfYW5zd2VyX3VuaXRfbWlzbWF0Y2hfc2hhcGVzlJOULg==",
+      "globals": {}
+    },
+    "_with_deterministic_rerank_adjustment": {
+      "signature": "(item: 'ContextItem', *, query: 'str', plan: 'QueryExpansionPlan', query_anchor_intent: 'QueryAnchorIntent', temporal_query_intent: 'TemporalQueryIntent', requested_total: 'int', has_multi_evidence_aggregation_candidate: 'bool', query_relevance_cache: 'dict[str, tuple[str, str, QueryRelevance]] | None', max_boost: 'float', max_penalty: 'float') -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query": "<class 'str'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "temporal_query_intent": "<class 'infinity_context_core.application.context_temporal_query.TemporalQueryIntent'>",
+        "requested_total": "<class 'int'>",
+        "has_multi_evidence_aggregation_candidate": "<class 'bool'>",
+        "query_relevance_cache": "dict[str, tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]] | None",
+        "max_boost": "<class 'float'>",
+        "max_penalty": "<class 'float'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVXwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCVfd2l0aF9kZXRlcm1pbmlzdGljX3JlcmFua19hZGp1c3RtZW50lJOULg==",
+      "globals": {
+        "normalize_context_item_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_item_diagnostics"
+        ],
+        "_deterministic_rerank_already_applied_in_diagnostics": [
+          "infinity_context_core.application.context_ranking",
+          "_deterministic_rerank_already_applied_in_diagnostics"
+        ],
+        "_deterministic_rerank_signals": [
+          "infinity_context_core.application.context_ranking",
+          "_deterministic_rerank_signals"
+        ],
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "_strong_artifact_evidence_score_floor": [
+          "infinity_context_core.application.context_ranking",
+          "_strong_artifact_evidence_score_floor"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_strong_artifact_evidence_score_floor": {
+      "signature": "(diagnostics: 'dict[str, object]') -> 'float'",
+      "annotations": {
+        "diagnostics": "dict[str, object]",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVXwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCVfc3Ryb25nX2FydGlmYWN0X2V2aWRlbmNlX3Njb3JlX2Zsb29ylJOULg==",
+      "globals": {
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "_non_negative_float_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_non_negative_float_signal"
+        ],
+        "_coverage_int": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_int"
+        ]
+      }
+    },
+    "_deterministic_rerank_signals": {
+      "signature": "(item: 'ContextItem', *, query: 'str', plan: 'QueryExpansionPlan', query_anchor_intent: 'QueryAnchorIntent', temporal_query_intent: 'TemporalQueryIntent', requested_total: 'int', has_multi_evidence_aggregation_candidate: 'bool', query_relevance_cache: 'dict[str, tuple[str, str, QueryRelevance]] | None', max_boost: 'float', max_penalty: 'float') -> '_DeterministicRerankSignals'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query": "<class 'str'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "temporal_query_intent": "<class 'infinity_context_core.application.context_temporal_query.TemporalQueryIntent'>",
+        "requested_total": "<class 'int'>",
+        "has_multi_evidence_aggregation_candidate": "<class 'bool'>",
+        "query_relevance_cache": "dict[str, tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]] | None",
+        "max_boost": "<class 'float'>",
+        "max_penalty": "<class 'float'>",
+        "return": "<class 'infinity_context_core.application.context_ranking._DeterministicRerankSignals'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fZGV0ZXJtaW5pc3RpY19yZXJhbmtfc2lnbmFsc5STlC4=",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "_best_query_relevance_for_rerank": [
+          "infinity_context_core.application.context_ranking",
+          "_best_query_relevance_for_rerank"
+        ],
+        "_item_requirement_coverage_signals": [
+          "infinity_context_core.application.context_ranking",
+          "_item_requirement_coverage_signals"
+        ],
+        "match_query_anchor_intent_to_text": [
+          "infinity_context_core.application.context_query_intent_matching",
+          "match_query_anchor_intent_to_text"
+        ],
+        "_source_quote_anchor_matches_query": [
+          "infinity_context_core.application.context_ranking",
+          "_source_quote_anchor_matches_query"
+        ],
+        "query_anchor_intent_text_conflicts": [
+          "infinity_context_core.application.context_query_intent_matching",
+          "query_anchor_intent_text_conflicts"
+        ],
+        "has_project_identity_mismatch": [
+          "infinity_context_core.application.context_relevance",
+          "has_project_identity_mismatch"
+        ],
+        "_dialogue_speaker_confirms_query_anchor": [
+          "infinity_context_core.application.context_ranking",
+          "_dialogue_speaker_confirms_query_anchor"
+        ],
+        "commonality_who_else_anchor_override": [
+          "infinity_context_core.application.context_domain_rerank_social",
+          "commonality_who_else_anchor_override"
+        ],
+        "has_current_state_correction_evidence": [
+          "infinity_context_core.application.context_domain_rerank_state",
+          "has_current_state_correction_evidence"
+        ],
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "_localized_evidence_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_localized_evidence_support_signal"
+        ],
+        "_decomposition_coverage_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_decomposition_coverage_support_signal"
+        ],
+        "_canonical_anchor_summary_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_canonical_anchor_summary_support_signal"
+        ],
+        "_citation_evidence_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_citation_evidence_support_signal"
+        ],
+        "_artifact_inventory_evidence_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_artifact_inventory_evidence_support_signal"
+        ],
+        "_activity_owner_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_activity_owner_signal"
+        ],
+        "speaker_attribution_signal": [
+          "infinity_context_core.application.context_speaker_attribution",
+          "speaker_attribution_signal"
+        ],
+        "source_grounding_signal": [
+          "infinity_context_core.application.context_source_grounding",
+          "source_grounding_signal"
+        ],
+        "communication_direction_signal": [
+          "infinity_context_core.application.context_speaker_attribution",
+          "communication_direction_signal"
+        ],
+        "action_role_rerank_signal": [
+          "infinity_context_core.application.context_action_roles",
+          "action_role_rerank_signal"
+        ],
+        "possession_source_signal": [
+          "infinity_context_core.application.context_possession_source",
+          "possession_source_signal"
+        ],
+        "answer_evidence_rerank_signal": [
+          "infinity_context_core.application.context_inference_evidence",
+          "answer_evidence_rerank_signal"
+        ],
+        "status_polarity_signal": [
+          "infinity_context_core.application.context_polarity_rerank",
+          "status_polarity_signal"
+        ],
+        "negative_preference_signal": [
+          "infinity_context_core.application.context_polarity_rerank",
+          "negative_preference_signal"
+        ],
+        "absence_negation_signal": [
+          "infinity_context_core.application.context_polarity_rerank",
+          "absence_negation_signal"
+        ],
+        "schedule_change_signal": [
+          "infinity_context_core.application.context_polarity_rerank",
+          "schedule_change_signal"
+        ],
+        "named_person_preference_signal": [
+          "infinity_context_core.application.context_named_person_preference",
+          "named_person_preference_signal"
+        ],
+        "pet_ownership_signal": [
+          "infinity_context_core.application.context_pet_ownership",
+          "pet_ownership_signal"
+        ],
+        "owner_grounding_signal": [
+          "infinity_context_core.application.context_owner_grounding",
+          "owner_grounding_signal"
+        ],
+        "absence_contrast_signal": [
+          "infinity_context_core.application.context_polarity_rerank",
+          "absence_contrast_signal"
+        ],
+        "object_kind_mismatch_signal": [
+          "infinity_context_core.application.context_object_mismatch",
+          "object_kind_mismatch_signal"
+        ],
+        "ordinal_sequence_rerank_signal": [
+          "infinity_context_core.application.context_ordinal_sequence",
+          "ordinal_sequence_rerank_signal"
+        ],
+        "relation_requirement_signal": [
+          "infinity_context_core.application.context_relation_requirement",
+          "relation_requirement_signal"
+        ],
+        "_is_item_purchase_temporal_answer_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_is_item_purchase_temporal_answer_evidence"
+        ],
+        "person_relation_inventory_signal": [
+          "infinity_context_core.application.context_person_relation_inventory",
+          "person_relation_inventory_signal"
+        ],
+        "person_occupation_signal": [
+          "infinity_context_core.application.context_person_occupation",
+          "person_occupation_signal"
+        ],
+        "person_residence_signal": [
+          "infinity_context_core.application.context_person_residence",
+          "person_residence_signal"
+        ],
+        "person_kinship_signal": [
+          "infinity_context_core.application.context_person_kinship",
+          "person_kinship_signal"
+        ],
+        "person_team_membership_signal": [
+          "infinity_context_core.application.context_person_team_membership",
+          "person_team_membership_signal"
+        ],
+        "conversation_counterparty_evidence_signal": [
+          "infinity_context_core.application.context_conversation_counterparty",
+          "conversation_counterparty_evidence_signal"
+        ],
+        "conversation_topic_evidence_signal": [
+          "infinity_context_core.application.context_conversation_counterparty",
+          "conversation_topic_evidence_signal"
+        ],
+        "conversation_recency_evidence_signal": [
+          "infinity_context_core.application.context_conversation_counterparty",
+          "conversation_recency_evidence_signal"
+        ],
+        "_item_temporal_hint_code": [
+          "infinity_context_core.application.context_ranking",
+          "_item_temporal_hint_code"
+        ],
+        "conversation_recency_temporal_hint_signal": [
+          "infinity_context_core.application.context_conversation_counterparty",
+          "conversation_recency_temporal_hint_signal"
+        ],
+        "conversation_recency_missing_temporal_signal": [
+          "infinity_context_core.application.context_conversation_counterparty",
+          "conversation_recency_missing_temporal_signal"
+        ],
+        "_temporal_query_signal_already_applied": [
+          "infinity_context_core.application.context_ranking",
+          "_temporal_query_signal_already_applied"
+        ],
+        "temporal_query_boost_signal": [
+          "infinity_context_core.application.context_temporal_query",
+          "temporal_query_boost_signal"
+        ],
+        "_temporal_answer_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_temporal_answer_signal"
+        ],
+        "_action_role_confirms_requested_relation": [
+          "infinity_context_core.application.context_ranking",
+          "_action_role_confirms_requested_relation"
+        ],
+        "_event_participation_mismatch": [
+          "infinity_context_core.application.context_ranking",
+          "_event_participation_mismatch"
+        ],
+        "_event_participation_positive_match": [
+          "infinity_context_core.application.context_ranking",
+          "_event_participation_positive_match"
+        ],
+        "_event_participation_source_sibling_noise": [
+          "infinity_context_core.application.context_ranking",
+          "_event_participation_source_sibling_noise"
+        ],
+        "activity_companion_signal": [
+          "infinity_context_core.application.context_activity_companion",
+          "activity_companion_signal"
+        ],
+        "_activity_source_sibling_noise": [
+          "infinity_context_core.application.context_ranking",
+          "_activity_source_sibling_noise"
+        ],
+        "_capped_source_sibling_low_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_capped_source_sibling_low_signal"
+        ],
+        "_allergy_condition_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_allergy_condition_weak_evidence"
+        ],
+        "_patriotic_service_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_patriotic_service_weak_evidence"
+        ],
+        "_running_reason_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_running_reason_weak_evidence"
+        ],
+        "_volunteer_career_exact_turn_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_volunteer_career_exact_turn_evidence"
+        ],
+        "_volunteer_career_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_volunteer_career_weak_evidence"
+        ],
+        "_volunteer_career_broad_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_volunteer_career_broad_evidence"
+        ],
+        "_post_event_activity_timing_exact_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_post_event_activity_timing_exact_evidence"
+        ],
+        "_post_event_activity_timing_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_post_event_activity_timing_weak_evidence"
+        ],
+        "_shoe_usage_exact_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_shoe_usage_exact_evidence"
+        ],
+        "_shoe_usage_weak_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_shoe_usage_weak_evidence"
+        ],
+        "apply_domain_rerank_signals": [
+          "infinity_context_core.application.context_domain_rerank_apply",
+          "apply_domain_rerank_signals"
+        ],
+        "aggregation_answer_slot_count": [
+          "infinity_context_core.application.context_aggregation_answer_slots",
+          "aggregation_answer_slot_count"
+        ],
+        "_is_long_query_weak_overlap": [
+          "infinity_context_core.application.context_ranking",
+          "_is_long_query_weak_overlap"
+        ],
+        "_DeterministicRerankSignals": [
+          "infinity_context_core.application.context_ranking",
+          "_DeterministicRerankSignals"
+        ]
+      }
+    },
+    "_is_long_query_weak_overlap": {
+      "signature": "(relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfaXNfbG9uZ19xdWVyeV93ZWFrX292ZXJsYXCUk5Qu",
+      "globals": {}
+    },
+    "_apply_same_person_topic_disambiguation_penalties": {
+      "signature": "(items: 'tuple[ContextItem, ...]', *, query: 'str', query_anchor_intent: 'QueryAnchorIntent', max_penalty: 'float') -> 'tuple[ContextItem, ...]'",
+      "annotations": {
+        "items": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]",
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "max_penalty": "<class 'float'>",
+        "return": "tuple[infinity_context_core.application.dto_context.ContextItem, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVawAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjDFfYXBwbHlfc2FtZV9wZXJzb25fdG9waWNfZGlzYW1iaWd1YXRpb25fcGVuYWx0aWVzlJOULg==",
+      "globals": {
+        "_same_person_topic_terms": [
+          "infinity_context_core.application.context_ranking",
+          "_same_person_topic_terms"
+        ]
+      }
+    },
+    "_same_person_topic_terms": {
+      "signature": "(*, query: 'str', query_anchor_intent: 'QueryAnchorIntent') -> 'tuple[LexicalQueryTerm, ...]'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "return": "tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfc2FtZV9wZXJzb25fdG9waWNfdGVybXOUk5Qu",
+      "globals": {
+        "MemoryAnchorKind": [
+          "infinity_context_core.domain.entity_types",
+          "MemoryAnchorKind"
+        ],
+        "query_terms": [
+          "infinity_context_core.application.context_lexical",
+          "query_terms"
+        ]
+      }
+    },
+    "_same_person_topic_variant_is_specific": {
+      "signature": "(variant: 'str') -> 'bool'",
+      "annotations": {
+        "variant": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfc2FtZV9wZXJzb25fdG9waWNfdmFyaWFudF9pc19zcGVjaWZpY5STlC4=",
+      "globals": {}
+    },
+    "_same_person_topic_profile": {
+      "signature": "(item: 'ContextItem', *, query: 'str', query_anchor_intent: 'QueryAnchorIntent', topic_terms: 'tuple[LexicalQueryTerm, ...]', support_threshold: 'int') -> '_SamePersonTopicProfile'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "topic_terms": "tuple[infinity_context_core.application.context_lexical.LexicalQueryTerm, ...]",
+        "support_threshold": "<class 'int'>",
+        "return": "<class 'infinity_context_core.application.context_ranking._SamePersonTopicProfile'>"
+      },
+      "doc": null,
+      "pickle": "gASVVAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBpfc2FtZV9wZXJzb25fdG9waWNfcHJvZmlsZZSTlC4=",
+      "globals": {
+        "match_query_anchor_intent_to_text": [
+          "infinity_context_core.application.context_query_intent_matching",
+          "match_query_anchor_intent_to_text"
+        ],
+        "query_anchor_intent_text_conflicts": [
+          "infinity_context_core.application.context_query_intent_matching",
+          "query_anchor_intent_text_conflicts"
+        ],
+        "has_project_identity_mismatch": [
+          "infinity_context_core.application.context_relevance",
+          "has_project_identity_mismatch"
+        ],
+        "text_variant_profile": [
+          "infinity_context_core.application.context_lexical",
+          "text_variant_profile"
+        ],
+        "_SamePersonTopicProfile": [
+          "infinity_context_core.application.context_ranking",
+          "_SamePersonTopicProfile"
+        ]
+      }
+    },
+    "_with_same_person_topic_disambiguation_penalty": {
+      "signature": "(item: 'ContextItem', *, profile: '_SamePersonTopicProfile', support_count: 'int', topic_term_count: 'int', max_penalty: 'float') -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "profile": "<class 'infinity_context_core.application.context_ranking._SamePersonTopicProfile'>",
+        "support_count": "<class 'int'>",
+        "topic_term_count": "<class 'int'>",
+        "max_penalty": "<class 'float'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVaAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjC5fd2l0aF9zYW1lX3BlcnNvbl90b3BpY19kaXNhbWJpZ3VhdGlvbl9wZW5hbHR5lJOULg==",
+      "globals": {
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "_non_negative_float_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_non_negative_float_signal"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_localized_evidence_support_signal": {
+      "signature": "(*, item: 'ContextItem', relevance: 'QueryRelevance', coverage_ratio: 'float', anchor_matched: 'bool', strong_source_count: 'int') -> 'tuple[float, str]'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "coverage_ratio": "<class 'float'>",
+        "anchor_matched": "<class 'bool'>",
+        "strong_source_count": "<class 'int'>",
+        "return": "tuple[float, str]"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfbG9jYWxpemVkX2V2aWRlbmNlX3N1cHBvcnRfc2lnbmFslJOULg==",
+      "globals": {
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "_source_ref_location_features": [
+          "infinity_context_core.application.context_ranking",
+          "_source_ref_location_features"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "_safe_evidence_kind_or_modality": [
+          "infinity_context_core.application.context_ranking",
+          "_safe_evidence_kind_or_modality"
+        ]
+      }
+    },
+    "_decomposition_coverage_support_signal": {
+      "signature": "(*, plan: 'QueryExpansionPlan', text: 'str', query_reason: 'str') -> 'tuple[float, str, dict[str, float]]'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "text": "<class 'str'>",
+        "query_reason": "<class 'str'>",
+        "return": "tuple[float, str, dict[str, float]]"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfZGVjb21wb3NpdGlvbl9jb3ZlcmFnZV9zdXBwb3J0X3NpZ25hbJSTlC4=",
+      "globals": {
+        "score_query_relevance": [
+          "infinity_context_core.application.context_relevance",
+          "score_query_relevance"
+        ],
+        "_query_reason_priority_for_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "_query_reason_priority_for_relevance"
+        ]
+      }
+    },
+    "_canonical_anchor_summary_support_signal": {
+      "signature": "(*, item: 'ContextItem', coverage: '_RequirementCoverageSignals', relevance: 'QueryRelevance', anchor_matched: 'bool', anchor_conflict: 'bool', sources: 'tuple[str, ...]', strong_source_count: 'int') -> 'tuple[float, str]'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "coverage": "<class 'infinity_context_core.application.context_ranking._RequirementCoverageSignals'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "anchor_matched": "<class 'bool'>",
+        "anchor_conflict": "<class 'bool'>",
+        "sources": "tuple[str, ...]",
+        "strong_source_count": "<class 'int'>",
+        "return": "tuple[float, str]"
+      },
+      "doc": null,
+      "pickle": "gASVYgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjChfY2Fub25pY2FsX2FuY2hvcl9zdW1tYXJ5X3N1cHBvcnRfc2lnbmFslJOULg==",
+      "globals": {
+        "_is_canonical_anchor_source": [
+          "infinity_context_core.application.context_ranking",
+          "_is_canonical_anchor_source"
+        ],
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "_has_canonical_anchor_profile_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_has_canonical_anchor_profile_evidence"
+        ]
+      }
+    },
+    "_is_canonical_anchor_source": {
+      "signature": "(*, item: 'ContextItem', sources: 'tuple[str, ...]') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "sources": "tuple[str, ...]",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBtfaXNfY2Fub25pY2FsX2FuY2hvcl9zb3VyY2WUk5Qu",
+      "globals": {}
+    },
+    "_has_canonical_anchor_profile_evidence": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfaGFzX2Nhbm9uaWNhbF9hbmNob3JfcHJvZmlsZV9ldmlkZW5jZZSTlC4=",
+      "globals": {
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "_coverage_int": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_int"
+        ]
+      }
+    },
+    "_source_ref_has_precise_location": {
+      "signature": "(ref: 'SourceRef') -> 'bool'",
+      "annotations": {
+        "ref": "<class 'infinity_context_core.domain.source_refs.SourceRef'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfc291cmNlX3JlZl9oYXNfcHJlY2lzZV9sb2NhdGlvbpSTlC4=",
+      "globals": {
+        "_source_ref_location_features": [
+          "infinity_context_core.application.context_ranking",
+          "_source_ref_location_features"
+        ]
+      }
+    },
+    "_source_quote_anchor_matches_query": {
+      "signature": "(*, item: 'ContextItem', plan: 'QueryExpansionPlan', query_anchor_intent: 'QueryAnchorIntent') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfc291cmNlX3F1b3RlX2FuY2hvcl9tYXRjaGVzX3F1ZXJ5lJOULg==",
+      "globals": {
+        "match_query_anchor_intent_to_text": [
+          "infinity_context_core.application.context_query_intent_matching",
+          "match_query_anchor_intent_to_text"
+        ],
+        "best_query_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "best_query_relevance"
+        ],
+        "_source_quote_relevance_supports_answer": [
+          "infinity_context_core.application.context_ranking",
+          "_source_quote_relevance_supports_answer"
+        ]
+      }
+    },
+    "_citation_evidence_support_signal": {
+      "signature": "(*, item: 'ContextItem', plan: 'QueryExpansionPlan', coverage: '_RequirementCoverageSignals', relevance: 'QueryRelevance', anchor_matched: 'bool', strong_source_count: 'int') -> 'tuple[float, str, dict[str, float]]'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "coverage": "<class 'infinity_context_core.application.context_ranking._RequirementCoverageSignals'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "anchor_matched": "<class 'bool'>",
+        "strong_source_count": "<class 'int'>",
+        "return": "tuple[float, str, dict[str, float]]"
+      },
+      "doc": null,
+      "pickle": "gASVWwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCFfY2l0YXRpb25fZXZpZGVuY2Vfc3VwcG9ydF9zaWduYWyUk5Qu",
+      "globals": {
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "_source_quote_answer_support_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_source_quote_answer_support_signal"
+        ]
+      }
+    },
+    "_source_quote_answer_support_signal": {
+      "signature": "(*, item: 'ContextItem', plan: 'QueryExpansionPlan') -> 'tuple[float, dict[str, float]]'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "return": "tuple[float, dict[str, float]]"
+      },
+      "doc": null,
+      "pickle": "gASVXQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCNfc291cmNlX3F1b3RlX2Fuc3dlcl9zdXBwb3J0X3NpZ25hbJSTlC4=",
+      "globals": {
+        "best_query_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "best_query_relevance"
+        ],
+        "_source_quote_relevance_supports_answer": [
+          "infinity_context_core.application.context_ranking",
+          "_source_quote_relevance_supports_answer"
+        ],
+        "query_relevance_rank_key": [
+          "infinity_context_core.application.context_ranking",
+          "query_relevance_rank_key"
+        ]
+      }
+    },
+    "_source_quote_relevance_supports_answer": {
+      "signature": "(relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCdfc291cmNlX3F1b3RlX3JlbGV2YW5jZV9zdXBwb3J0c19hbnN3ZXKUk5Qu",
+      "globals": {}
+    },
+    "_artifact_inventory_evidence_support_signal": {
+      "signature": "(*, item: 'ContextItem', plan: 'QueryExpansionPlan', query_reason: 'str', relevance: 'QueryRelevance', coverage_ratio: 'float', anchor_matched: 'bool') -> 'tuple[float, float, str, dict[str, float]]'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "query_reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "coverage_ratio": "<class 'float'>",
+        "anchor_matched": "<class 'bool'>",
+        "return": "tuple[float, float, str, dict[str, float]]"
+      },
+      "doc": null,
+      "pickle": "gASVZQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCtfYXJ0aWZhY3RfaW52ZW50b3J5X2V2aWRlbmNlX3N1cHBvcnRfc2lnbmFslJOULg==",
+      "globals": {
+        "_matches_query_or_score_signal_reason": [
+          "infinity_context_core.application.context_ranking",
+          "_matches_query_or_score_signal_reason"
+        ],
+        "is_query_relevance_sufficient": [
+          "infinity_context_core.application.context_relevance",
+          "is_query_relevance_sufficient"
+        ],
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "_safe_evidence_kind_or_modality": [
+          "infinity_context_core.application.context_ranking",
+          "_safe_evidence_kind_or_modality"
+        ]
+      }
+    },
+    "_source_ref_location_features": {
+      "signature": "(ref: 'SourceRef') -> 'tuple[str, ...]'",
+      "annotations": {
+        "ref": "<class 'infinity_context_core.domain.source_refs.SourceRef'>",
+        "return": "tuple[str, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fc291cmNlX3JlZl9sb2NhdGlvbl9mZWF0dXJlc5STlC4=",
+      "globals": {}
+    },
+    "_safe_evidence_kind_or_modality": {
+      "signature": "(diagnostics: 'Mapping[str, object]') -> 'bool'",
+      "annotations": {
+        "diagnostics": "collections.abc.Mapping[str, object]",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB9fc2FmZV9ldmlkZW5jZV9raW5kX29yX21vZGFsaXR5lJOULg==",
+      "globals": {}
+    },
+    "_best_query_relevance_for_rerank": {
+      "signature": "(plan: 'QueryExpansionPlan', *, item: 'ContextItem', cache: 'dict[str, tuple[str, str, QueryRelevance]] | None') -> 'tuple[str, str, QueryRelevance]'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "cache": "dict[str, tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]] | None",
+        "return": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance]"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfYmVzdF9xdWVyeV9yZWxldmFuY2VfZm9yX3JlcmFua5STlC4=",
+      "globals": {
+        "_query_relevance_from_item_diagnostics": [
+          "infinity_context_core.application.context_ranking",
+          "_query_relevance_from_item_diagnostics"
+        ],
+        "best_query_relevance": [
+          "infinity_context_core.application.context_ranking",
+          "best_query_relevance"
+        ]
+      }
+    },
+    "_query_relevance_from_item_diagnostics": {
+      "signature": "(plan: 'QueryExpansionPlan', item: 'ContextItem') -> 'tuple[str, str, QueryRelevance] | None'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "tuple[str, str, infinity_context_core.application.context_relevance.QueryRelevance] | None"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfcXVlcnlfcmVsZXZhbmNlX2Zyb21faXRlbV9kaWFnbm9zdGljc5STlC4=",
+      "globals": {
+        "diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "diagnostic_mapping"
+        ],
+        "nested_diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "nested_diagnostic_mapping"
+        ],
+        "_query_text_for_expansion_reason": [
+          "infinity_context_core.application.context_ranking",
+          "_query_text_for_expansion_reason"
+        ],
+        "_query_relevance_from_score_signals": [
+          "infinity_context_core.application.context_ranking",
+          "_query_relevance_from_score_signals"
+        ],
+        "score_query_relevance": [
+          "infinity_context_core.application.context_relevance",
+          "score_query_relevance"
+        ]
+      }
+    },
+    "_query_text_for_expansion_reason": {
+      "signature": "(plan: 'QueryExpansionPlan', reason: 'str') -> 'str | None'",
+      "annotations": {
+        "plan": "<class 'infinity_context_core.application.context_query_expansion.QueryExpansionPlan'>",
+        "reason": "<class 'str'>",
+        "return": "str | None"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfcXVlcnlfdGV4dF9mb3JfZXhwYW5zaW9uX3JlYXNvbpSTlC4=",
+      "globals": {}
+    },
+    "_query_relevance_from_score_signals": {
+      "signature": "(signals: 'Mapping[str, object]') -> 'QueryRelevance | None'",
+      "annotations": {
+        "signals": "collections.abc.Mapping[str, object]",
+        "return": "infinity_context_core.application.context_relevance.QueryRelevance | None"
+      },
+      "doc": null,
+      "pickle": "gASVXQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCNfcXVlcnlfcmVsZXZhbmNlX2Zyb21fc2NvcmVfc2lnbmFsc5STlC4=",
+      "globals": {
+        "_non_negative_int_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_non_negative_int_signal"
+        ],
+        "_non_negative_float_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_non_negative_float_signal"
+        ],
+        "QueryRelevance": [
+          "infinity_context_core.application.context_relevance",
+          "QueryRelevance"
+        ]
+      }
+    },
+    "_non_negative_int_signal": {
+      "signature": "(value: 'object') -> 'int | None'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "int | None"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfbm9uX25lZ2F0aXZlX2ludF9zaWduYWyUk5Qu",
+      "globals": {}
+    },
+    "_non_negative_float_signal": {
+      "signature": "(value: 'object') -> 'float | None'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "float | None"
+      },
+      "doc": null,
+      "pickle": "gASVVAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBpfbm9uX25lZ2F0aXZlX2Zsb2F0X3NpZ25hbJSTlC4=",
+      "globals": {}
+    },
+    "_allergy_condition_weak_evidence": {
+      "signature": "(*, query_reason: 'str', relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfYWxsZXJneV9jb25kaXRpb25fd2Vha19ldmlkZW5jZZSTlC4=",
+      "globals": {}
+    },
+    "_patriotic_service_weak_evidence": {
+      "signature": "(*, query_reason: 'str', relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfcGF0cmlvdGljX3NlcnZpY2Vfd2Vha19ldmlkZW5jZZSTlC4=",
+      "globals": {}
+    },
+    "_running_reason_weak_evidence": {
+      "signature": "(*, query_reason: 'str', relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fcnVubmluZ19yZWFzb25fd2Vha19ldmlkZW5jZZSTlC4=",
+      "globals": {}
+    },
+    "_temporal_query_signal_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCZfdGVtcG9yYWxfcXVlcnlfc2lnbmFsX2FscmVhZHlfYXBwbGllZJSTlC4=",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_item_temporal_hint_code": {
+      "signature": "(item: 'ContextItem') -> 'str'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'str'>"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfaXRlbV90ZW1wb3JhbF9oaW50X2NvZGWUk5Qu",
+      "globals": {
+        "diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "diagnostic_mapping"
+        ],
+        "nested_diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "nested_diagnostic_mapping"
+        ],
+        "temporal_hint_code_from_metadata": [
+          "infinity_context_core.application.context_temporal_metadata",
+          "temporal_hint_code_from_metadata"
+        ]
+      }
+    },
+    "_temporal_answer_signal": {
+      "signature": "(*, query: 'str', query_reason: 'str', item: 'ContextItem') -> 'tuple[float, float, str]'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "tuple[float, float, str]"
+      },
+      "doc": null,
+      "pickle": "gASVUQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBdfdGVtcG9yYWxfYW5zd2VyX3NpZ25hbJSTlC4=",
+      "globals": {
+        "requests_temporal_ranking_context": [
+          "infinity_context_core.application.context_precise_temporal_evidence",
+          "requests_temporal_ranking_context"
+        ],
+        "_is_item_purchase_temporal_answer_evidence": [
+          "infinity_context_core.application.context_ranking",
+          "_is_item_purchase_temporal_answer_evidence"
+        ],
+        "temporal_answer_grounding": [
+          "infinity_context_core.application.context_temporal_answer_grounding",
+          "temporal_answer_grounding"
+        ]
+      }
+    },
+    "_is_item_purchase_temporal_answer_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVZAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCpfaXNfaXRlbV9wdXJjaGFzZV90ZW1wb3JhbF9hbnN3ZXJfZXZpZGVuY2WUk5Qu",
+      "globals": {
+        "has_item_purchase_object_evidence": [
+          "infinity_context_core.application.context_item_purchase_evidence",
+          "has_item_purchase_object_evidence"
+        ]
+      }
+    },
+    "_event_participation_mismatch": {
+      "signature": "(*, query: 'str', text: 'str') -> 'bool'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "text": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB1fZXZlbnRfcGFydGljaXBhdGlvbl9taXNtYXRjaJSTlC4=",
+      "globals": {}
+    },
+    "_event_participation_positive_match": {
+      "signature": "(*, query: 'str', text: 'str') -> 'bool'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "text": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCNfZXZlbnRfcGFydGljaXBhdGlvbl9wb3NpdGl2ZV9tYXRjaJSTlC4=",
+      "globals": {}
+    },
+    "_event_participation_source_sibling_noise": {
+      "signature": "(*, query: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjClfZXZlbnRfcGFydGljaXBhdGlvbl9zb3VyY2Vfc2libGluZ19ub2lzZZSTlC4=",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ]
+      }
+    },
+    "_activity_source_sibling_noise": {
+      "signature": "(*, item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB5fYWN0aXZpdHlfc291cmNlX3NpYmxpbmdfbm9pc2WUk5Qu",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ]
+      }
+    },
+    "_capped_source_sibling_low_signal": {
+      "signature": "(*, item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCFfY2FwcGVkX3NvdXJjZV9zaWJsaW5nX2xvd19zaWduYWyUk5Qu",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "_positive_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_positive_signal"
+        ]
+      }
+    },
+    "_volunteer_career_weak_evidence": {
+      "signature": "(*, query_anchor_intent: 'QueryAnchorIntent', query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjB9fdm9sdW50ZWVyX2NhcmVlcl93ZWFrX2V2aWRlbmNllJOULg==",
+      "globals": {
+        "_query_person_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_query_person_labels"
+        ],
+        "_dialogue_speaker_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_dialogue_speaker_labels"
+        ]
+      }
+    },
+    "_volunteer_career_exact_turn_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCVfdm9sdW50ZWVyX2NhcmVlcl9leGFjdF90dXJuX2V2aWRlbmNllJOULg==",
+      "globals": {
+        "_item_source_is_turn": [
+          "infinity_context_core.application.context_ranking",
+          "_item_source_is_turn"
+        ]
+      }
+    },
+    "_volunteer_career_broad_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVWgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCBfdm9sdW50ZWVyX2NhcmVlcl9icm9hZF9ldmlkZW5jZZSTlC4=",
+      "globals": {
+        "_item_source_is_turn": [
+          "infinity_context_core.application.context_ranking",
+          "_item_source_is_turn"
+        ]
+      }
+    },
+    "_post_event_activity_timing_exact_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVZAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCpfcG9zdF9ldmVudF9hY3Rpdml0eV90aW1pbmdfZXhhY3RfZXZpZGVuY2WUk5Qu",
+      "globals": {
+        "_is_post_event_activity_timing_candidate": [
+          "infinity_context_core.application.context_ranking",
+          "_is_post_event_activity_timing_candidate"
+        ],
+        "_item_source_is_turn": [
+          "infinity_context_core.application.context_ranking",
+          "_item_source_is_turn"
+        ]
+      }
+    },
+    "_post_event_activity_timing_weak_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjClfcG9zdF9ldmVudF9hY3Rpdml0eV90aW1pbmdfd2Vha19ldmlkZW5jZZSTlC4=",
+      "globals": {
+        "_is_post_event_activity_timing_candidate": [
+          "infinity_context_core.application.context_ranking",
+          "_is_post_event_activity_timing_candidate"
+        ]
+      }
+    },
+    "_is_post_event_activity_timing_candidate": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjChfaXNfcG9zdF9ldmVudF9hY3Rpdml0eV90aW1pbmdfY2FuZGlkYXRllJOULg==",
+      "globals": {
+        "_matches_query_or_score_signal_reason": [
+          "infinity_context_core.application.context_ranking",
+          "_matches_query_or_score_signal_reason"
+        ]
+      }
+    },
+    "_shoe_usage_exact_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBpfc2hvZV91c2FnZV9leGFjdF9ldmlkZW5jZZSTlC4=",
+      "globals": {
+        "_is_shoe_usage_candidate": [
+          "infinity_context_core.application.context_ranking",
+          "_is_shoe_usage_candidate"
+        ],
+        "_item_source_is_turn": [
+          "infinity_context_core.application.context_ranking",
+          "_item_source_is_turn"
+        ]
+      }
+    },
+    "_shoe_usage_weak_evidence": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVUwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBlfc2hvZV91c2FnZV93ZWFrX2V2aWRlbmNllJOULg==",
+      "globals": {
+        "_is_shoe_usage_candidate": [
+          "infinity_context_core.application.context_ranking",
+          "_is_shoe_usage_candidate"
+        ]
+      }
+    },
+    "_is_shoe_usage_candidate": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfaXNfc2hvZV91c2FnZV9jYW5kaWRhdGWUk5Qu",
+      "globals": {
+        "_matches_query_or_score_signal_reason": [
+          "infinity_context_core.application.context_ranking",
+          "_matches_query_or_score_signal_reason"
+        ]
+      }
+    },
+    "_matches_query_or_score_signal_reason": {
+      "signature": "(*, query_reason: 'str', item: 'ContextItem', target_reason: 'str') -> 'bool'",
+      "annotations": {
+        "query_reason": "<class 'str'>",
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "target_reason": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCVfbWF0Y2hlc19xdWVyeV9vcl9zY29yZV9zaWduYWxfcmVhc29ulJOULg==",
+      "globals": {
+        "nested_diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "nested_diagnostic_mapping"
+        ],
+        "diagnostic_mapping": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "diagnostic_mapping"
+        ]
+      }
+    },
+    "_item_source_is_turn": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRfaXRlbV9zb3VyY2VfaXNfdHVybpSTlC4=",
+      "globals": {
+        "item_diagnostic_source_id": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "item_diagnostic_source_id"
+        ]
+      }
+    },
+    "_action_role_confirms_requested_relation": {
+      "signature": "(reason: 'str') -> 'bool'",
+      "annotations": {
+        "reason": "<class 'str'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjChfYWN0aW9uX3JvbGVfY29uZmlybXNfcmVxdWVzdGVkX3JlbGF0aW9ulJOULg==",
+      "globals": {}
+    },
+    "_dialogue_speaker_confirms_query_anchor": {
+      "signature": "(*, item: 'ContextItem', query_anchor_intent: 'QueryAnchorIntent', relevance: 'QueryRelevance') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "relevance": "<class 'infinity_context_core.application.context_relevance.QueryRelevance'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVYQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCdfZGlhbG9ndWVfc3BlYWtlcl9jb25maXJtc19xdWVyeV9hbmNob3KUk5Qu",
+      "globals": {
+        "diagnostic_retrieval_sources": [
+          "infinity_context_core.application.context_diagnostics_sources",
+          "diagnostic_retrieval_sources"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "_positive_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_positive_signal"
+        ],
+        "_numeric_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_numeric_signal"
+        ],
+        "_query_person_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_query_person_labels"
+        ],
+        "_dialogue_speaker_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_dialogue_speaker_labels"
+        ]
+      }
+    },
+    "_positive_signal": {
+      "signature": "(value: 'object') -> 'bool'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVSgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBBfcG9zaXRpdmVfc2lnbmFslJOULg==",
+      "globals": {
+        "_numeric_signal": [
+          "infinity_context_core.application.context_ranking",
+          "_numeric_signal"
+        ]
+      }
+    },
+    "_numeric_signal": {
+      "signature": "(value: 'object') -> 'float'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVSQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA9fbnVtZXJpY19zaWduYWyUk5Qu",
+      "globals": {}
+    },
+    "_activity_owner_signal": {
+      "signature": "(*, query_anchor_intent: 'QueryAnchorIntent', query_reason: 'str', text: 'str') -> 'tuple[float, float, str]'",
+      "annotations": {
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "query_reason": "<class 'str'>",
+        "text": "<class 'str'>",
+        "return": "tuple[float, float, str]"
+      },
+      "doc": null,
+      "pickle": "gASVUAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBZfYWN0aXZpdHlfb3duZXJfc2lnbmFslJOULg==",
+      "globals": {
+        "_query_person_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_query_person_labels"
+        ],
+        "_dialogue_speaker_labels": [
+          "infinity_context_core.application.context_ranking",
+          "_dialogue_speaker_labels"
+        ]
+      }
+    },
+    "_query_person_labels": {
+      "signature": "(query_anchor_intent: 'QueryAnchorIntent') -> 'frozenset[str]'",
+      "annotations": {
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "return": "frozenset[str]"
+      },
+      "doc": null,
+      "pickle": "gASVTgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBRfcXVlcnlfcGVyc29uX2xhYmVsc5STlC4=",
+      "globals": {
+        "MemoryAnchorKind": [
+          "infinity_context_core.domain.entity_types",
+          "MemoryAnchorKind"
+        ],
+        "_normalized_dialogue_label": [
+          "infinity_context_core.application.context_ranking",
+          "_normalized_dialogue_label"
+        ]
+      }
+    },
+    "_dialogue_speaker_labels": {
+      "signature": "(text: 'str') -> 'frozenset[str]'",
+      "annotations": {
+        "text": "<class 'str'>",
+        "return": "frozenset[str]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfZGlhbG9ndWVfc3BlYWtlcl9sYWJlbHOUk5Qu",
+      "globals": {}
+    },
+    "_normalized_dialogue_label": {
+      "signature": "(value: 'str') -> 'str'",
+      "annotations": {
+        "value": "<class 'str'>",
+        "return": "<class 'str'>"
+      },
+      "doc": null,
+      "pickle": "gASVVAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBpfbm9ybWFsaXplZF9kaWFsb2d1ZV9sYWJlbJSTlC4=",
+      "globals": {}
+    },
+    "_item_requirement_coverage_signals": {
+      "signature": "(item: 'ContextItem', *, query: 'str', query_anchor_intent: 'QueryAnchorIntent', requested_total: 'int') -> '_RequirementCoverageSignals'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "query": "<class 'str'>",
+        "query_anchor_intent": "<class 'infinity_context_core.application.context_query_intent_contracts.QueryAnchorIntent'>",
+        "requested_total": "<class 'int'>",
+        "return": "<class 'infinity_context_core.application.context_ranking._RequirementCoverageSignals'>"
+      },
+      "doc": null,
+      "pickle": "gASVXAAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCJfaXRlbV9yZXF1aXJlbWVudF9jb3ZlcmFnZV9zaWduYWxzlJOULg==",
+      "globals": {
+        "_RequirementCoverageSignals": [
+          "infinity_context_core.application.context_ranking",
+          "_RequirementCoverageSignals"
+        ],
+        "context_requirement_coverage": [
+          "infinity_context_core.application.context_requirement_coverage",
+          "context_requirement_coverage"
+        ],
+        "_coverage_value_set": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_value_set"
+        ],
+        "_coverage_ratio": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_ratio"
+        ]
+      }
+    },
+    "_coverage_int": {
+      "signature": "(value: 'object') -> 'int'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "<class 'int'>"
+      },
+      "doc": null,
+      "pickle": "gASVRwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA1fY292ZXJhZ2VfaW50lJOULg==",
+      "globals": {}
+    },
+    "_coverage_ratio": {
+      "signature": "(value: 'object') -> 'float'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "<class 'float'>"
+      },
+      "doc": null,
+      "pickle": "gASVSQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjA9fY292ZXJhZ2VfcmF0aW+Uk5Qu",
+      "globals": {}
+    },
+    "_deterministic_rerank_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVXwAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjCVfZGV0ZXJtaW5pc3RpY19yZXJhbmtfYWxyZWFkeV9hcHBsaWVklJOULg==",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_deterministic_rerank_already_applied_in_diagnostics": {
+      "signature": "(diagnostics: 'object') -> 'bool'",
+      "annotations": {
+        "diagnostics": "<class 'object'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVbgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjDRfZGV0ZXJtaW5pc3RpY19yZXJhbmtfYWxyZWFkeV9hcHBsaWVkX2luX2RpYWdub3N0aWNzlJOULg==",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_coverage_value_set": {
+      "signature": "(value: 'object') -> 'frozenset[str]'",
+      "annotations": {
+        "value": "<class 'object'>",
+        "return": "frozenset[str]"
+      },
+      "doc": null,
+      "pickle": "gASVTQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBNfY292ZXJhZ2VfdmFsdWVfc2V0lJOULg==",
+      "globals": {}
+    },
+    "_sorted_coverage_matches": {
+      "signature": "(requested: 'frozenset[str]', covered: 'object') -> 'tuple[str, ...]'",
+      "annotations": {
+        "requested": "frozenset[str]",
+        "covered": "<class 'object'>",
+        "return": "tuple[str, ...]"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfc29ydGVkX2NvdmVyYWdlX21hdGNoZXOUk5Qu",
+      "globals": {
+        "_coverage_value_set": [
+          "infinity_context_core.application.context_ranking",
+          "_coverage_value_set"
+        ]
+      }
+    },
+    "_with_rank_fusion_boost": {
+      "signature": "(item: 'ContextItem', *, fusion_score: 'float', max_fusion_score: 'float', max_boost: 'float', source_count: 'int', source_weighted: 'bool' = False) -> 'ContextItem'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "fusion_score": "<class 'float'>",
+        "max_fusion_score": "<class 'float'>",
+        "max_boost": "<class 'float'>",
+        "source_count": "<class 'int'>",
+        "source_weighted": "<class 'bool'>",
+        "return": "<class 'infinity_context_core.application.dto_context.ContextItem'>"
+      },
+      "doc": null,
+      "pickle": "gASVUQAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBdfd2l0aF9yYW5rX2Z1c2lvbl9ib29zdJSTlC4=",
+      "globals": {
+        "_rank_fusion_already_applied": [
+          "infinity_context_core.application.context_ranking",
+          "_rank_fusion_already_applied"
+        ],
+        "normalize_context_diagnostics": [
+          "infinity_context_core.application.context_diagnostics_item_projection",
+          "normalize_context_diagnostics"
+        ],
+        "safe_score_signals": [
+          "infinity_context_core.application.context_diagnostics_signals",
+          "safe_score_signals"
+        ],
+        "safe_diagnostic_mapping": [
+          "infinity_context_core.application.context_diagnostics_primitives",
+          "safe_diagnostic_mapping"
+        ],
+        "replace": [
+          "dataclasses",
+          "replace"
+        ]
+      }
+    },
+    "_rank_fusion_already_applied": {
+      "signature": "(item: 'ContextItem') -> 'bool'",
+      "annotations": {
+        "item": "<class 'infinity_context_core.application.dto_context.ContextItem'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVVgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBxfcmFua19mdXNpb25fYWxyZWFkeV9hcHBsaWVklJOULg==",
+      "globals": {
+        "_provenance_flag_is_true": [
+          "infinity_context_core.application.context_ranking",
+          "_provenance_flag_is_true"
+        ]
+      }
+    },
+    "_provenance_flag_is_true": {
+      "signature": "(diagnostics: 'object', flag: 'str', *, normalized: 'bool' = False) -> 'bool'",
+      "annotations": {
+        "diagnostics": "<class 'object'>",
+        "flag": "<class 'str'>",
+        "normalized": "<class 'bool'>",
+        "return": "<class 'bool'>"
+      },
+      "doc": null,
+      "pickle": "gASVUgAAAAAAAACMMWluZmluaXR5X2NvbnRleHRfY29yZS5hcHBsaWNhdGlvbi5jb250ZXh0X3JhbmtpbmeUjBhfcHJvdmVuYW5jZV9mbGFnX2lzX3RydWWUk5Qu",
+      "globals": {
+        "provenance_flag_is_true": [
+          "infinity_context_core.application.context_internal_diagnostics",
+          "provenance_flag_is_true"
+        ]
+      }
+    }
+  },
+  "procedure": "PYTHONPATH=<worktree packages>:<worktree tests> python scripts/freeze_context_ranking_policy.py",
+  "cases": {
+    "file": "cases.json.gz",
+    "count": 670,
+    "encoding": "gzip deterministic mtime=0; compact UTF-8 JSON",
+    "sha256": "9c7af1d39f1f5c883ae3d910d1ba7610e97c9c713500d26fd8e9a4da616f38e1",
+    "uncompressed_sha256": "7c3dbcfbb85817b403dd9f6cb4128d0d5105be552826ef4003e1eece89a750b3",
+    "uncompressed_bytes": 5361672,
+    "compressed_bytes": 189980
+  }
+}

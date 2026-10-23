@@ -1,4 +1,4 @@
-"""Requirement coverage signals for deterministic context ranking."""
+"""Requirement signals policy; one implementation authority."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class RequirementCoverageSignals:
         return len(self.covered_answer_shapes) / len(self.requested_answer_shapes)
 
 
-def item_requirement_coverage_signals(
+def _item_requirement_coverage_signals(
     item: ContextItem,
     *,
     query: str,
@@ -63,9 +63,7 @@ def item_requirement_coverage_signals(
     missing_anchor_kinds = _coverage_value_set(coverage.get("missing_anchor_kinds"))
     requested_modalities = _coverage_value_set(coverage.get("requested_modalities"))
     missing_modalities = _coverage_value_set(coverage.get("missing_modalities"))
-    requested_evidence_features = _coverage_value_set(
-        coverage.get("requested_evidence_features")
-    )
+    requested_evidence_features = _coverage_value_set(coverage.get("requested_evidence_features"))
     missing_evidence_features = _coverage_value_set(coverage.get("missing_evidence_features"))
     requested_answer_shapes = _coverage_value_set(coverage.get("requested_answer_shapes"))
     covered_answer_shapes = _coverage_value_set(coverage.get("covered_answer_shapes"))
@@ -85,6 +83,16 @@ def item_requirement_coverage_signals(
     )
 
 
+def _coverage_int(value: object) -> int:
+    if isinstance(value, bool):
+        return 0
+    if isinstance(value, int):
+        return max(0, value)
+    if isinstance(value, float):
+        return max(0, int(value))
+    return 0
+
+
 def _coverage_ratio(value: object) -> float:
     if isinstance(value, bool):
         return 0.0
@@ -99,3 +107,7 @@ def _coverage_value_set(value: object) -> frozenset[str]:
     return frozenset(
         text for item in value if isinstance(item, str) and (text := item.strip().casefold())
     )
+
+
+item_requirement_coverage_signals = _item_requirement_coverage_signals
+_RequirementCoverageSignals = RequirementCoverageSignals
