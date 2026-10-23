@@ -1,0 +1,3017 @@
+[
+  {
+    "input": {
+      "evidence_need": [],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "action_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "action_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "action_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "action_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "action_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "activity_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "activity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "age_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "age_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "age_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "age_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "age_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "age_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "age_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "age_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "age_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "age_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "alias_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "alias_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "alias_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "alias_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "alias_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "alias_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "alias_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "alias_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "alias_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "alias_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "causal_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "causal_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "causal_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "causal_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "causal_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "commitment_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "commitment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "commitment_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "commitment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "commitment_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "commitment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "commitment_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "commitment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "commitment_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "commitment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "communication"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "communication_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "communication"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "communication_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "communication"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "communication_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "communication"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "communication_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "communication"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "communication_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "community_membership"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "community_membership_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "community_membership"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "community_membership_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "community_membership"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "community_membership_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "community_membership"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "community_membership_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "community_membership"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "community_membership_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contact_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "contact_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contact_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "contact_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contact_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "contact_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contact_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "contact_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contact_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "contact_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contrast"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "contrast"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contrast"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "contrast"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contrast"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "contrast"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contrast"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "contrast"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "contrast"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "contrast"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "count_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "count_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "count_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "count_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "count_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "count_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "count_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "count_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "count_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "count_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "current_goal"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "current_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "current_goal"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "current_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "current_goal"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "current_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "current_goal"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "current_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "current_goal"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "current_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "date_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "date_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "date_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "date_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "date_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "date_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "date_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "date_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "date_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "date_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "diet_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "diet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "diet_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "diet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "diet_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "diet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "diet_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "diet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "diet_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "diet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "education_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "education_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "education_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "education_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "education_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "education_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "education_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "education_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "education_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "education_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "emotion_response"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "emotion_response_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "emotion_response"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "emotion_response_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "emotion_response"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "emotion_response_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "emotion_response"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "emotion_response_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "emotion_response"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "emotion_response_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "employment_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "employment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "employment_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "employment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "employment_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "employment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "employment_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "employment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "employment_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "employment_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "exchange"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "exchange_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "exchange"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "exchange_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "exchange"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "exchange_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "exchange"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "exchange_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "exchange"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "exchange_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "favorite_preference"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "favorite_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "favorite_preference"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "favorite_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "favorite_preference"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "favorite_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "favorite_preference"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "favorite_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "favorite_preference"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "favorite_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "health_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "health_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "health_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "health_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "health_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "health_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "health_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "health_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "health_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "health_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "identity_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "identity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "identity_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "identity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "identity_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "identity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "identity_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "identity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "identity_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "identity_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "inference_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "inference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "inference_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "inference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "inference_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "inference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "inference_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "inference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "inference_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "inference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "list_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "list_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "list_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "list_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "list_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "list_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "list_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "list_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "list_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "list_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "location_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "location_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "location_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "location_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "location_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "location_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "location_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "location_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "location_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "location_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "multi_hop"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "multi_hop"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "multi_hop"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "multi_hop"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "multi_hop"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "negative_absence"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "negative_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "negative_absence"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "negative_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "negative_absence"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "negative_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "negative_absence"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "negative_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "negative_absence"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "negative_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "participation_event"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "participation_event"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "participation_event"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "participation_event"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "participation_event"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "pet_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "pet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "pet_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "pet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "pet_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "pet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "pet_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "pet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "pet_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "pet_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "preference"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "preference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "preference"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "preference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "preference"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "preference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "preference"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "preference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "preference"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "preference_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "registration_event"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "registration_event"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "registration_event"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "registration_event"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "registration_event"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "event_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "single_fact"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "single_fact"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "single_fact"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "single_fact"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "single_fact"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "skill_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "skill_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "skill_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "skill_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "skill_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "skill_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "skill_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "skill_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "skill_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "skill_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "status_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "status_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "status_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "status_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "status_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "status_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "status_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "status_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "status_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "status_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "support_goal"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "support_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "support_goal"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "support_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "support_goal"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "support_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "support_goal"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "support_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "support_goal"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "support_goal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "symbolic_meaning"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "symbolic_meaning_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "symbolic_meaning"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "symbolic_meaning_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "symbolic_meaning"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "symbolic_meaning_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "symbolic_meaning"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "symbolic_meaning_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "symbolic_meaning"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "symbolic_meaning_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_sequence"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_sequence"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_sequence"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_sequence"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_sequence"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "temporal_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "temporal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "value_support"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "value_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "value_support"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "value_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "value_support"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "value_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "value_support"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "value_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "value_support"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "value_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "vehicle_profile"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "vehicle_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "vehicle_profile"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "vehicle_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "vehicle_profile"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "vehicle_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "vehicle_profile"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "vehicle_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "vehicle_profile"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "vehicle_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "visual_evidence"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "visual_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "visual_evidence"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "visual_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "visual_evidence"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "temporal_support",
+      "visual_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "visual_evidence"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "visual_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "visual_evidence"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "visual_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support",
+        "activity_profile",
+        "activity_support",
+        "age_profile",
+        "alias_profile",
+        "causal_support",
+        "commitment_profile",
+        "communication",
+        "community_membership",
+        "contact_profile",
+        "contrast",
+        "count_support",
+        "current_goal",
+        "date_profile",
+        "diet_profile",
+        "education_profile",
+        "emotion_response",
+        "employment_profile",
+        "exchange",
+        "favorite_preference",
+        "health_profile",
+        "identity_profile",
+        "inference_support",
+        "list_support",
+        "location_support",
+        "multi_hop",
+        "negative_absence",
+        "participation_event",
+        "pet_profile",
+        "preference",
+        "registration_event",
+        "single_fact",
+        "skill_profile",
+        "status_profile",
+        "support_goal",
+        "symbolic_meaning",
+        "temporal_sequence",
+        "temporal_support",
+        "value_support",
+        "vehicle_profile",
+        "visual_evidence"
+      ],
+      "benchmark_category": null
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support",
+      "contrast",
+      "negative_support",
+      "count_support",
+      "list_support",
+      "value_support",
+      "location_support",
+      "preference_support",
+      "favorite_support",
+      "visual_support",
+      "emotion_response_support",
+      "symbolic_meaning_support",
+      "communication_support",
+      "action_support",
+      "activity_support",
+      "age_support",
+      "alias_support",
+      "current_goal_support",
+      "date_support",
+      "education_support",
+      "employment_support",
+      "health_support",
+      "identity_support",
+      "community_membership_support",
+      "pet_support",
+      "skill_support",
+      "status_support",
+      "support_goal_support",
+      "vehicle_support",
+      "commitment_support",
+      "contact_support",
+      "diet_support",
+      "exchange_support",
+      "event_support",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support",
+        "activity_profile",
+        "activity_support",
+        "age_profile",
+        "alias_profile",
+        "causal_support",
+        "commitment_profile",
+        "communication",
+        "community_membership",
+        "contact_profile",
+        "contrast",
+        "count_support",
+        "current_goal",
+        "date_profile",
+        "diet_profile",
+        "education_profile",
+        "emotion_response",
+        "employment_profile",
+        "exchange",
+        "favorite_preference",
+        "health_profile",
+        "identity_profile",
+        "inference_support",
+        "list_support",
+        "location_support",
+        "multi_hop",
+        "negative_absence",
+        "participation_event",
+        "pet_profile",
+        "preference",
+        "registration_event",
+        "single_fact",
+        "skill_profile",
+        "status_profile",
+        "support_goal",
+        "symbolic_meaning",
+        "temporal_sequence",
+        "temporal_support",
+        "value_support",
+        "vehicle_profile",
+        "visual_evidence"
+      ],
+      "benchmark_category": 1
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support",
+      "contrast",
+      "negative_support",
+      "count_support",
+      "list_support",
+      "value_support",
+      "location_support",
+      "preference_support",
+      "favorite_support",
+      "visual_support",
+      "emotion_response_support",
+      "symbolic_meaning_support",
+      "communication_support",
+      "action_support",
+      "activity_support",
+      "age_support",
+      "alias_support",
+      "current_goal_support",
+      "date_support",
+      "education_support",
+      "employment_support",
+      "health_support",
+      "identity_support",
+      "community_membership_support",
+      "pet_support",
+      "skill_support",
+      "status_support",
+      "support_goal_support",
+      "vehicle_support",
+      "commitment_support",
+      "contact_support",
+      "diet_support",
+      "exchange_support",
+      "event_support",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support",
+        "activity_profile",
+        "activity_support",
+        "age_profile",
+        "alias_profile",
+        "causal_support",
+        "commitment_profile",
+        "communication",
+        "community_membership",
+        "contact_profile",
+        "contrast",
+        "count_support",
+        "current_goal",
+        "date_profile",
+        "diet_profile",
+        "education_profile",
+        "emotion_response",
+        "employment_profile",
+        "exchange",
+        "favorite_preference",
+        "health_profile",
+        "identity_profile",
+        "inference_support",
+        "list_support",
+        "location_support",
+        "multi_hop",
+        "negative_absence",
+        "participation_event",
+        "pet_profile",
+        "preference",
+        "registration_event",
+        "single_fact",
+        "skill_profile",
+        "status_profile",
+        "support_goal",
+        "symbolic_meaning",
+        "temporal_sequence",
+        "temporal_support",
+        "value_support",
+        "vehicle_profile",
+        "visual_evidence"
+      ],
+      "benchmark_category": 2
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support",
+      "contrast",
+      "negative_support",
+      "count_support",
+      "list_support",
+      "value_support",
+      "location_support",
+      "preference_support",
+      "favorite_support",
+      "visual_support",
+      "emotion_response_support",
+      "symbolic_meaning_support",
+      "communication_support",
+      "action_support",
+      "activity_support",
+      "age_support",
+      "alias_support",
+      "current_goal_support",
+      "date_support",
+      "education_support",
+      "employment_support",
+      "health_support",
+      "identity_support",
+      "community_membership_support",
+      "pet_support",
+      "skill_support",
+      "status_support",
+      "support_goal_support",
+      "vehicle_support",
+      "commitment_support",
+      "contact_support",
+      "diet_support",
+      "exchange_support",
+      "event_support",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support",
+        "activity_profile",
+        "activity_support",
+        "age_profile",
+        "alias_profile",
+        "causal_support",
+        "commitment_profile",
+        "communication",
+        "community_membership",
+        "contact_profile",
+        "contrast",
+        "count_support",
+        "current_goal",
+        "date_profile",
+        "diet_profile",
+        "education_profile",
+        "emotion_response",
+        "employment_profile",
+        "exchange",
+        "favorite_preference",
+        "health_profile",
+        "identity_profile",
+        "inference_support",
+        "list_support",
+        "location_support",
+        "multi_hop",
+        "negative_absence",
+        "participation_event",
+        "pet_profile",
+        "preference",
+        "registration_event",
+        "single_fact",
+        "skill_profile",
+        "status_profile",
+        "support_goal",
+        "symbolic_meaning",
+        "temporal_sequence",
+        "temporal_support",
+        "value_support",
+        "vehicle_profile",
+        "visual_evidence"
+      ],
+      "benchmark_category": 3
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support",
+      "contrast",
+      "negative_support",
+      "count_support",
+      "list_support",
+      "value_support",
+      "location_support",
+      "preference_support",
+      "favorite_support",
+      "visual_support",
+      "emotion_response_support",
+      "symbolic_meaning_support",
+      "communication_support",
+      "action_support",
+      "activity_support",
+      "age_support",
+      "alias_support",
+      "current_goal_support",
+      "date_support",
+      "education_support",
+      "employment_support",
+      "health_support",
+      "identity_support",
+      "community_membership_support",
+      "pet_support",
+      "skill_support",
+      "status_support",
+      "support_goal_support",
+      "vehicle_support",
+      "commitment_support",
+      "contact_support",
+      "diet_support",
+      "exchange_support",
+      "event_support",
+      "causal_support"
+    ]
+  },
+  {
+    "input": {
+      "evidence_need": [
+        "action_support",
+        "activity_profile",
+        "activity_support",
+        "age_profile",
+        "alias_profile",
+        "causal_support",
+        "commitment_profile",
+        "communication",
+        "community_membership",
+        "contact_profile",
+        "contrast",
+        "count_support",
+        "current_goal",
+        "date_profile",
+        "diet_profile",
+        "education_profile",
+        "emotion_response",
+        "employment_profile",
+        "exchange",
+        "favorite_preference",
+        "health_profile",
+        "identity_profile",
+        "inference_support",
+        "list_support",
+        "location_support",
+        "multi_hop",
+        "negative_absence",
+        "participation_event",
+        "pet_profile",
+        "preference",
+        "registration_event",
+        "single_fact",
+        "skill_profile",
+        "status_profile",
+        "support_goal",
+        "symbolic_meaning",
+        "temporal_sequence",
+        "temporal_support",
+        "value_support",
+        "vehicle_profile",
+        "visual_evidence"
+      ],
+      "benchmark_category": 4
+    },
+    "expected": [
+      "primary",
+      "bridge",
+      "temporal_support",
+      "contrast",
+      "negative_support",
+      "count_support",
+      "list_support",
+      "value_support",
+      "location_support",
+      "preference_support",
+      "favorite_support",
+      "visual_support",
+      "emotion_response_support",
+      "symbolic_meaning_support",
+      "communication_support",
+      "action_support",
+      "activity_support",
+      "age_support",
+      "alias_support",
+      "current_goal_support",
+      "date_support",
+      "education_support",
+      "employment_support",
+      "health_support",
+      "identity_support",
+      "community_membership_support",
+      "pet_support",
+      "skill_support",
+      "status_support",
+      "support_goal_support",
+      "vehicle_support",
+      "commitment_support",
+      "contact_support",
+      "diet_support",
+      "exchange_support",
+      "event_support",
+      "causal_support"
+    ]
+  }
+]

@@ -6,6 +6,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from infinity_context_benchmarks.retrieval_intent import infer_bundle_evidence_roles
+
 from infinity_context_server.memory_comparison_bundle_planner import (
     EvidenceBundleCandidate,
     EvidenceBundlePlanner,
@@ -20,7 +22,6 @@ from infinity_context_server.memory_comparison_candidate_risks import (
 from infinity_context_server.memory_comparison_compact_gap_report import (
     compact_evidence_ref_list as _compact_evidence_ref_list,
 )
-from infinity_context_server.memory_comparison_intent import infer_bundle_evidence_roles
 from infinity_context_server.memory_comparison_models import RetrievedMemory
 from infinity_context_server.memory_comparison_rerank import (
     query_retrieval_intent,

@@ -17,7 +17,7 @@ BRIDGE_ROOT = (
     / "infinity_context_runtime_bridge"
 )
 SERVER_DEBT_MAX_FILES = 483
-SERVER_DEBT_MAX_LINES = 208_182
+SERVER_DEBT_MAX_LINES = 205_347
 CORE_DEBT_MAX_FILES = 21
 CORE_DEBT_MAX_LINES = 7_205
 SERVER_DEBT_MARKERS = ("benchmark", "memory_comparison", "publishable_")
