@@ -12,7 +12,8 @@ import pickle
 from typing import get_type_hints
 
 import pytest
-from context_ranking_contract_support import BASE_SHA, FIXTURES, decode, encode, resolve
+
+from tests.context_ranking_contract_support import BASE_SHA, FIXTURES, decode, encode, resolve
 
 CASE_BYTES = (FIXTURES / "cases.json.gz").read_bytes()
 CASES = json.loads(gzip.decompress(CASE_BYTES))
@@ -51,9 +52,25 @@ def test_original_callable_references_and_annotations_resolve(name):
     assert current.__name__ in (
         {name, "RequirementCoverageSignals"} if name == "_RequirementCoverageSignals" else {name}
     )
-    assert inspect.getdoc(current) == original["doc"]
-    # Evaluating real annotations catches missing relocated dependencies.
-    assert get_type_hints(current)
+    expected_doc = original["doc"]
+    if name == "_RequirementCoverageSignals":
+        expected_doc = expected_doc.replace(name, "RequirementCoverageSignals")
+    assert inspect.getdoc(current) == expected_doc
+    assert str(inspect.signature(current)).replace(
+        "_RequirementCoverageSignals", "RequirementCoverageSignals"
+    ) == original["signature"].replace("_RequirementCoverageSignals", "RequirementCoverageSignals")
+    actual_hints = {key: str(value) for key, value in get_type_hints(current).items()}
+    expected_hints = dict(original["annotations"])
+    for old_name, value in CONTRACT["definitions"].items():
+        if "instance_pickle" not in value:
+            continue
+        cls = resolve("infinity_context_core.application.context_ranking", old_name)
+        old_path = "infinity_context_core.application.context_ranking." + old_name
+        new_path = cls.__module__ + "." + cls.__qualname__
+        expected_hints = {
+            key: hint.replace(old_path, new_path) for key, hint in expected_hints.items()
+        }
+    assert actual_hints == expected_hints
 
 
 @pytest.mark.parametrize(

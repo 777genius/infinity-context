@@ -1,4 +1,4 @@
-"""Reciprocal rank fusion policy for context ranking."""
+"""Rank fusion policy; one implementation authority."""
 
 from __future__ import annotations
 
@@ -12,11 +12,20 @@ from infinity_context_core.application.context_diagnostics import (
     safe_diagnostic_mapping,
     safe_score_signals,
 )
+from infinity_context_core.application.context_internal_diagnostics import (
+    provenance_flag_is_true as _provenance_flag_is_true,
+)
 from infinity_context_core.application.dto import ContextItem
 
 _RRF_RANK_CONSTANT = 60.0
+
+
 _RRF_MAX_RANK_PER_SOURCE = 50
+
+
 _RRF_MAX_BOOST = 0.045
+
+
 _DEFAULT_RRF_SOURCE_WEIGHTS = {
     "approved_context_linked_anchors": 1.18,
     "approved_context_linked_asset_manifest_evidence": 1.14,
@@ -52,14 +61,11 @@ def apply_rank_fusion_boosts(
     rankings = _ranked_items_by_retrieval_source(items)
     if len(rankings) <= 1:
         return items
-    effective_source_weights = (
-        _DEFAULT_RRF_SOURCE_WEIGHTS if source_weights is None else source_weights
-    )
     fusion_scores = reciprocal_rank_fusion_scores(
         rankings,
         rank_constant=rank_constant,
         max_rank_per_source=max_rank_per_source,
-        source_weights=effective_source_weights,
+        source_weights=(_DEFAULT_RRF_SOURCE_WEIGHTS if source_weights is None else source_weights),
     )
     max_fusion_score = max(fusion_scores.values(), default=0.0)
     if max_fusion_score <= 0:
@@ -71,7 +77,9 @@ def apply_rank_fusion_boosts(
             max_fusion_score=max_fusion_score,
             max_boost=max_boost,
             source_count=len(rankings),
-            source_weighted=bool(effective_source_weights),
+            source_weighted=bool(
+                _DEFAULT_RRF_SOURCE_WEIGHTS if source_weights is None else source_weights
+            ),
         )
         for item in items
     )
@@ -174,18 +182,3 @@ def _with_rank_fusion_boost(
 
 def _rank_fusion_already_applied(item: ContextItem) -> bool:
     return _provenance_flag_is_true(item.diagnostics, "rank_fusion_applied")
-
-
-def _provenance_flag_is_true(
-    diagnostics: object,
-    flag: str,
-    *,
-    normalized: bool = False,
-) -> bool:
-    diagnostics = (
-        safe_diagnostic_mapping(diagnostics)
-        if normalized
-        else normalize_context_diagnostics(diagnostics)
-    )
-    provenance = safe_diagnostic_mapping(diagnostics.get("provenance"))
-    return provenance.get(flag) is True

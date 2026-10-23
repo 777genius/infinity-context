@@ -1,21 +1,22 @@
-"""Query relevance diagnostics bridge for deterministic rerank."""
+"""Rerank relevance policy; one implementation authority."""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 
-from infinity_context_core.application.context_diagnostics import (
-    safe_diagnostic_mapping,
-    safe_score_signals,
+from infinity_context_core.application.context_internal_diagnostics import (
+    diagnostic_mapping,
+    nested_diagnostic_mapping,
 )
 from infinity_context_core.application.context_query_expansion import QueryExpansionPlan
-from infinity_context_core.application.context_relevance import QueryRelevance
+from infinity_context_core.application.context_relevance import (
+    QueryRelevance,
+    score_query_relevance,
+)
 from infinity_context_core.application.dto import ContextItem
 
-BestQueryRelevanceFn = Callable[..., tuple[str, str, QueryRelevance]]
 
-
-def is_long_query_weak_overlap(relevance: QueryRelevance) -> bool:
+def _is_long_query_weak_overlap(relevance: QueryRelevance) -> bool:
     if relevance.query_term_count < 6:
         return False
     if relevance.phrase_bigram_hits > 0:
@@ -23,12 +24,12 @@ def is_long_query_weak_overlap(relevance: QueryRelevance) -> bool:
     return relevance.distinctive_term_hits <= 1 and relevance.unique_term_hits <= 2
 
 
-def best_query_relevance_for_rerank(
+def _best_query_relevance_for_rerank(
     plan: QueryExpansionPlan,
     *,
     item: ContextItem,
     cache: dict[str, tuple[str, str, QueryRelevance]] | None,
-    best_query_relevance_fn: BestQueryRelevanceFn,
+    best_query_relevance_fn: Callable[..., tuple[str, str, QueryRelevance]],
 ) -> tuple[str, str, QueryRelevance]:
     diagnostics_relevance = _query_relevance_from_item_diagnostics(plan, item)
     if diagnostics_relevance is not None:
@@ -48,8 +49,8 @@ def _query_relevance_from_item_diagnostics(
     plan: QueryExpansionPlan,
     item: ContextItem,
 ) -> tuple[str, str, QueryRelevance] | None:
-    diagnostics = safe_diagnostic_mapping(item.diagnostics)
-    signals = safe_score_signals(diagnostics.get("score_signals"))
+    diagnostics = diagnostic_mapping(item.diagnostics)
+    signals = nested_diagnostic_mapping(diagnostics, "score_signals")
     reason_value = signals.get("query_expansion_reason") or diagnostics.get(
         "query_expansion_reason"
     )
@@ -60,7 +61,7 @@ def _query_relevance_from_item_diagnostics(
         return None
     relevance = _query_relevance_from_score_signals(signals)
     if relevance is None:
-        return None
+        relevance = score_query_relevance(query=query_text, text=item.text)
     return query_text, reason_value, relevance
 
 
@@ -129,3 +130,15 @@ def _non_negative_float_signal(value: object) -> float | None:
     if isinstance(value, int | float):
         return max(0.0, float(value))
     return None
+
+
+def _numeric_signal(value: object) -> float:
+    if isinstance(value, bool):
+        return 0.0
+    if isinstance(value, int | float):
+        return float(value)
+    return 0.0
+
+
+is_long_query_weak_overlap = _is_long_query_weak_overlap
+best_query_relevance_for_rerank = _best_query_relevance_for_rerank

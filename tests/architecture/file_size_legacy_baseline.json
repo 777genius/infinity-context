@@ -14,7 +14,6 @@
   "packages/infinity_context_core/infinity_context_core/application/context_packer_answer_support_slots.py": 1209,
   "packages/infinity_context_core/infinity_context_core/application/context_query_expansion_rule_catalog_part1.py": 1279,
   "packages/infinity_context_core/infinity_context_core/application/context_query_expansion_rule_catalog_part4.py": 1334,
-  "packages/infinity_context_core/infinity_context_core/application/context_ranking.py": 3681,
   "packages/infinity_context_core/infinity_context_core/application/context_source_sibling_answer_evidence_repair.py": 1983,
   "packages/infinity_context_core/infinity_context_core/application/context_temporal_query.py": 1358,
   "packages/infinity_context_core/infinity_context_core/application/context_temporal_source_turn.py": 1290,
