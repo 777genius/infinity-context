@@ -20,7 +20,7 @@ def test_real_qdrant_acceptance_is_exact_head_and_mandatory() -> None:
     job = _workflow_job("qdrant-locator-acceptance")
     quality = _workflow_job("quality")
 
-    assert "name: Real Qdrant 16,385-point locator acceptance" in job
+    assert "name: Real Qdrant locator and memory retrieval acceptance" in job
     assert "if:" not in job.replace("if: always()", "")
     assert "continue-on-error:" not in job
     assert "timeout-minutes: 45" in job
@@ -36,8 +36,7 @@ def test_real_qdrant_acceptance_is_exact_head_and_mandatory() -> None:
 
     assert "- qdrant-locator-acceptance" in quality
     assert (
-        "QDRANT_LOCATOR_ACCEPTANCE_RESULT: "
-        "${{ needs.qdrant-locator-acceptance.result }}" in quality
+        "QDRANT_LOCATOR_ACCEPTANCE_RESULT: ${{ needs.qdrant-locator-acceptance.result }}" in quality
     )
     assert 'test "$QDRANT_LOCATOR_ACCEPTANCE_RESULT" = "success"' in quality
 
@@ -62,10 +61,12 @@ def test_real_qdrant_acceptance_pins_services_resources_and_test_contract() -> N
     )
     assert f"sudo \\\n            --preserve-env={preserved_environment}" in job
     scoped_git_configuration = (
-        'env \\\n'
-        '            GIT_CONFIG_COUNT=1 \\\n'
-        '            GIT_CONFIG_KEY_0=safe.directory \\\n'
+        "env \\\n"
+        "            GIT_CONFIG_COUNT=1 \\\n"
+        "            GIT_CONFIG_KEY_0=safe.directory \\\n"
         '            GIT_CONFIG_VALUE_0="$GITHUB_WORKSPACE" \\\n'
+        '            INFINITY_CONTEXT_RETRIEVAL_BENCH_REPORT="'
+        '$GITHUB_WORKSPACE/test-results/retrieval-benchmark.json" \\\n'
         "            timeout --signal=TERM --kill-after=30s 40m"
     )
     assert scoped_git_configuration in job
@@ -102,9 +103,9 @@ def test_real_qdrant_acceptance_exposes_only_copied_runtime_artifacts() -> None:
         "assert version('qdrant-client')\""
     ) in job
     assert "--link-mode copy" in job
-    assert "chmod -R o+rX \"$GITHUB_WORKSPACE\"" not in job
-    assert "chmod -R o+rX \"$HOME\"" not in job
-    assert "chmod -R o+rX \"$workspace_ancestor\"" not in job
+    assert 'chmod -R o+rX "$GITHUB_WORKSPACE"' not in job
+    assert 'chmod -R o+rX "$HOME"' not in job
+    assert 'chmod -R o+rX "$workspace_ancestor"' not in job
     assert "chmod o+w" not in job
     assert "chmod -R o+w" not in job
     assert job.index("--link-mode copy") < job.index('case "$GITHUB_WORKSPACE" in')
@@ -114,10 +115,8 @@ def test_real_qdrant_acceptance_exposes_only_copied_runtime_artifacts() -> None:
     assert job.index('chmod -R o+rX "$GITHUB_WORKSPACE/.venv"') < job.index(
         'sudo -u nobody test -r "$GITHUB_WORKSPACE/pyproject.toml"'
     )
-    assert job.index('sudo -u nobody test -r') < job.index(
-        'sudo -u nobody test -x'
-    )
-    assert job.index('sudo -u nobody test -x') < job.index(
+    assert job.index("sudo -u nobody test -r") < job.index("sudo -u nobody test -x")
+    assert job.index("sudo -u nobody test -x") < job.index(
         'sudo -u nobody "$GITHUB_WORKSPACE/.venv/bin/python" -c'
     )
     assert job.index("chmod -R o+rX") < job.index("Wait for real Qdrant")
@@ -175,3 +174,18 @@ def test_real_qdrant_acceptance_scrubs_provider_credentials() -> None:
         "TRANSFORMERS_OFFLINE",
         "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
     }
+
+
+def test_real_store_retrieval_evidence_is_mandatory_and_retained() -> None:
+    job = _workflow_job("qdrant-locator-acceptance")
+
+    assert "tests/e2e/test_context_derived_collection_postgres.py" in job
+    assert "tests/e2e/test_context_vector_recall_qdrant.py" in job
+    assert "git rev-parse HEAD > test-results/source-sha.txt" in job
+    assert "Reject incomplete real-store evidence" in job
+    assert "assert len(cases) == 8" in job
+    assert 'for tag in ("failure", "error", "skipped")' in job
+    assert 'assert Path("test-results/retrieval-benchmark.json").is_file()' in job
+    assert "path: test-results/" in job
+    qdrant_service = job.split("      qdrant:", maxsplit=1)[1].split("\n    env:", maxsplit=1)[0]
+    assert 'QDRANT__TELEMETRY_DISABLED: "true"' in qdrant_service
