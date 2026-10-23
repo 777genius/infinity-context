@@ -1,7 +1,8 @@
 # Asset extraction lifecycle responsibility refactor
 
-Status: plan only; both independent critics completed both review rounds and
-approved the revised plan. Implementation awaits the coordinator's release.
+Status: implemented after both independent critics completed both review rounds;
+coordinator released implementation after publishing the approved plan in PR #94.
+Final verification and independent code review are recorded below.
 
 Base: `main` at `44ac164a8395c5847ae8792dded95d0dfe4526dd`.
 Owner: direction C / lifecycle services.
@@ -270,13 +271,51 @@ for follow-up rather than absorbed into this PR.
 - Round 2 same critic B (server): approved at revised commit `c7d4c4ac`; named
   operations, compensation regression and ledger resolve round-one findings.
   Record: `plans/review-r2-lifecycle-by-server.md`.
-- Round 2 owner fixes: none requested. Root implementation release: pending.
+- Round 2 owner fixes: none requested. Coordinator released implementation after
+  publishing the exact approved plan tree in PR #94 (remote `86f4e038`).
 
-Read-only baseline: 29 lifecycle race/artifact cleanup/resource/domain tests passed
-in 1.85s. API collection is blocked by the execution environment's mismatched PID
-namespace (`os.getpid()` has no matching `/proc/{pid}/stat`), before extraction
-logic runs. The coordinator is resolving a suitable execution environment; no
-production identity/supervisor workaround is in scope. Mandatory API/E2E tests
-must still run before merge, with any actual blocker reported accurately.
+## Implementation and operation-order evidence
 
-No production edits before the coordinator releases this completed review gate.
+Unchanged baseline: the complete listed extraction/API/media/transcription/artifact
+suite plus real HTTP/worker E2E passed **89 tests in 88.09s**, no skips, one existing
+Starlette/httpx deprecation warning. The new second-write compensation regression
+then passed against unchanged production code before extraction (**1 test in
+1.87s**, commit `e4d16c66`). The initial sandbox collection problem came from a
+virtual PID mismatch with `/proc`; approved normal-process test execution resolved
+it without any production/runtime/supervisor change.
+
+Production extraction is commit `92f40fa3`. Actual sizes are 990 lines for the
+original public use-case module (was 1454), 334 for lifecycle, 195 for artifacts,
+122 for result policy and 96 for usage. Support grows by the existing eight-line
+datetime comparator; no logic is duplicated. The production diff adds 289 net
+lines for explicit imports, typed per-operation dependencies and retained seam
+delegation. This is above the estimate, chiefly because live dependency seams
+are preserved explicitly rather than captured in a runner context.
+
+A source AST comparison against pinned base `44ac164a` verified all seven class
+paths and all original method signatures. The six other use-case definitions,
+runner constructor, ordered `execute`, parser supervision, task cancellation and
+`_mark_failed_unless_terminal` are identical. Each of the eleven extracted method
+bodies is identical after replacing its specific `self._dependency` attributes
+with explicit operation parameter names. All twelve original pure helpers match,
+with only `_datetime_after` renamed in its shared owner and imported under its
+original runner name. Original helper import paths remain explicitly available.
+
+| Reviewed sequence | New operation locations and audit result |
+| --- | --- |
+| Success | Original `RunAssetExtractionUseCase.execute` is AST-identical. Claim/heartbeat/metadata/success bodies now live in `asset_extraction_lifecycle.py`; parser supervision remains original; artifact and usage calls retain their original instance-method dispatch and position. No await, commit, outbox, parser, ingestion or blob operation was reordered. |
+| Artifact metadata persistence failure | `asset_extraction_artifacts.store_artifacts` is the unchanged original body with explicit dependency names: blob writes precede one metadata UoW/commit; exception cleanup iterates successful keys and suppresses deletion failures before rethrowing the original error. Existing cleanup tests cover metadata failures. |
+| Second blob write failure | The same body records a key only after its write succeeds. New semantic regression records `write`, `write`, `delete`; no UoW opens; cleanup targets only the first successful key and the exact original write exception survives the failed deletion. |
+| Cancellation after document commit | Original runner workflow, both acknowledgment call sites and exception routing are unchanged. `asset_extraction_lifecycle.acknowledge_cancel_after_document_commit` and `mark_succeeded` retain the original current-state reads, conditional commits and non-running finalization diagnostics. Existing late-cancel and terminal-race tests exercise this path. |
+
+Verification completed so far: **30 pure extraction tests passed in 2.95s**;
+**3 worker tests passed in 12.69s** (48 unrelated cases deselected); repository
+Ruff and the monotonic file-size gate against the pinned base passed with 106
+remaining legacy ceilings. The only removed baseline entry is the owned original
+module; the shared brittle count assertion is deleted as reviewed.
+
+Final verification: the complete extraction/API/media/transcription/artifact suite
+plus real HTTP/worker E2E passed **90 tests in 90.90s**, no skips, the same existing
+Starlette/httpx deprecation warning. Full architecture suite passed **216 tests
+in 89.87s**. All reviewed mandatory commands have passed.
+Independent code reviews by the same core and server owners: requested.
