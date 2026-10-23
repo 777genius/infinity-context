@@ -2,32 +2,31 @@ name: Memory optimization workbench
 on:
   push:
     branches: [verify/memory-workbench-20261023]
+    paths: [.github/workflows/memory-workbench.yml]
 permissions:
   contents: read
 jobs:
   workbench:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: 44ac164a8395c5847ae8792dded95d0dfe4526dd
+          ref: 03a1d0ee418f63f613fc945e7ad29fcdd7b673bc
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.13.5"
-      - name: Export tracked source and locked offline dependencies
+      - name: Export pinned source and reviewable history
         run: |
-          mkdir -p workbench/wheels
+          test "$(git rev-parse HEAD)" = 03a1d0ee418f63f613fc945e7ad29fcdd7b673bc
+          mkdir -p workbench
           git rev-parse HEAD > workbench/source-sha.txt
           git archive HEAD | gzip > workbench/source.tar.gz
-          python -m pip install --disable-pip-version-check 'uv==0.11.28'
-          uv export --extra dev --extra qdrant --frozen --no-hashes --no-emit-project -o workbench/requirements.txt
-          python -m pip download --only-binary=:all: --dest workbench/wheels -r workbench/requirements.txt 'setuptools>=80' wheel
+          git branch export-memory-head HEAD
+          git bundle create workbench/repository.bundle export-memory-head
+          sha256sum workbench/source.tar.gz workbench/repository.bundle > workbench/SHA256SUMS
       - uses: actions/upload-artifact@v7.0.1
-        if: always()
         with:
-          name: memory-workbench-py313-44ac164a
+          name: memory-source-03a1d0ee
           path: workbench/
           retention-days: 7
           if-no-files-found: error
