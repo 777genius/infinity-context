@@ -363,6 +363,25 @@ jobs:
           from xml.etree import ElementTree as ET
           cases = list(ET.parse("test-results/qdrant-locator-acceptance.xml").getroot().iter("testcase"))
           assert len(cases) == 8, f"Expected eight real-store cases, got {len(cases)}"
+          expected_by_module = {
+              "tests.e2e.test_locator_retrieval_qdrant_e2e": {
+                  "test_real_qdrant_large_profile_resumes_attests_and_physically_deletes",
+              },
+              "tests.e2e.test_context_derived_collection_postgres": {
+                  "test_mounted_postgres_context_revalidates_delete_after_early_lane_hydration",
+                  "test_postgres_connection_wait_cancellation_closes_uows_and_next_collection_runs",
+                  "test_populated_qdrant_mounted_context_preserves_output_and_rejects_stale_hit",
+              },
+              "tests.e2e.test_context_vector_recall_qdrant": {
+                  "test_real_qdrant_reserve_recovers_evidence_without_widening_healthy_context[missing]",
+                  "test_real_qdrant_reserve_recovers_evidence_without_widening_healthy_context[deleted]",
+                  "test_real_qdrant_reserve_recovers_evidence_without_widening_healthy_context[foreign]",
+                  "test_mounted_real_store_query_fanout_records_paired_latency_without_timing_gate",
+              },
+          }
+          expected = {(module, name) for module, names in expected_by_module.items() for name in names}
+          actual = {(case.get("classname"), case.get("name")) for case in cases}
+          assert actual == expected, f"Missing cases: {expected - actual}; unexpected: {actual - expected}"
           assert not any(case.find(tag) is not None for case in cases
                          for tag in ("failure", "error", "skipped"))
           assert Path("test-results/retrieval-benchmark.json").is_file()
