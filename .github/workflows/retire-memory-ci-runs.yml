@@ -8,7 +8,7 @@ permissions:
   pull-requests: read
 jobs:
   retire:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 3
     steps:
       - name: Cancel only superseded run 39986623703 from this PR
