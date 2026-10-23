@@ -191,3 +191,73 @@ def binding_inventory(module, owners: Mapping[str, str]) -> dict[str, object]:
             record["visibility"] = "imported-compatibility"
         result[name] = record
     return result
+
+
+def _normalized(value):
+    import json
+
+    return json.loads(json.dumps(value))
+
+
+def replay_intent_case(case, policy):
+    """Replay the public policy boundary without the server's question-term machinery."""
+    payload = dict(case["intent"])
+    time_payload = payload["time_intent"]
+    time = policy.RetrievalTimeIntent(
+        time_payload["is_temporal"],
+        tuple(time_payload["terms"]),
+        tuple(time_payload["surface_terms"]),
+        time_payload["kind"],
+    )
+    common = {
+        "question": payload["question"],
+        "relation_terms": tuple(payload["relation_terms"]),
+        "time_intent": time,
+        "visual_terms": tuple(payload["visual_terms"]),
+        "multi_hop_markers": tuple(payload["multi_hop_markers"]),
+    }
+    relations = policy.infer_relation_intents(
+        **common, relation_variant_terms=tuple(payload["relation_variant_terms"])
+    )
+    needs = policy.merge_relation_evidence_needs(
+        policy.infer_evidence_need(
+            **common,
+            benchmark_category=case["category"],
+            answer_unit_shapes=tuple(payload["answer_unit_shapes"]),
+        ),
+        relations,
+    )
+    entities = tuple(
+        policy.RetrievalEntityIntent(
+            value["canonical"], tuple(value["surfaces"]), tuple(value["speaker_surfaces"])
+        )
+        for value in payload["entities"]
+    )
+    values = {
+        key: tuple(value) if isinstance(value, list) else value for key, value in payload.items()
+    }
+    values.update(
+        {
+            "entities": entities,
+            "time_intent": time,
+            "relation_intents": relations,
+            "evidence_need": needs,
+            "bundle_evidence_roles": policy.infer_bundle_evidence_roles(
+                evidence_need=needs, benchmark_category=case["category"]
+            ),
+            "risk_flags": policy.infer_risk_flags(
+                entity_count=len(entities),
+                relation_terms=common["relation_terms"],
+                relation_variant_terms=tuple(payload["relation_variant_terms"]),
+                time_intent=time,
+            ),
+        }
+    )
+    result = policy.RetrievalIntent(**values)
+    return _normalized(
+        {
+            "intent": dataclasses.asdict(result),
+            "diagnostics": result.to_diagnostics(),
+            "profile": result.to_query_profile(),
+        }
+    )

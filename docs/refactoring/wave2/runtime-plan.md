@@ -111,7 +111,10 @@ Exact shared ratchet proposal for R1: remove the baseline key ending
 `infinity_context_server/memory_comparison_intent.py` (2,925); lower the existing
 `memory_comparison_rerank.py` key only if its import migration reduces its actual line count.
 Keep debt file cap 483. New server line cap is `208182 - 2925 + actual_intent_facade_lines +
-actual_rerank_line_delta + actual_evidence_line_delta`; the two deltas are required to be <=0.
+actual_rerank_line_delta + actual_evidence_line_delta`. Actual R1 deltas are 0 and +1 respectively:
+the required import-group separator makes evidence 877 -> 878, while aggregate debt decreases
+2,835 lines to 205,347. Coordinator accepted this explicit estimate correction; no frozen ceiling
+grows and useful whitespace is preserved.
 Root computes and commits the concrete integer from this PR's tree, not an estimated allowance.
 
 Estimated implementation + verification: 1.5-2.5 hours, ~3,100-3,500 new/moved production LOC,

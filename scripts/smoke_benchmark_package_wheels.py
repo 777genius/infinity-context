@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import gzip
 import hashlib
 import importlib
 import importlib.metadata
 import importlib.util
 import json
 import pickle
+import runpy
 import shutil
 import subprocess
 import sys
@@ -27,7 +29,32 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
     # Invoked with -I -S: only stdlib and this explicit wheel installation exist.
     sys.path.insert(0, str(target))
     from infinity_context_benchmarks import evidence_bundle as evidence
-    from infinity_context_benchmarks import source_identity
+    from infinity_context_benchmarks import retrieval_intent, source_identity
+
+    intent_fixtures = fixtures.parent / "benchmark_retrieval_intent"
+    intent_contract = json.loads((intent_fixtures / "contract.json").read_text())
+    raw = gzip.decompress((intent_fixtures / "cases.json.gz").read_bytes())
+    assert hashlib.sha256(raw).hexdigest() == intent_contract["cases_sha256"]
+    replay = runpy.run_path(
+        str(Path(__file__).with_name("benchmark_policy_contract_inventory.py"))
+    )["replay_intent_case"]
+    intent_cases = json.loads(raw)
+    for case in intent_cases:
+        assert replay(case, retrieval_intent) == {
+            key: case[key] for key in ("intent", "diagnostics", "profile")
+        }
+    assert get_type_hints(retrieval_intent.RetrievalIntent)
+    if mode != "standalone":
+        import base64
+
+        from infinity_context_server import memory_comparison_intent as legacy_intent
+
+        for name, encoded in intent_contract["legacy_reference_pickles"].items():
+            assert pickle.loads(base64.b64decode(encoded)) is getattr(legacy_intent, name)
+        for name, encoded in intent_contract["legacy_pickles"].items():
+            value = pickle.loads(base64.b64decode(encoded))
+            assert type(value) is getattr(retrieval_intent, name)
+            assert pickle.loads(pickle.dumps(value)) == value
 
     annotations = get_type_hints(evidence.EvidenceBundleCandidate)
     assert get_type_hints(evidence.PlannedEvidenceItem)["candidate"] is (
@@ -46,12 +73,18 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
     item = evidence.PlannedEvidenceItem(candidates[0], "primary", ("smoke",))
     for value in (candidates[0], item):
         assert pickle.loads(pickle.dumps(value)) == value
-    assert evidence.role_for_candidate(
-        candidates[0], primary=candidates[0], case_group="single", required_roles=()
-    ) == "primary"
-    assert evidence.bundle_quality_diagnostics((item,), missing_required_roles=())[
-        "selected_item_count"
-    ] == 1
+    assert (
+        evidence.role_for_candidate(
+            candidates[0], primary=candidates[0], case_group="single", required_roles=()
+        )
+        == "primary"
+    )
+    assert (
+        evidence.bundle_quality_diagnostics((item,), missing_required_roles=())[
+            "selected_item_count"
+        ]
+        == 1
+    )
     assert source_identity.safe_source_label_for_output("provider:private-token") is None
     assert source_identity.safe_source_label_for_output("raw_turn") == "raw_turn"
     if mode == "standalone":
@@ -118,12 +151,21 @@ def _build_and_smoke(output: Path) -> None:
     deployment = Path("benchmarks/mem0-oss-adapter-v5/deployment")
     shutil.copytree(root / deployment, stage / deployment, ignore=_ignored)
     projects = (
-        "infinity_context_core", "infinity_context_benchmarks",
-        "infinity_context_runtime_bridge", "infinity_context_server",
+        "infinity_context_core",
+        "infinity_context_benchmarks",
+        "infinity_context_runtime_bridge",
+        "infinity_context_server",
     )
     command = [
-        sys.executable, "-m", "pip", "wheel", "--no-index", "--no-deps",
-        "--no-build-isolation", "--wheel-dir", str(wheels),
+        sys.executable,
+        "-m",
+        "pip",
+        "wheel",
+        "--no-index",
+        "--no-deps",
+        "--no-build-isolation",
+        "--wheel-dir",
+        str(wheels),
     ]
     # Build the bundle before per-project setuptools build/lib trees exist;
     # namespace discovery must not mistake those intermediate trees for packages.
@@ -142,14 +184,37 @@ def _build_and_smoke(output: Path) -> None:
         target = output / mode
         if target.exists():
             shutil.rmtree(target)
-        _run([
-            sys.executable, "-m", "pip", "install", "--no-index", "--no-deps",
-            "--target", str(target), *(str(built[name]) for name in distributions),
-        ], cwd=output)
+        _run(
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--no-index",
+                "--no-deps",
+                "--target",
+                str(target),
+                *(str(built[name]) for name in distributions),
+            ],
+            cwd=output,
+        )
         result = subprocess.run(
-            [sys.executable, "-I", "-S", str(Path(__file__).resolve()), "--probe", mode,
-             "--target", str(target), "--fixtures", str(fixture_path)],
-            cwd=output, capture_output=True, text=True, check=False,
+            [
+                sys.executable,
+                "-I",
+                "-S",
+                str(Path(__file__).resolve()),
+                "--probe",
+                mode,
+                "--target",
+                str(target),
+                "--fixtures",
+                str(fixture_path),
+            ],
+            cwd=output,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if result.returncode:
             raise RuntimeError(f"{mode} isolated smoke failed:\n{result.stdout}\n{result.stderr}")
@@ -157,8 +222,7 @@ def _build_and_smoke(output: Path) -> None:
         print(f"{mode}: isolated wheel contracts passed")
     report = {
         "wheels": {
-            path.name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in built.values()
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in built.values()
         },
         "contexts": reports,
     }
