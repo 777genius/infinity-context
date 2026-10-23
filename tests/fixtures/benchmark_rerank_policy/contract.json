@@ -1,0 +1,742 @@
+{
+  "base_sha": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "public_names": [
+    "RerankPolicyFeatures",
+    "RerankPolicyContribution",
+    "RerankPolicyPlan",
+    "RerankPolicy",
+    "EntitySpeakerPolicy",
+    "RelationCoveragePolicy",
+    "TemporalPolicy",
+    "PreferenceIntentPolicy",
+    "FocusedTurnPolicy",
+    "EvidenceBundlePolicy",
+    "SourceGroundingPolicy",
+    "AnswerabilityPolicy",
+    "MultiHopPolicy",
+    "ContrastIntentPolicy",
+    "NegativeAbsencePolicy",
+    "LocationIntentPolicy",
+    "ValueAnswerShapePolicy",
+    "CountListAnswerShapePolicy",
+    "TypedRelationSupportPolicy",
+    "BenchmarkRerankFeatures",
+    "BenchmarkRerankScore",
+    "score_rerank_policy_contributions",
+    "score_benchmark_rerank_candidate"
+  ],
+  "default_order": [
+    "EntitySpeakerPolicy",
+    "RelationCoveragePolicy",
+    "TemporalPolicy",
+    "PreferenceIntentPolicy",
+    "FocusedTurnPolicy",
+    "EvidenceBundlePolicy",
+    "SourceGroundingPolicy",
+    "AnswerabilityPolicy",
+    "MultiHopPolicy",
+    "ContrastIntentPolicy",
+    "NegativeAbsencePolicy",
+    "TypedRelationSupportPolicy",
+    "LocationIntentPolicy",
+    "CountListAnswerShapePolicy",
+    "ValueAnswerShapePolicy"
+  ],
+  "single_policy_input": {
+    "overlap_terms": [
+      "alex",
+      "project",
+      "deadline"
+    ],
+    "entity_hits": [
+      "alex"
+    ],
+    "speaker_hits": [
+      "alex"
+    ],
+    "relation_hits": [
+      "project",
+      "deadline",
+      "before"
+    ],
+    "relation_terms": [
+      "project",
+      "deadline"
+    ],
+    "query_has_entities": true,
+    "high_signal_relation_hit_count": 0,
+    "is_temporal_query": false,
+    "has_temporal_surface": false,
+    "has_sequence_surface": false,
+    "is_preference_query": false,
+    "has_preference_evidence": false,
+    "has_visual_terms": false,
+    "has_visual_evidence": false,
+    "focused_turn_boost": 0.0,
+    "has_multi_hop_markers": false,
+    "relation_categories": [],
+    "relation_category_hits": [],
+    "relation_category_coverage_ratio": 0.0,
+    "communication_direction_grounded": false,
+    "communication_direction_ungrounded": false,
+    "communication_query_direction": "",
+    "exact_count_evidence": false,
+    "list_item_count": 0,
+    "policy_boosts": {},
+    "shape_boosts": {},
+    "source_type": "unknown",
+    "source_ref_count": 1,
+    "turn_ref_count": 0,
+    "source_ref_density": 0.0,
+    "source_locality_score": 1.0,
+    "direct_speaker_turn": true,
+    "broad_summary": false,
+    "conflict_or_stale": false,
+    "negation_surface": false,
+    "currentness_surface": false,
+    "stale_surface": false,
+    "contrast_surface": false,
+    "answerability_score": 0.7,
+    "answerability_reason_codes": [],
+    "evidence_need": [],
+    "query_roles": [],
+    "temporal_query_terms": [],
+    "current_state_query": false,
+    "time_intent_kind": "",
+    "has_duration_surface": false,
+    "has_relative_time_surface": false,
+    "has_explicit_time_surface": false,
+    "has_explicit_time_content_surface": false,
+    "has_temporal_sequence_surface": false,
+    "temporal_sequence_direction": "",
+    "covered_answer_unit_shapes": [],
+    "source_grounding_query": false,
+    "source_grounding_support": false,
+    "source_grounding_support_reason": "",
+    "source_grounding_quote_relevant": false
+  },
+  "single_policy_plans": {
+    "EntitySpeakerPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.285,
+      "active_policy_count": 1,
+      "contributions": [
+        {
+          "policy": "EntitySpeakerPolicy",
+          "score": 0.285,
+          "reason_codes": [
+            "query_overlap",
+            "entity_hit",
+            "speaker_hit",
+            "speaker_grounding"
+          ],
+          "signals": {
+            "benchmark_query_overlap_boost": 0.105,
+            "benchmark_entity_boost": 0.055,
+            "benchmark_speaker_boost": 0.08,
+            "benchmark_speaker_grounding_boost": 0.045,
+            "benchmark_speaker_grounding_evidence": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {
+        "EntitySpeakerPolicy": [
+          "query_overlap",
+          "entity_hit",
+          "speaker_hit",
+          "speaker_grounding"
+        ]
+      }
+    },
+    "RelationCoveragePolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.14,
+      "active_policy_count": 1,
+      "contributions": [
+        {
+          "policy": "RelationCoveragePolicy",
+          "score": 0.14,
+          "reason_codes": [
+            "relation_hit"
+          ],
+          "signals": {
+            "benchmark_relation_boost": 0.14,
+            "benchmark_relation_coverage_boost": 0.0,
+            "benchmark_relation_category_coverage_boost": 0.0,
+            "benchmark_relation_categories": [],
+            "benchmark_relation_category_hits": [],
+            "benchmark_relation_category_coverage_ratio": 0.0,
+            "benchmark_relation_variant_hit_count": 3,
+            "benchmark_strong_relation_evidence": false
+          }
+        }
+      ],
+      "reason_codes_by_policy": {
+        "RelationCoveragePolicy": [
+          "relation_hit"
+        ]
+      }
+    },
+    "TemporalPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "TemporalPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_time_intent_kind": "",
+            "benchmark_temporal_query_roles": [],
+            "benchmark_temporal_query_terms": [],
+            "benchmark_temporal_sequence_query_direction": "",
+            "benchmark_temporal_sequence_direction": "",
+            "benchmark_temporal_sequence_direction_conflict": false,
+            "benchmark_temporal_sequence_direction_penalty": 0.0,
+            "benchmark_current_state_query": false,
+            "benchmark_stale_only_current_state_evidence": false,
+            "benchmark_temporal_text_boost": 0.0,
+            "benchmark_temporal_sequence_boost": 0.0,
+            "benchmark_currentness_support_boost": 0.0,
+            "benchmark_temporal_role_support_boost": 0.0,
+            "benchmark_typed_temporal_reason": "not_temporal_query",
+            "benchmark_has_duration_surface": false,
+            "benchmark_has_relative_time_surface": false,
+            "benchmark_has_explicit_time_surface": false,
+            "benchmark_has_explicit_time_content_surface": false,
+            "benchmark_has_temporal_sequence_surface": false
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "PreferenceIntentPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "PreferenceIntentPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_preference_evidence_boost": 0.0,
+            "benchmark_preference_evidence_grounded": false,
+            "benchmark_preference_reason_required": false,
+            "benchmark_preference_reason_grounded": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "FocusedTurnPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.12,
+      "active_policy_count": 1,
+      "contributions": [
+        {
+          "policy": "FocusedTurnPolicy",
+          "score": 0.12,
+          "reason_codes": [
+            "direct_speaker_relation"
+          ],
+          "signals": {
+            "benchmark_focused_turn_boost": 0.0,
+            "benchmark_focused_relation_density_boost": 0.0,
+            "benchmark_direct_speaker_relation_boost": 0.12,
+            "benchmark_direct_speaker_relation_evidence": true,
+            "benchmark_rich_direct_speaker_relation_evidence": true,
+            "benchmark_communication_direction_boost": 0.0,
+            "benchmark_communication_direction_penalty": 0.0,
+            "benchmark_communication_direction_grounded": false,
+            "benchmark_communication_direction_ungrounded": false,
+            "benchmark_communication_query_direction": ""
+          }
+        }
+      ],
+      "reason_codes_by_policy": {
+        "FocusedTurnPolicy": [
+          "direct_speaker_relation"
+        ]
+      }
+    },
+    "EvidenceBundlePolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.025,
+      "active_policy_count": 1,
+      "contributions": [
+        {
+          "policy": "EvidenceBundlePolicy",
+          "score": 0.025,
+          "reason_codes": [
+            "direct_provenance"
+          ],
+          "signals": {
+            "benchmark_visual_evidence_boost": 0.0,
+            "benchmark_visual_evidence_grounded": false,
+            "benchmark_direct_provenance_boost": 0.025
+          }
+        }
+      ],
+      "reason_codes_by_policy": {
+        "EvidenceBundlePolicy": [
+          "direct_provenance"
+        ]
+      }
+    },
+    "SourceGroundingPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "SourceGroundingPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_source_grounding_query": false,
+            "benchmark_source_grounding_evidence": false,
+            "benchmark_source_grounding_support": false,
+            "benchmark_source_grounding_support_reason": "",
+            "benchmark_source_grounding_quote_relevant": false,
+            "benchmark_source_grounding_boost": 0.0,
+            "benchmark_source_grounding_ungrounded_penalty": 0.0
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "AnswerabilityPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.035,
+      "active_policy_count": 1,
+      "contributions": [
+        {
+          "policy": "AnswerabilityPolicy",
+          "score": 0.035,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_answerability_score": 0.7,
+            "benchmark_answerability_boost": 0.035,
+            "benchmark_answerability_boost_eligible": true,
+            "benchmark_answerability_reason_codes": []
+          }
+        }
+      ],
+      "reason_codes_by_policy": {
+        "AnswerabilityPolicy": []
+      }
+    },
+    "MultiHopPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "MultiHopPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_multi_hop_support_boost": 0.0
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "ContrastIntentPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "ContrastIntentPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_contrast_penalty": 0.0,
+            "benchmark_contrast_support_boost": 0.0,
+            "benchmark_negation_surface": false,
+            "benchmark_currentness_surface": false,
+            "benchmark_stale_surface": false,
+            "benchmark_contrast_surface": false
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "NegativeAbsencePolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "NegativeAbsencePolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_negative_absence_needed": false,
+            "benchmark_negative_absence_evidence_grounded": false,
+            "benchmark_negative_absence_support_boost": 0.0,
+            "benchmark_negative_absence_positive_topic_penalty": 0.0
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "TypedRelationSupportPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "TypedRelationSupportPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_typed_relation_support_boost": 0.0,
+            "benchmark_typed_relation_query_role_boost": 0.0,
+            "benchmark_typed_relation_support_roles": [],
+            "benchmark_typed_relation_support_category_hits": [],
+            "benchmark_typed_relation_support_hit_roles": [],
+            "benchmark_typed_relation_support_precise_provenance": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "LocationIntentPolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "LocationIntentPolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_location_support_boost": 0.0,
+            "benchmark_location_query_role_boost": 0.0,
+            "benchmark_location_relation_hit_count": 0,
+            "benchmark_location_relation_category_hit": false,
+            "benchmark_location_precise_provenance": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "CountListAnswerShapePolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "CountListAnswerShapePolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_count_answer_shape_boost": 0.0,
+            "benchmark_list_answer_shape_boost": 0.0,
+            "benchmark_count_list_query_role_boost": 0.0,
+            "benchmark_exact_count_evidence": false,
+            "benchmark_list_item_count": 0,
+            "benchmark_count_list_answer_grounded": true,
+            "benchmark_count_list_subject_grounded": true,
+            "benchmark_count_list_precise_provenance": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    },
+    "ValueAnswerShapePolicy": {
+      "schema_version": "benchmark_rerank_policy.v2",
+      "total_raw_score": 0.0,
+      "active_policy_count": 0,
+      "contributions": [
+        {
+          "policy": "ValueAnswerShapePolicy",
+          "score": 0.0,
+          "reason_codes": [],
+          "signals": {
+            "benchmark_value_answer_shape_boost": 0.0,
+            "benchmark_value_query_role_boost": 0.0,
+            "benchmark_value_answer_shape_hit": false,
+            "benchmark_value_answer_grounded": true,
+            "benchmark_value_precise_provenance": true
+          }
+        }
+      ],
+      "reason_codes_by_policy": {}
+    }
+  },
+  "legacy_pickles": {
+    "BenchmarkRerankFeatures": "gASVEQYAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBdCZW5jaG1hcmtSZXJhbmtGZWF0dXJlc5STlCmBlH2UKIwNb3ZlcmxhcF90ZXJtc5SMBGFsZXiUjAdwcm9qZWN0lIwIZGVhZGxpbmWUh5SMC2VudGl0eV9oaXRzlGgGhZSMDHNwZWFrZXJfaGl0c5RoC4wNcmVsYXRpb25faGl0c5RoB2gIjAZiZWZvcmWUh5SMDnJlbGF0aW9uX3Rlcm1zlGgHaAiGlIwScXVlcnlfaGFzX2VudGl0aWVzlIiMHmhpZ2hfc2lnbmFsX3JlbGF0aW9uX2hpdF9jb3VudJRLAIwRaXNfdGVtcG9yYWxfcXVlcnmUiYwUaGFzX3RlbXBvcmFsX3N1cmZhY2WUiYwUaGFzX3NlcXVlbmNlX3N1cmZhY2WUiYwTaXNfcHJlZmVyZW5jZV9xdWVyeZSJjBdoYXNfcHJlZmVyZW5jZV9ldmlkZW5jZZSJjBBoYXNfdmlzdWFsX3Rlcm1zlImME2hhc192aXN1YWxfZXZpZGVuY2WUiYwSZm9jdXNlZF90dXJuX2Jvb3N0lEcAAAAAAAAAAIwVaGFzX211bHRpX2hvcF9tYXJrZXJzlImME3JlbGF0aW9uX2NhdGVnb3JpZXOUKYwWcmVsYXRpb25fY2F0ZWdvcnlfaGl0c5QpjCByZWxhdGlvbl9jYXRlZ29yeV9jb3ZlcmFnZV9yYXRpb5RHAAAAAAAAAACMIGNvbW11bmljYXRpb25fZGlyZWN0aW9uX2dyb3VuZGVklImMImNvbW11bmljYXRpb25fZGlyZWN0aW9uX3VuZ3JvdW5kZWSUiYwdY29tbXVuaWNhdGlvbl9xdWVyeV9kaXJlY3Rpb26UjACUjBRleGFjdF9jb3VudF9ldmlkZW5jZZSJjA9saXN0X2l0ZW1fY291bnSUSwCMDXBvbGljeV9ib29zdHOUfZSMDHNoYXBlX2Jvb3N0c5R9lIwLc291cmNlX3R5cGWUjAd1bmtub3dulIwQc291cmNlX3JlZl9jb3VudJRLAYwOdHVybl9yZWZfY291bnSUSwCMEnNvdXJjZV9yZWZfZGVuc2l0eZRHAAAAAAAAAACMFXNvdXJjZV9sb2NhbGl0eV9zY29yZZRHP/AAAAAAAACME2RpcmVjdF9zcGVha2VyX3R1cm6UiIwNYnJvYWRfc3VtbWFyeZSJjBFjb25mbGljdF9vcl9zdGFsZZSJjBBuZWdhdGlvbl9zdXJmYWNllImME2N1cnJlbnRuZXNzX3N1cmZhY2WUiYwNc3RhbGVfc3VyZmFjZZSJjBBjb250cmFzdF9zdXJmYWNllImME2Fuc3dlcmFiaWxpdHlfc2NvcmWURz/mZmZmZmZmjBphbnN3ZXJhYmlsaXR5X3JlYXNvbl9jb2Rlc5QpjA1ldmlkZW5jZV9uZWVklCmMC3F1ZXJ5X3JvbGVzlCmMFHRlbXBvcmFsX3F1ZXJ5X3Rlcm1zlCmME2N1cnJlbnRfc3RhdGVfcXVlcnmUiYwQdGltZV9pbnRlbnRfa2luZJRoI4wUaGFzX2R1cmF0aW9uX3N1cmZhY2WUiYwZaGFzX3JlbGF0aXZlX3RpbWVfc3VyZmFjZZSJjBloYXNfZXhwbGljaXRfdGltZV9zdXJmYWNllImMIWhhc19leHBsaWNpdF90aW1lX2NvbnRlbnRfc3VyZmFjZZSJjB1oYXNfdGVtcG9yYWxfc2VxdWVuY2Vfc3VyZmFjZZSJjBt0ZW1wb3JhbF9zZXF1ZW5jZV9kaXJlY3Rpb26UaCOMGmNvdmVyZWRfYW5zd2VyX3VuaXRfc2hhcGVzlCmMFnNvdXJjZV9ncm91bmRpbmdfcXVlcnmUiYwYc291cmNlX2dyb3VuZGluZ19zdXBwb3J0lImMH3NvdXJjZV9ncm91bmRpbmdfc3VwcG9ydF9yZWFzb26UaCOMH3NvdXJjZV9ncm91bmRpbmdfcXVvdGVfcmVsZXZhbnSUiXViLg==",
+    "BenchmarkRerankScore": "gASVTBgAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBRCZW5jaG1hcmtSZXJhbmtTY29yZZSTlCmBlH2UKIwFYm9vc3SURz/dcKPXCj1xjAdzaWduYWxzlH2UKIwNb3ZlcmxhcF90ZXJtc5RdlCiMBGFsZXiUjAdwcm9qZWN0lIwIZGVhZGxpbmWUZYwLZW50aXR5X2hpdHOUXZRoCmGMDHNwZWFrZXJfaGl0c5RdlGgKYYwNc2NvcmVfc2lnbmFsc5R9lCiMHWJlbmNobWFya19xdWVyeV9vdmVybGFwX2Jvb3N0lEc/uuFHrhR64YwWYmVuY2htYXJrX2VudGl0eV9ib29zdJRHP6wo9cKPXCmMF2JlbmNobWFya19zcGVha2VyX2Jvb3N0lEc/tHrhR64Ue4whYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2Jvb3N0lEc/pwo9cKPXCowkYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2V2aWRlbmNllIiMGGJlbmNobWFya19yZWxhdGlvbl9ib29zdJRHP8HrhR64UeyMIWJlbmNobWFya19yZWxhdGlvbl9jb3ZlcmFnZV9ib29zdJRHAAAAAAAAAACMKmJlbmNobWFya19yZWxhdGlvbl9jYXRlZ29yeV9jb3ZlcmFnZV9ib29zdJRHAAAAAAAAAACMHWJlbmNobWFya19yZWxhdGlvbl9jYXRlZ29yaWVzlF2UjCBiZW5jaG1hcmtfcmVsYXRpb25fY2F0ZWdvcnlfaGl0c5RdlIwqYmVuY2htYXJrX3JlbGF0aW9uX2NhdGVnb3J5X2NvdmVyYWdlX3JhdGlvlEcAAAAAAAAAAIwkYmVuY2htYXJrX3JlbGF0aW9uX3ZhcmlhbnRfaGl0X2NvdW50lEsDjCJiZW5jaG1hcmtfc3Ryb25nX3JlbGF0aW9uX2V2aWRlbmNllImMGmJlbmNobWFya190aW1lX2ludGVudF9raW5klIwAlIweYmVuY2htYXJrX3RlbXBvcmFsX3F1ZXJ5X3JvbGVzlF2UjB5iZW5jaG1hcmtfdGVtcG9yYWxfcXVlcnlfdGVybXOUXZSMK2JlbmNobWFya190ZW1wb3JhbF9zZXF1ZW5jZV9xdWVyeV9kaXJlY3Rpb26UaCOMJWJlbmNobWFya190ZW1wb3JhbF9zZXF1ZW5jZV9kaXJlY3Rpb26UaCOMLmJlbmNobWFya190ZW1wb3JhbF9zZXF1ZW5jZV9kaXJlY3Rpb25fY29uZmxpY3SUiYwtYmVuY2htYXJrX3RlbXBvcmFsX3NlcXVlbmNlX2RpcmVjdGlvbl9wZW5hbHR5lEcAAAAAAAAAAIwdYmVuY2htYXJrX2N1cnJlbnRfc3RhdGVfcXVlcnmUiYwrYmVuY2htYXJrX3N0YWxlX29ubHlfY3VycmVudF9zdGF0ZV9ldmlkZW5jZZSJjB1iZW5jaG1hcmtfdGVtcG9yYWxfdGV4dF9ib29zdJRHAAAAAAAAAACMIWJlbmNobWFya190ZW1wb3JhbF9zZXF1ZW5jZV9ib29zdJRHAAAAAAAAAACMI2JlbmNobWFya19jdXJyZW50bmVzc19zdXBwb3J0X2Jvb3N0lEcAAAAAAAAAAIwlYmVuY2htYXJrX3RlbXBvcmFsX3JvbGVfc3VwcG9ydF9ib29zdJRHAAAAAAAAAACMH2JlbmNobWFya190eXBlZF90ZW1wb3JhbF9yZWFzb26UjBJub3RfdGVtcG9yYWxfcXVlcnmUjB5iZW5jaG1hcmtfaGFzX2R1cmF0aW9uX3N1cmZhY2WUiYwjYmVuY2htYXJrX2hhc19yZWxhdGl2ZV90aW1lX3N1cmZhY2WUiYwjYmVuY2htYXJrX2hhc19leHBsaWNpdF90aW1lX3N1cmZhY2WUiYwrYmVuY2htYXJrX2hhc19leHBsaWNpdF90aW1lX2NvbnRlbnRfc3VyZmFjZZSJjCdiZW5jaG1hcmtfaGFzX3RlbXBvcmFsX3NlcXVlbmNlX3N1cmZhY2WUiYwjYmVuY2htYXJrX3ByZWZlcmVuY2VfZXZpZGVuY2VfYm9vc3SURwAAAAAAAAAAjCZiZW5jaG1hcmtfcHJlZmVyZW5jZV9ldmlkZW5jZV9ncm91bmRlZJSJjCRiZW5jaG1hcmtfcHJlZmVyZW5jZV9yZWFzb25fcmVxdWlyZWSUiYwkYmVuY2htYXJrX3ByZWZlcmVuY2VfcmVhc29uX2dyb3VuZGVklIiMHGJlbmNobWFya19mb2N1c2VkX3R1cm5fYm9vc3SURwAAAAAAAAAAjChiZW5jaG1hcmtfZm9jdXNlZF9yZWxhdGlvbl9kZW5zaXR5X2Jvb3N0lEcAAAAAAAAAAIwnYmVuY2htYXJrX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2Jvb3N0lEc/vrhR64UeuIwqYmVuY2htYXJrX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2V2aWRlbmNllIiML2JlbmNobWFya19yaWNoX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2V2aWRlbmNllIiMJ2JlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl9ib29zdJRHAAAAAAAAAACMKWJlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl9wZW5hbHR5lEcAAAAAAAAAAIwqYmVuY2htYXJrX2NvbW11bmljYXRpb25fZGlyZWN0aW9uX2dyb3VuZGVklImMLGJlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl91bmdyb3VuZGVklImMJ2JlbmNobWFya19jb21tdW5pY2F0aW9uX3F1ZXJ5X2RpcmVjdGlvbpRoI4wfYmVuY2htYXJrX3Zpc3VhbF9ldmlkZW5jZV9ib29zdJRHAAAAAAAAAACMImJlbmNobWFya192aXN1YWxfZXZpZGVuY2VfZ3JvdW5kZWSUiYwhYmVuY2htYXJrX2RpcmVjdF9wcm92ZW5hbmNlX2Jvb3N0lEc/mZmZmZmZmowgYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfcXVlcnmUiYwjYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfZXZpZGVuY2WUiYwiYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfc3VwcG9ydJSJjCliZW5jaG1hcmtfc291cmNlX2dyb3VuZGluZ19zdXBwb3J0X3JlYXNvbpRoI4wpYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfcXVvdGVfcmVsZXZhbnSUiYwgYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfYm9vc3SURwAAAAAAAAAAjC1iZW5jaG1hcmtfc291cmNlX2dyb3VuZGluZ191bmdyb3VuZGVkX3BlbmFsdHmURwAAAAAAAAAAjB1iZW5jaG1hcmtfYW5zd2VyYWJpbGl0eV9zY29yZZRHP+ZmZmZmZmaMHWJlbmNobWFya19hbnN3ZXJhYmlsaXR5X2Jvb3N0lEc/oeuFHrhR7IwmYmVuY2htYXJrX2Fuc3dlcmFiaWxpdHlfYm9vc3RfZWxpZ2libGWUiIwkYmVuY2htYXJrX2Fuc3dlcmFiaWxpdHlfcmVhc29uX2NvZGVzlF2UjCFiZW5jaG1hcmtfbXVsdGlfaG9wX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAjBpiZW5jaG1hcmtfY29udHJhc3RfcGVuYWx0eZRHAAAAAAAAAACMIGJlbmNobWFya19jb250cmFzdF9zdXBwb3J0X2Jvb3N0lEcAAAAAAAAAAIwaYmVuY2htYXJrX25lZ2F0aW9uX3N1cmZhY2WUiYwdYmVuY2htYXJrX2N1cnJlbnRuZXNzX3N1cmZhY2WUiYwXYmVuY2htYXJrX3N0YWxlX3N1cmZhY2WUiYwaYmVuY2htYXJrX2NvbnRyYXN0X3N1cmZhY2WUiYwhYmVuY2htYXJrX25lZ2F0aXZlX2Fic2VuY2VfbmVlZGVklImMLGJlbmNobWFya19uZWdhdGl2ZV9hYnNlbmNlX2V2aWRlbmNlX2dyb3VuZGVklImMKGJlbmNobWFya19uZWdhdGl2ZV9hYnNlbmNlX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAjDFiZW5jaG1hcmtfbmVnYXRpdmVfYWJzZW5jZV9wb3NpdGl2ZV90b3BpY19wZW5hbHR5lEcAAAAAAAAAAIwmYmVuY2htYXJrX3R5cGVkX3JlbGF0aW9uX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAjCliZW5jaG1hcmtfdHlwZWRfcmVsYXRpb25fcXVlcnlfcm9sZV9ib29zdJRHAAAAAAAAAACMJmJlbmNobWFya190eXBlZF9yZWxhdGlvbl9zdXBwb3J0X3JvbGVzlF2UjC5iZW5jaG1hcmtfdHlwZWRfcmVsYXRpb25fc3VwcG9ydF9jYXRlZ29yeV9oaXRzlF2UjCpiZW5jaG1hcmtfdHlwZWRfcmVsYXRpb25fc3VwcG9ydF9oaXRfcm9sZXOUXZSMM2JlbmNobWFya190eXBlZF9yZWxhdGlvbl9zdXBwb3J0X3ByZWNpc2VfcHJvdmVuYW5jZZSIjCBiZW5jaG1hcmtfbG9jYXRpb25fc3VwcG9ydF9ib29zdJRHAAAAAAAAAACMI2JlbmNobWFya19sb2NhdGlvbl9xdWVyeV9yb2xlX2Jvb3N0lEcAAAAAAAAAAIwlYmVuY2htYXJrX2xvY2F0aW9uX3JlbGF0aW9uX2hpdF9jb3VudJRLAIwoYmVuY2htYXJrX2xvY2F0aW9uX3JlbGF0aW9uX2NhdGVnb3J5X2hpdJSJjCViZW5jaG1hcmtfbG9jYXRpb25fcHJlY2lzZV9wcm92ZW5hbmNllIiMImJlbmNobWFya19jb3VudF9hbnN3ZXJfc2hhcGVfYm9vc3SURwAAAAAAAAAAjCFiZW5jaG1hcmtfbGlzdF9hbnN3ZXJfc2hhcGVfYm9vc3SURwAAAAAAAAAAjCViZW5jaG1hcmtfY291bnRfbGlzdF9xdWVyeV9yb2xlX2Jvb3N0lEcAAAAAAAAAAIweYmVuY2htYXJrX2V4YWN0X2NvdW50X2V2aWRlbmNllImMGWJlbmNobWFya19saXN0X2l0ZW1fY291bnSUSwCMJGJlbmNobWFya19jb3VudF9saXN0X2Fuc3dlcl9ncm91bmRlZJSIjCViZW5jaG1hcmtfY291bnRfbGlzdF9zdWJqZWN0X2dyb3VuZGVklIiMJ2JlbmNobWFya19jb3VudF9saXN0X3ByZWNpc2VfcHJvdmVuYW5jZZSIjCJiZW5jaG1hcmtfdmFsdWVfYW5zd2VyX3NoYXBlX2Jvb3N0lEcAAAAAAAAAAIwgYmVuY2htYXJrX3ZhbHVlX3F1ZXJ5X3JvbGVfYm9vc3SURwAAAAAAAAAAjCBiZW5jaG1hcmtfdmFsdWVfYW5zd2VyX3NoYXBlX2hpdJSJjB9iZW5jaG1hcmtfdmFsdWVfYW5zd2VyX2dyb3VuZGVklIiMImJlbmNobWFya192YWx1ZV9wcmVjaXNlX3Byb3ZlbmFuY2WUiIwcYmVuY2htYXJrX3VuY2FwcGVkX2Jvb3N0X2NhcJRHP91wo9cKPXGMHWJlbmNobWFya19lZmZlY3RpdmVfYm9vc3RfY2FwlEc/3XCj1wo9cYwnYmVuY2htYXJrX3Byb3ZlbmFuY2Vfc2FmZXR5X2NhcF9hcHBsaWVklImMKGJlbmNobWFya19wcm92ZW5hbmNlX3NhZmV0eV9yZWFzb25fY29kZXOUXZR1jBRwb2xpY3lfY29udHJpYnV0aW9uc5R9lCiMDnNjaGVtYV92ZXJzaW9ulIwaYmVuY2htYXJrX3JlcmFua19wb2xpY3kudjKUjA90b3RhbF9yYXdfc2NvcmWURz/jXCj1wo9cjBNhY3RpdmVfcG9saWN5X2NvdW50lEsFjA1jb250cmlidXRpb25zlF2UKH2UKIwGcG9saWN5lIwTRW50aXR5U3BlYWtlclBvbGljeZSMBXNjb3JllEc/0j1wo9cKPYwMcmVhc29uX2NvZGVzlF2UKIwNcXVlcnlfb3ZlcmxhcJSMCmVudGl0eV9oaXSUjAtzcGVha2VyX2hpdJSMEXNwZWFrZXJfZ3JvdW5kaW5nlGVoBn2UKGgTRz+64UeuFHrhaBRHP6wo9cKPXCloFUc/tHrhR64Ue2gWRz+nCj1wo9cKaBeIdXV9lChoiowWUmVsYXRpb25Db3ZlcmFnZVBvbGljeZRojEc/weuFHrhR7GiNXZSMDHJlbGF0aW9uX2hpdJRhaAZ9lChoGEc/weuFHrhR7GgZRwAAAAAAAAAAaBpHAAAAAAAAAABoG2gcaB1oHmgfRwAAAAAAAAAAaCBLA2ghiXV1fZQoaIqMDlRlbXBvcmFsUG9saWN5lGiMRwAAAAAAAAAAaI1dlGgGfZQoaCJoI2gkaCVoJmgnaChoI2gpaCNoKoloK0cAAAAAAAAAAGgsiWgtiWguRwAAAAAAAAAAaC9HAAAAAAAAAABoMEcAAAAAAAAAAGgxRwAAAAAAAAAAaDJoM2g0iWg1iWg2iWg3iWg4iXV1fZQoaIqMFlByZWZlcmVuY2VJbnRlbnRQb2xpY3mUaIxHAAAAAAAAAABojV2UaAZ9lChoOUcAAAAAAAAAAGg6iWg7iWg8iHV1fZQoaIqMEUZvY3VzZWRUdXJuUG9saWN5lGiMRz++uFHrhR64aI1dlIwXZGlyZWN0X3NwZWFrZXJfcmVsYXRpb26UYWgGfZQoaD1HAAAAAAAAAABoPkcAAAAAAAAAAGg/Rz++uFHrhR64aECIaEGIaEJHAAAAAAAAAABoQ0cAAAAAAAAAAGhEiWhFiWhGaCN1dX2UKGiKjBRFdmlkZW5jZUJ1bmRsZVBvbGljeZRojEc/mZmZmZmZmmiNXZSMEWRpcmVjdF9wcm92ZW5hbmNllGFoBn2UKGhHRwAAAAAAAAAAaEiJaElHP5mZmZmZmZp1dX2UKGiKjBVTb3VyY2VHcm91bmRpbmdQb2xpY3mUaIxHAAAAAAAAAABojV2UaAZ9lChoSoloS4loTIloTWgjaE6JaE9HAAAAAAAAAABoUEcAAAAAAAAAAHV1fZQoaIqME0Fuc3dlcmFiaWxpdHlQb2xpY3mUaIxHP6HrhR64UexojV2UaAZ9lChoUUc/5mZmZmZmZmhSRz+h64UeuFHsaFOIaFRoVXV1fZQoaIqMDk11bHRpSG9wUG9saWN5lGiMRwAAAAAAAAAAaI1dlGgGfZRoVkcAAAAAAAAAAHN1fZQoaIqMFENvbnRyYXN0SW50ZW50UG9saWN5lGiMRwAAAAAAAAAAaI1dlGgGfZQoaFdHAAAAAAAAAABoWEcAAAAAAAAAAGhZiWhaiWhbiWhciXV1fZQoaIqMFU5lZ2F0aXZlQWJzZW5jZVBvbGljeZRojEcAAAAAAAAAAGiNXZRoBn2UKGhdiWheiWhfRwAAAAAAAAAAaGBHAAAAAAAAAAB1dX2UKGiKjBpUeXBlZFJlbGF0aW9uU3VwcG9ydFBvbGljeZRojEcAAAAAAAAAAGiNXZRoBn2UKGhhRwAAAAAAAAAAaGJHAAAAAAAAAABoY2hkaGVoZmhnaGhoaYh1dX2UKGiKjBRMb2NhdGlvbkludGVudFBvbGljeZRojEcAAAAAAAAAAGiNXZRoBn2UKGhqRwAAAAAAAAAAaGtHAAAAAAAAAABobEsAaG2JaG6IdXV9lChoiowaQ291bnRMaXN0QW5zd2VyU2hhcGVQb2xpY3mUaIxHAAAAAAAAAABojV2UaAZ9lChob0cAAAAAAAAAAGhwRwAAAAAAAAAAaHFHAAAAAAAAAABocoloc0sAaHSIaHWIaHaIdXV9lChoiowWVmFsdWVBbnN3ZXJTaGFwZVBvbGljeZRojEcAAAAAAAAAAGiNXZRoBn2UKGh3RwAAAAAAAAAAaHhHAAAAAAAAAABoeYloeohoe4h1dWWMFnJlYXNvbl9jb2Rlc19ieV9wb2xpY3mUfZQoaItdlChoj2iQaJFokmVolV2UaJdhaKJdlGikYWinXZRoqWFosF2UdXV1dWIu",
+    "RerankPolicyContribution": "gASVtAEAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGFJlcmFua1BvbGljeUNvbnRyaWJ1dGlvbpSTlCmBlH2UKIwGcG9saWN5lIwTRW50aXR5U3BlYWtlclBvbGljeZSMBXNjb3JllEc/0j1wo9cKPYwHc2lnbmFsc5R9lCiMHWJlbmNobWFya19xdWVyeV9vdmVybGFwX2Jvb3N0lEc/uuFHrhR64YwWYmVuY2htYXJrX2VudGl0eV9ib29zdJRHP6wo9cKPXCmMF2JlbmNobWFya19zcGVha2VyX2Jvb3N0lEc/tHrhR64Ue4whYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2Jvb3N0lEc/pwo9cKPXCowkYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2V2aWRlbmNllIh1jAxyZWFzb25fY29kZXOUKIwNcXVlcnlfb3ZlcmxhcJSMCmVudGl0eV9oaXSUjAtzcGVha2VyX2hpdJSMEXNwZWFrZXJfZ3JvdW5kaW5nlHSUdWIu",
+    "RerankPolicyPlan": "gASVXxQAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMEFJlcmFua1BvbGljeVBsYW6Uk5QpgZR9lIwNY29udHJpYnV0aW9uc5QoaACMGFJlcmFua1BvbGljeUNvbnRyaWJ1dGlvbpSTlCmBlH2UKIwGcG9saWN5lIwTRW50aXR5U3BlYWtlclBvbGljeZSMBXNjb3JllEc/0j1wo9cKPYwHc2lnbmFsc5R9lCiMHWJlbmNobWFya19xdWVyeV9vdmVybGFwX2Jvb3N0lEc/uuFHrhR64YwWYmVuY2htYXJrX2VudGl0eV9ib29zdJRHP6wo9cKPXCmMF2JlbmNobWFya19zcGVha2VyX2Jvb3N0lEc/tHrhR64Ue4whYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2Jvb3N0lEc/pwo9cKPXCowkYmVuY2htYXJrX3NwZWFrZXJfZ3JvdW5kaW5nX2V2aWRlbmNllIh1jAxyZWFzb25fY29kZXOUKIwNcXVlcnlfb3ZlcmxhcJSMCmVudGl0eV9oaXSUjAtzcGVha2VyX2hpdJSMEXNwZWFrZXJfZ3JvdW5kaW5nlHSUdWJoBymBlH2UKGgKjBZSZWxhdGlvbkNvdmVyYWdlUG9saWN5lGgMRz/B64UeuFHsaA19lCiMGGJlbmNobWFya19yZWxhdGlvbl9ib29zdJRHP8HrhR64UeyMIWJlbmNobWFya19yZWxhdGlvbl9jb3ZlcmFnZV9ib29zdJRHAAAAAAAAAACMKmJlbmNobWFya19yZWxhdGlvbl9jYXRlZ29yeV9jb3ZlcmFnZV9ib29zdJRHAAAAAAAAAACMHWJlbmNobWFya19yZWxhdGlvbl9jYXRlZ29yaWVzlF2UjCBiZW5jaG1hcmtfcmVsYXRpb25fY2F0ZWdvcnlfaGl0c5RdlIwqYmVuY2htYXJrX3JlbGF0aW9uX2NhdGVnb3J5X2NvdmVyYWdlX3JhdGlvlEcAAAAAAAAAAIwkYmVuY2htYXJrX3JlbGF0aW9uX3ZhcmlhbnRfaGl0X2NvdW50lEsDjCJiZW5jaG1hcmtfc3Ryb25nX3JlbGF0aW9uX2V2aWRlbmNllIl1aBSMDHJlbGF0aW9uX2hpdJSFlHViaAcpgZR9lChoCowOVGVtcG9yYWxQb2xpY3mUaAxHAAAAAAAAAABoDX2UKIwaYmVuY2htYXJrX3RpbWVfaW50ZW50X2tpbmSUjACUjB5iZW5jaG1hcmtfdGVtcG9yYWxfcXVlcnlfcm9sZXOUXZSMHmJlbmNobWFya190ZW1wb3JhbF9xdWVyeV90ZXJtc5RdlIwrYmVuY2htYXJrX3RlbXBvcmFsX3NlcXVlbmNlX3F1ZXJ5X2RpcmVjdGlvbpRoL4wlYmVuY2htYXJrX3RlbXBvcmFsX3NlcXVlbmNlX2RpcmVjdGlvbpRoL4wuYmVuY2htYXJrX3RlbXBvcmFsX3NlcXVlbmNlX2RpcmVjdGlvbl9jb25mbGljdJSJjC1iZW5jaG1hcmtfdGVtcG9yYWxfc2VxdWVuY2VfZGlyZWN0aW9uX3BlbmFsdHmURwAAAAAAAAAAjB1iZW5jaG1hcmtfY3VycmVudF9zdGF0ZV9xdWVyeZSJjCtiZW5jaG1hcmtfc3RhbGVfb25seV9jdXJyZW50X3N0YXRlX2V2aWRlbmNllImMHWJlbmNobWFya190ZW1wb3JhbF90ZXh0X2Jvb3N0lEcAAAAAAAAAAIwhYmVuY2htYXJrX3RlbXBvcmFsX3NlcXVlbmNlX2Jvb3N0lEcAAAAAAAAAAIwjYmVuY2htYXJrX2N1cnJlbnRuZXNzX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAjCViZW5jaG1hcmtfdGVtcG9yYWxfcm9sZV9zdXBwb3J0X2Jvb3N0lEcAAAAAAAAAAIwfYmVuY2htYXJrX3R5cGVkX3RlbXBvcmFsX3JlYXNvbpSMEm5vdF90ZW1wb3JhbF9xdWVyeZSMHmJlbmNobWFya19oYXNfZHVyYXRpb25fc3VyZmFjZZSJjCNiZW5jaG1hcmtfaGFzX3JlbGF0aXZlX3RpbWVfc3VyZmFjZZSJjCNiZW5jaG1hcmtfaGFzX2V4cGxpY2l0X3RpbWVfc3VyZmFjZZSJjCtiZW5jaG1hcmtfaGFzX2V4cGxpY2l0X3RpbWVfY29udGVudF9zdXJmYWNllImMJ2JlbmNobWFya19oYXNfdGVtcG9yYWxfc2VxdWVuY2Vfc3VyZmFjZZSJdWgUKXViaAcpgZR9lChoCowWUHJlZmVyZW5jZUludGVudFBvbGljeZRoDEcAAAAAAAAAAGgNfZQojCNiZW5jaG1hcmtfcHJlZmVyZW5jZV9ldmlkZW5jZV9ib29zdJRHAAAAAAAAAACMJmJlbmNobWFya19wcmVmZXJlbmNlX2V2aWRlbmNlX2dyb3VuZGVklImMJGJlbmNobWFya19wcmVmZXJlbmNlX3JlYXNvbl9yZXF1aXJlZJSJjCRiZW5jaG1hcmtfcHJlZmVyZW5jZV9yZWFzb25fZ3JvdW5kZWSUiHVoFCl1YmgHKYGUfZQoaAqMEUZvY3VzZWRUdXJuUG9saWN5lGgMRz++uFHrhR64aA19lCiMHGJlbmNobWFya19mb2N1c2VkX3R1cm5fYm9vc3SURwAAAAAAAAAAjChiZW5jaG1hcmtfZm9jdXNlZF9yZWxhdGlvbl9kZW5zaXR5X2Jvb3N0lEcAAAAAAAAAAIwnYmVuY2htYXJrX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2Jvb3N0lEc/vrhR64UeuIwqYmVuY2htYXJrX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2V2aWRlbmNllIiML2JlbmNobWFya19yaWNoX2RpcmVjdF9zcGVha2VyX3JlbGF0aW9uX2V2aWRlbmNllIiMJ2JlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl9ib29zdJRHAAAAAAAAAACMKWJlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl9wZW5hbHR5lEcAAAAAAAAAAIwqYmVuY2htYXJrX2NvbW11bmljYXRpb25fZGlyZWN0aW9uX2dyb3VuZGVklImMLGJlbmNobWFya19jb21tdW5pY2F0aW9uX2RpcmVjdGlvbl91bmdyb3VuZGVklImMJ2JlbmNobWFya19jb21tdW5pY2F0aW9uX3F1ZXJ5X2RpcmVjdGlvbpRoL3VoFIwXZGlyZWN0X3NwZWFrZXJfcmVsYXRpb26UhZR1YmgHKYGUfZQoaAqMFEV2aWRlbmNlQnVuZGxlUG9saWN5lGgMRz+ZmZmZmZmaaA19lCiMH2JlbmNobWFya192aXN1YWxfZXZpZGVuY2VfYm9vc3SURwAAAAAAAAAAjCJiZW5jaG1hcmtfdmlzdWFsX2V2aWRlbmNlX2dyb3VuZGVklImMIWJlbmNobWFya19kaXJlY3RfcHJvdmVuYW5jZV9ib29zdJRHP5mZmZmZmZp1aBSMEWRpcmVjdF9wcm92ZW5hbmNllIWUdWJoBymBlH2UKGgKjBVTb3VyY2VHcm91bmRpbmdQb2xpY3mUaAxHAAAAAAAAAABoDX2UKIwgYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfcXVlcnmUiYwjYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfZXZpZGVuY2WUiYwiYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfc3VwcG9ydJSJjCliZW5jaG1hcmtfc291cmNlX2dyb3VuZGluZ19zdXBwb3J0X3JlYXNvbpRoL4wpYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfcXVvdGVfcmVsZXZhbnSUiYwgYmVuY2htYXJrX3NvdXJjZV9ncm91bmRpbmdfYm9vc3SURwAAAAAAAAAAjC1iZW5jaG1hcmtfc291cmNlX2dyb3VuZGluZ191bmdyb3VuZGVkX3BlbmFsdHmURwAAAAAAAAAAdWgUKXViaAcpgZR9lChoCowTQW5zd2VyYWJpbGl0eVBvbGljeZRoDEc/oeuFHrhR7GgNfZQojB1iZW5jaG1hcmtfYW5zd2VyYWJpbGl0eV9zY29yZZRHP+ZmZmZmZmaMHWJlbmNobWFya19hbnN3ZXJhYmlsaXR5X2Jvb3N0lEc/oeuFHrhR7IwmYmVuY2htYXJrX2Fuc3dlcmFiaWxpdHlfYm9vc3RfZWxpZ2libGWUiIwkYmVuY2htYXJrX2Fuc3dlcmFiaWxpdHlfcmVhc29uX2NvZGVzlF2UdWgUKXViaAcpgZR9lChoCowOTXVsdGlIb3BQb2xpY3mUaAxHAAAAAAAAAABoDX2UjCFiZW5jaG1hcmtfbXVsdGlfaG9wX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAc2gUKXViaAcpgZR9lChoCowUQ29udHJhc3RJbnRlbnRQb2xpY3mUaAxHAAAAAAAAAABoDX2UKIwaYmVuY2htYXJrX2NvbnRyYXN0X3BlbmFsdHmURwAAAAAAAAAAjCBiZW5jaG1hcmtfY29udHJhc3Rfc3VwcG9ydF9ib29zdJRHAAAAAAAAAACMGmJlbmNobWFya19uZWdhdGlvbl9zdXJmYWNllImMHWJlbmNobWFya19jdXJyZW50bmVzc19zdXJmYWNllImMF2JlbmNobWFya19zdGFsZV9zdXJmYWNllImMGmJlbmNobWFya19jb250cmFzdF9zdXJmYWNllIl1aBQpdWJoBymBlH2UKGgKjBVOZWdhdGl2ZUFic2VuY2VQb2xpY3mUaAxHAAAAAAAAAABoDX2UKIwhYmVuY2htYXJrX25lZ2F0aXZlX2Fic2VuY2VfbmVlZGVklImMLGJlbmNobWFya19uZWdhdGl2ZV9hYnNlbmNlX2V2aWRlbmNlX2dyb3VuZGVklImMKGJlbmNobWFya19uZWdhdGl2ZV9hYnNlbmNlX3N1cHBvcnRfYm9vc3SURwAAAAAAAAAAjDFiZW5jaG1hcmtfbmVnYXRpdmVfYWJzZW5jZV9wb3NpdGl2ZV90b3BpY19wZW5hbHR5lEcAAAAAAAAAAHVoFCl1YmgHKYGUfZQoaAqMGlR5cGVkUmVsYXRpb25TdXBwb3J0UG9saWN5lGgMRwAAAAAAAAAAaA19lCiMJmJlbmNobWFya190eXBlZF9yZWxhdGlvbl9zdXBwb3J0X2Jvb3N0lEcAAAAAAAAAAIwpYmVuY2htYXJrX3R5cGVkX3JlbGF0aW9uX3F1ZXJ5X3JvbGVfYm9vc3SURwAAAAAAAAAAjCZiZW5jaG1hcmtfdHlwZWRfcmVsYXRpb25fc3VwcG9ydF9yb2xlc5RdlIwuYmVuY2htYXJrX3R5cGVkX3JlbGF0aW9uX3N1cHBvcnRfY2F0ZWdvcnlfaGl0c5RdlIwqYmVuY2htYXJrX3R5cGVkX3JlbGF0aW9uX3N1cHBvcnRfaGl0X3JvbGVzlF2UjDNiZW5jaG1hcmtfdHlwZWRfcmVsYXRpb25fc3VwcG9ydF9wcmVjaXNlX3Byb3ZlbmFuY2WUiHVoFCl1YmgHKYGUfZQoaAqMFExvY2F0aW9uSW50ZW50UG9saWN5lGgMRwAAAAAAAAAAaA19lCiMIGJlbmNobWFya19sb2NhdGlvbl9zdXBwb3J0X2Jvb3N0lEcAAAAAAAAAAIwjYmVuY2htYXJrX2xvY2F0aW9uX3F1ZXJ5X3JvbGVfYm9vc3SURwAAAAAAAAAAjCViZW5jaG1hcmtfbG9jYXRpb25fcmVsYXRpb25faGl0X2NvdW50lEsAjChiZW5jaG1hcmtfbG9jYXRpb25fcmVsYXRpb25fY2F0ZWdvcnlfaGl0lImMJWJlbmNobWFya19sb2NhdGlvbl9wcmVjaXNlX3Byb3ZlbmFuY2WUiHVoFCl1YmgHKYGUfZQoaAqMGkNvdW50TGlzdEFuc3dlclNoYXBlUG9saWN5lGgMRwAAAAAAAAAAaA19lCiMImJlbmNobWFya19jb3VudF9hbnN3ZXJfc2hhcGVfYm9vc3SURwAAAAAAAAAAjCFiZW5jaG1hcmtfbGlzdF9hbnN3ZXJfc2hhcGVfYm9vc3SURwAAAAAAAAAAjCViZW5jaG1hcmtfY291bnRfbGlzdF9xdWVyeV9yb2xlX2Jvb3N0lEcAAAAAAAAAAIweYmVuY2htYXJrX2V4YWN0X2NvdW50X2V2aWRlbmNllImMGWJlbmNobWFya19saXN0X2l0ZW1fY291bnSUSwCMJGJlbmNobWFya19jb3VudF9saXN0X2Fuc3dlcl9ncm91bmRlZJSIjCViZW5jaG1hcmtfY291bnRfbGlzdF9zdWJqZWN0X2dyb3VuZGVklIiMJ2JlbmNobWFya19jb3VudF9saXN0X3ByZWNpc2VfcHJvdmVuYW5jZZSIdWgUKXViaAcpgZR9lChoCowWVmFsdWVBbnN3ZXJTaGFwZVBvbGljeZRoDEcAAAAAAAAAAGgNfZQojCJiZW5jaG1hcmtfdmFsdWVfYW5zd2VyX3NoYXBlX2Jvb3N0lEcAAAAAAAAAAIwgYmVuY2htYXJrX3ZhbHVlX3F1ZXJ5X3JvbGVfYm9vc3SURwAAAAAAAAAAjCBiZW5jaG1hcmtfdmFsdWVfYW5zd2VyX3NoYXBlX2hpdJSJjB9iZW5jaG1hcmtfdmFsdWVfYW5zd2VyX2dyb3VuZGVklIiMImJlbmNobWFya192YWx1ZV9wcmVjaXNlX3Byb3ZlbmFuY2WUiHVoFCl1YnSUc2Iu"
+  },
+  "legacy_reference_pickles": {
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankFeatures": "gASVVwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBdCZW5jaG1hcmtSZXJhbmtGZWF0dXJlc5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankScore": "gASVVAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBRCZW5jaG1hcmtSZXJhbmtTY29yZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy.score_benchmark_rerank_candidate": "gASVYAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCBzY29yZV9iZW5jaG1hcmtfcmVyYW5rX2NhbmRpZGF0ZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_boost": "gASVTwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjA9fcmVsYXRpb25fYm9vc3SUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_coverage_boost": "gASVWAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBhfcmVsYXRpb25fY292ZXJhZ2VfYm9vc3SUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policy._focused_relation_density_boost": "gASVXwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjB9fZm9jdXNlZF9yZWxhdGlvbl9kZW5zaXR5X2Jvb3N0lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._boost_cap": "gASVSgAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjApfYm9vc3RfY2FwlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._has_temporal_sequence_direction_conflict": "gASVaQAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjClfaGFzX3RlbXBvcmFsX3NlcXVlbmNlX2RpcmVjdGlvbl9jb25mbGljdJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._apply_provenance_safety_cap": "gASVXAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBxfYXBwbHlfcHJvdmVuYW5jZV9zYWZldHlfY2FwlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._provenance_safety_cap": "gASVVgAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBZfcHJvdmVuYW5jZV9zYWZldHlfY2FwlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._current_goal_temporal_context_grounded": "gASVZwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCdfY3VycmVudF9nb2FsX3RlbXBvcmFsX2NvbnRleHRfZ3JvdW5kZWSUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policy._has_precise_grounding": "gASVVgAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBZfaGFzX3ByZWNpc2VfZ3JvdW5kaW5nlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._has_role_specific_grounding": "gASVXAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBxfaGFzX3JvbGVfc3BlY2lmaWNfZ3JvdW5kaW5nlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._has_count_list_answer_grounding": "gASVYAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCBfaGFzX2NvdW50X2xpc3RfYW5zd2VyX2dyb3VuZGluZ5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._has_unmeasured_source_ref_locality": "gASVYwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCNfaGFzX3VubWVhc3VyZWRfc291cmNlX3JlZl9sb2NhbGl0eZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._has_contrast_grounding": "gASVVwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjBdfaGFzX2NvbnRyYXN0X2dyb3VuZGluZ5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._rounded_boosts": "gASVTwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjA9fcm91bmRlZF9ib29zdHOUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policy._float_signal": "gASVTQAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjA1fZmxvYXRfc2lnbmFslJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._stale_only_current_state_evidence": "gASVYgAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCJfc3RhbGVfb25seV9jdXJyZW50X3N0YXRlX2V2aWRlbmNllJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policy._partial_commitment_status_evidence": "gASVYwAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjCNfcGFydGlhbF9jb21taXRtZW50X3N0YXR1c19ldmlkZW5jZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policy._bool_signal": "gASVTAAAAAAAAACMN2luZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY3mUjAxfYm9vbF9zaWduYWyUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyFeatures": "gASVVgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFFJlcmFua1BvbGljeUZlYXR1cmVzlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyContribution": "gASVWgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGFJlcmFua1BvbGljeUNvbnRyaWJ1dGlvbpSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyPlan": "gASVUgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMEFJlcmFua1BvbGljeVBsYW6Uk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicy": "gASVTgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMDFJlcmFua1BvbGljeZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies.EntitySpeakerPolicy": "gASVVQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SME0VudGl0eVNwZWFrZXJQb2xpY3mUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.RelationCoveragePolicy": "gASVWAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFlJlbGF0aW9uQ292ZXJhZ2VQb2xpY3mUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.TemporalPolicy": "gASVUAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMDlRlbXBvcmFsUG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.PreferenceIntentPolicy": "gASVWAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFlByZWZlcmVuY2VJbnRlbnRQb2xpY3mUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.FocusedTurnPolicy": "gASVUwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMEUZvY3VzZWRUdXJuUG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.EvidenceBundlePolicy": "gASVVgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFEV2aWRlbmNlQnVuZGxlUG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.SourceGroundingPolicy": "gASVVwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFVNvdXJjZUdyb3VuZGluZ1BvbGljeZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies.AnswerabilityPolicy": "gASVVQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SME0Fuc3dlcmFiaWxpdHlQb2xpY3mUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.MultiHopPolicy": "gASVUAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMDk11bHRpSG9wUG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.ContrastIntentPolicy": "gASVVgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFENvbnRyYXN0SW50ZW50UG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.NegativeAbsencePolicy": "gASVVwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFU5lZ2F0aXZlQWJzZW5jZVBvbGljeZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies.LocationIntentPolicy": "gASVVgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFExvY2F0aW9uSW50ZW50UG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.ValueAnswerShapePolicy": "gASVWAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFlZhbHVlQW5zd2VyU2hhcGVQb2xpY3mUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies.CountListAnswerShapePolicy": "gASVXAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGkNvdW50TGlzdEFuc3dlclNoYXBlUG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._has_count_list_subject_grounding": "gASVYwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIV9oYXNfY291bnRfbGlzdF9zdWJqZWN0X2dyb3VuZGluZ5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies.TypedRelationSupportPolicy": "gASVXAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGlR5cGVkUmVsYXRpb25TdXBwb3J0UG9saWN5lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies.score_rerank_policy_contributions": "gASVYwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIXNjb3JlX3JlcmFua19wb2xpY3lfY29udHJpYnV0aW9uc5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_boost": "gASVUQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMD19yZWxhdGlvbl9ib29zdJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_coverage_boost": "gASVWgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGF9yZWxhdGlvbl9jb3ZlcmFnZV9ib29zdJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_category_coverage_boost": "gASVYwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIV9yZWxhdGlvbl9jYXRlZ29yeV9jb3ZlcmFnZV9ib29zdJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._focused_relation_density_boost": "gASVYQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMH19mb2N1c2VkX3JlbGF0aW9uX2RlbnNpdHlfYm9vc3SUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._speaker_grounding_eligible": "gASVXQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMG19zcGVha2VyX2dyb3VuZGluZ19lbGlnaWJsZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_evidence_grounded": "gASVXwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHV9wcmVmZXJlbmNlX2V2aWRlbmNlX2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_required": "gASVXQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMG19wcmVmZXJlbmNlX3JlYXNvbl9yZXF1aXJlZJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_grounded": "gASVXQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMG19wcmVmZXJlbmNlX3JlYXNvbl9ncm91bmRlZJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._has_typed_preference_relation_hit": "gASVZAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIl9oYXNfdHlwZWRfcHJlZmVyZW5jZV9yZWxhdGlvbl9oaXSUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._visual_evidence_grounded": "gASVWwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGV92aXN1YWxfZXZpZGVuY2VfZ3JvdW5kZWSUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_evidence_grounded": "gASVZQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMI19zb3VyY2VfZ3JvdW5kaW5nX2V2aWRlbmNlX2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_plausible_but_ungrounded": "gASVbAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMKl9zb3VyY2VfZ3JvdW5kaW5nX3BsYXVzaWJsZV9idXRfdW5ncm91bmRlZJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._direct_speaker_relation_grounded": "gASVYwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIV9kaXJlY3Rfc3BlYWtlcl9yZWxhdGlvbl9ncm91bmRlZJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._has_measured_locality_below": "gASVXgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHF9oYXNfbWVhc3VyZWRfbG9jYWxpdHlfYmVsb3eUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._has_precise_or_unmeasured_source_provenance": "gASVbgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMLF9oYXNfcHJlY2lzZV9vcl91bm1lYXN1cmVkX3NvdXJjZV9wcm92ZW5hbmNllJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._has_positive_boost": "gASVVQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SME19oYXNfcG9zaXRpdmVfYm9vc3SUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._rounded_boosts": "gASVUQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMD19yb3VuZGVkX2Jvb3N0c5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_temporal_boost": "gASVVwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFV90eXBlZF90ZW1wb3JhbF9ib29zdJSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction": "gASVXgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHF90ZW1wb3JhbF9zZXF1ZW5jZV9kaXJlY3Rpb26Uk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_query_direction": "gASVZAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIl90ZW1wb3JhbF9zZXF1ZW5jZV9xdWVyeV9kaXJlY3Rpb26Uk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction_conflict": "gASVZwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMJV90ZW1wb3JhbF9zZXF1ZW5jZV9kaXJlY3Rpb25fY29uZmxpY3SUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_role_support_eligible": "gASVYQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMH190ZW1wb3JhbF9yb2xlX3N1cHBvcnRfZWxpZ2libGWUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._has_content_temporal_evidence": "gASVYAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHl9oYXNfY29udGVudF90ZW1wb3JhbF9ldmlkZW5jZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._stale_only_current_state_evidence": "gASVZAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIl9zdGFsZV9vbmx5X2N1cnJlbnRfc3RhdGVfZXZpZGVuY2WUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._has_temporal_query_role": "gASVWgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGF9oYXNfdGVtcG9yYWxfcXVlcnlfcm9sZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost": "gASVVgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMFF9hbnN3ZXJhYmlsaXR5X2Jvb3N0lJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost_eligible": "gASVXwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHV9hbnN3ZXJhYmlsaXR5X2Jvb3N0X2VsaWdpYmxllJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._has_missing_required_answer_evidence": "gASVZwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMJV9oYXNfbWlzc2luZ19yZXF1aXJlZF9hbnN3ZXJfZXZpZGVuY2WUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_category_answerability_grounded": "gASVaAAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMJl90eXBlZF9jYXRlZ29yeV9hbnN3ZXJhYmlsaXR5X2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._contrast_boost_eligible": "gASVWgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMGF9jb250cmFzdF9ib29zdF9lbGlnaWJsZZSTlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._negative_absence_evidence_grounded": "gASVZQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMI19uZWdhdGl2ZV9hYnNlbmNlX2V2aWRlbmNlX2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_roles": "gASVXwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMHV90eXBlZF9yZWxhdGlvbl9zdXBwb3J0X3JvbGVzlJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_category_hits": "gASVZwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMJV90eXBlZF9yZWxhdGlvbl9zdXBwb3J0X2NhdGVnb3J5X2hpdHOUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_hit_roles": "gASVYwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIV90eXBlZF9yZWxhdGlvbl9zdXBwb3J0X2hpdF9yb2xlc5STlC4=",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_grounded": "gASVYgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIF90eXBlZF9yZWxhdGlvbl9zdXBwb3J0X2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._support_goal_category_grounded": "gASVYQAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMH19zdXBwb3J0X2dvYWxfY2F0ZWdvcnlfZ3JvdW5kZWSUk5Qu",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_profile_category_grounded": "gASVYgAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMIF90eXBlZF9wcm9maWxlX2NhdGVnb3J5X2dyb3VuZGVklJOULg==",
+    "infinity_context_server.memory_comparison_rerank_policies._reason_codes": "gASVTwAAAAAAAACMOWluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX3JlcmFua19wb2xpY2llc5SMDV9yZWFzb25fY29kZXOUk5Qu"
+  },
+  "typed_delegates": [
+    "_relation_boost",
+    "_relation_coverage_boost",
+    "_focused_relation_density_boost",
+    "_stale_only_current_state_evidence"
+  ],
+  "helper_equivalence": {
+    "_relation_boost": {
+      "arithmetic_body_sha256": "40dff2b819edabeb340284252c1884c253f2d94d86569a663dcfc3396921c826",
+      "concrete_contract": {
+        "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+        "qualname": "_relation_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          }
+        }
+      },
+      "structural_contract": {
+        "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+        "qualname": "_relation_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          }
+        }
+      },
+      "compatibility": "typed-delegate"
+    },
+    "_relation_coverage_boost": {
+      "arithmetic_body_sha256": "c6d7bea60f1636dc89ca4759e95893d639cbf4cd3d8c8a88ac857dae29a8a669",
+      "concrete_contract": {
+        "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+        "qualname": "_relation_coverage_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          }
+        }
+      },
+      "structural_contract": {
+        "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+        "qualname": "_relation_coverage_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          }
+        }
+      },
+      "compatibility": "typed-delegate"
+    },
+    "_focused_relation_density_boost": {
+      "arithmetic_body_sha256": "7214993862d8389b414e8213273de40ca736f7c3140f6f20af1cccfa074503e7",
+      "concrete_contract": {
+        "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+        "qualname": "_focused_relation_density_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      },
+      "structural_contract": {
+        "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+        "qualname": "_focused_relation_density_boost",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+          "return": "<class 'float'>"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      },
+      "compatibility": "typed-delegate"
+    },
+    "_stale_only_current_state_evidence": {
+      "arithmetic_body_sha256": "80c46dd1471090a3d5ccd1ad693ec0910d66fc4377a0e35703d79aea374ee5ed",
+      "concrete_contract": {
+        "signature": "(features: 'BenchmarkRerankFeatures') -> 'bool'",
+        "qualname": "_stale_only_current_state_evidence",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          }
+        }
+      },
+      "structural_contract": {
+        "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+        "qualname": "_stale_only_current_state_evidence",
+        "doc": null,
+        "hints": {
+          "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          }
+        }
+      },
+      "compatibility": "typed-delegate"
+    },
+    "_rounded_boosts": {
+      "arithmetic_body_sha256": "f2d65018b19d9046ffd8ae97b13c656bdeb27eb4918af3851a9fbb01a2fb079e",
+      "concrete_contract": {
+        "signature": "(boosts: 'Mapping[str, float]') -> 'dict[str, float]'",
+        "qualname": "_rounded_boosts",
+        "doc": null,
+        "hints": {
+          "boosts": "collections.abc.Mapping[str, float]",
+          "return": "dict[str, float]"
+        },
+        "globals": {
+          "float": {
+            "object": "builtins.float"
+          },
+          "round": {
+            "object": "builtins.round"
+          }
+        }
+      },
+      "structural_contract": {
+        "signature": "(boosts: 'Mapping[str, float]') -> 'dict[str, float]'",
+        "qualname": "_rounded_boosts",
+        "doc": null,
+        "hints": {
+          "boosts": "collections.abc.Mapping[str, float]",
+          "return": "dict[str, float]"
+        },
+        "globals": {
+          "float": {
+            "object": "builtins.float"
+          },
+          "round": {
+            "object": "builtins.round"
+          }
+        }
+      },
+      "compatibility": "identical-alias"
+    }
+  },
+  "cases_sha256": "299965fcdaf93a17fcbcc960cfc2b1ef2776ab522092bdf8e620e8fff5c010ef",
+  "case_count": 213
+}

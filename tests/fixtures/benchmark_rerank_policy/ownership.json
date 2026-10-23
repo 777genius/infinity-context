@@ -1,0 +1,4387 @@
+{
+  "base_sha": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "source_sha256": {
+    "infinity_context_server.memory_comparison_rerank_policy": "55a3fb0530fbba07117e6623463001dbad5bb7fbfc0903bdc127c4a756f6cca3",
+    "infinity_context_server.memory_comparison_rerank_policies": "a7d19cfac56e90b7c404d85aa2eb962f751535f127d7f3a83c857d5337691051"
+  },
+  "owners": {
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankFeatures": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankScore": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policy.score_benchmark_rerank_candidate": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_boost": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_coverage_boost": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._focused_relation_density_boost": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._boost_cap": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_temporal_sequence_direction_conflict": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._apply_provenance_safety_cap": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._provenance_safety_cap": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._current_goal_temporal_context_grounded": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_precise_grounding": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_role_specific_grounding": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_count_list_answer_grounding": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_unmeasured_source_ref_locality": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._has_contrast_grounding": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._rounded_boosts": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policy._float_signal": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._stale_only_current_state_evidence": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._partial_commitment_status_evidence": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policy._bool_signal": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyFeatures": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policies._COUNT_LIST_GENERIC_RELATION_TERMS": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyContribution": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyPlan": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicy": "infinity_context_benchmarks.rerank_policy.contracts",
+    "infinity_context_server.memory_comparison_rerank_policies.EntitySpeakerPolicy": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies.RelationCoveragePolicy": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies.TemporalPolicy": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies.PreferenceIntentPolicy": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies.FocusedTurnPolicy": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies.EvidenceBundlePolicy": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies.SourceGroundingPolicy": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies.AnswerabilityPolicy": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies.MultiHopPolicy": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies.ContrastIntentPolicy": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies.NegativeAbsencePolicy": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies.LocationIntentPolicy": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies.ValueAnswerShapePolicy": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies.CountListAnswerShapePolicy": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies._has_count_list_subject_grounding": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies.TypedRelationSupportPolicy": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies.score_rerank_policy_contributions": "infinity_context_benchmarks.rerank_policy.scoring",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_boost": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_coverage_boost": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_category_coverage_boost": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._focused_relation_density_boost": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._speaker_grounding_eligible": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_evidence_grounded": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_required": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_grounded": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._has_typed_preference_relation_hit": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._visual_evidence_grounded": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_evidence_grounded": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_plausible_but_ungrounded": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._direct_speaker_relation_grounded": "infinity_context_benchmarks.rerank_policy.evidence",
+    "infinity_context_server.memory_comparison_rerank_policies._has_measured_locality_below": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._has_precise_or_unmeasured_source_provenance": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._has_positive_boost": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._rounded_boosts": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_temporal_boost": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_query_direction": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction_conflict": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_role_support_eligible": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._has_content_temporal_evidence": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._stale_only_current_state_evidence": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._has_temporal_query_role": "infinity_context_benchmarks.rerank_policy.temporal",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost_eligible": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies._has_missing_required_answer_evidence": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_category_answerability_grounded": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+    "infinity_context_server.memory_comparison_rerank_policies._contrast_boost_eligible": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._negative_absence_evidence_grounded": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._PREFERENCE_POLARITY_TERMS": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_RELATION_SUPPORT_NEEDS": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_roles": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_category_hits": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_hit_roles": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_grounded": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._support_goal_category_grounded": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_profile_category_grounded": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_PROFILE_SUPPORT_CATEGORIES": "infinity_context_benchmarks.rerank_policy.typed_relations",
+    "infinity_context_server.memory_comparison_rerank_policies._LOCATION_SUPPORT_TERMS": "infinity_context_benchmarks.rerank_policy.intent",
+    "infinity_context_server.memory_comparison_rerank_policies._reason_codes": "infinity_context_benchmarks.rerank_policy.common",
+    "infinity_context_server.memory_comparison_rerank_policies._DEFAULT_POLICIES": "infinity_context_benchmarks.rerank_policy.scoring"
+  },
+  "bindings": {
+    "infinity_context_server.memory_comparison_rerank_policy": {
+      "annotations": {
+        "value": {
+          "future": "_Feature((3, 7, 0, 'beta', 1), None, 16777216)"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "Mapping": {
+        "value": {
+          "object": "collections.abc.Mapping"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "dataclass": {
+        "value": {
+          "object": "dataclasses.dataclass"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "field": {
+        "value": {
+          "object": "dataclasses.field"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "score_rerank_policy_contributions": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring.score_rerank_policy_contributions"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "BenchmarkRerankFeatures": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(overlap_terms: 'tuple[str, ...]', entity_hits: 'tuple[str, ...]', speaker_hits: 'tuple[str, ...]', relation_hits: 'tuple[str, ...]', relation_terms: 'tuple[str, ...]', query_has_entities: 'bool', high_signal_relation_hit_count: 'int', is_temporal_query: 'bool', has_temporal_surface: 'bool', has_sequence_surface: 'bool', is_preference_query: 'bool', has_preference_evidence: 'bool', has_visual_terms: 'bool', has_visual_evidence: 'bool', focused_turn_boost: 'float', has_multi_hop_markers: 'bool', relation_categories: 'tuple[str, ...]' = (), relation_category_hits: 'tuple[str, ...]' = (), relation_category_coverage_ratio: 'float' = 0.0, communication_direction_grounded: 'bool' = False, communication_direction_ungrounded: 'bool' = False, communication_query_direction: 'str' = '', exact_count_evidence: 'bool' = False, list_item_count: 'int' = 0, policy_boosts: 'Mapping[str, float]' = <factory>, shape_boosts: 'Mapping[str, float]' = <factory>, source_type: 'str' = 'unknown', source_ref_count: 'int' = 0, turn_ref_count: 'int' = 0, source_ref_density: 'float' = 0.0, source_locality_score: 'float' = 1.0, direct_speaker_turn: 'bool' = False, broad_summary: 'bool' = False, conflict_or_stale: 'bool' = False, negation_surface: 'bool' = False, currentness_surface: 'bool' = False, stale_surface: 'bool' = False, contrast_surface: 'bool' = False, answerability_score: 'float' = 0.0, answerability_reason_codes: 'tuple[str, ...]' = (), evidence_need: 'tuple[str, ...]' = (), query_roles: 'tuple[str, ...]' = (), temporal_query_terms: 'tuple[str, ...]' = (), current_state_query: 'bool' = False, time_intent_kind: 'str' = '', has_duration_surface: 'bool' = False, has_relative_time_surface: 'bool' = False, has_explicit_time_surface: 'bool' = False, has_explicit_time_content_surface: 'bool' = False, has_temporal_sequence_surface: 'bool' = False, temporal_sequence_direction: 'str' = '', covered_answer_unit_shapes: 'tuple[str, ...]' = (), source_grounding_query: 'bool' = False, source_grounding_support: 'bool' = False, source_grounding_support_reason: 'str' = '', source_grounding_quote_relevant: 'bool' = False) -> None",
+        "doc": "Question-only candidate features used by benchmark rerank policies.",
+        "fields": [
+          "overlap_terms",
+          "entity_hits",
+          "speaker_hits",
+          "relation_hits",
+          "relation_terms",
+          "query_has_entities",
+          "high_signal_relation_hit_count",
+          "is_temporal_query",
+          "has_temporal_surface",
+          "has_sequence_surface",
+          "is_preference_query",
+          "has_preference_evidence",
+          "has_visual_terms",
+          "has_visual_evidence",
+          "focused_turn_boost",
+          "has_multi_hop_markers",
+          "relation_categories",
+          "relation_category_hits",
+          "relation_category_coverage_ratio",
+          "communication_direction_grounded",
+          "communication_direction_ungrounded",
+          "communication_query_direction",
+          "exact_count_evidence",
+          "list_item_count",
+          "policy_boosts",
+          "shape_boosts",
+          "source_type",
+          "source_ref_count",
+          "turn_ref_count",
+          "source_ref_density",
+          "source_locality_score",
+          "direct_speaker_turn",
+          "broad_summary",
+          "conflict_or_stale",
+          "negation_surface",
+          "currentness_surface",
+          "stale_surface",
+          "contrast_surface",
+          "answerability_score",
+          "answerability_reason_codes",
+          "evidence_need",
+          "query_roles",
+          "temporal_query_terms",
+          "current_state_query",
+          "time_intent_kind",
+          "has_duration_surface",
+          "has_relative_time_surface",
+          "has_explicit_time_surface",
+          "has_explicit_time_content_surface",
+          "has_temporal_sequence_surface",
+          "temporal_sequence_direction",
+          "covered_answer_unit_shapes",
+          "source_grounding_query",
+          "source_grounding_support",
+          "source_grounding_support_reason",
+          "source_grounding_quote_relevant"
+        ],
+        "frozen": true,
+        "hints": {
+          "overlap_terms": "tuple[str, ...]",
+          "entity_hits": "tuple[str, ...]",
+          "speaker_hits": "tuple[str, ...]",
+          "relation_hits": "tuple[str, ...]",
+          "relation_terms": "tuple[str, ...]",
+          "query_has_entities": "<class 'bool'>",
+          "high_signal_relation_hit_count": "<class 'int'>",
+          "is_temporal_query": "<class 'bool'>",
+          "has_temporal_surface": "<class 'bool'>",
+          "has_sequence_surface": "<class 'bool'>",
+          "is_preference_query": "<class 'bool'>",
+          "has_preference_evidence": "<class 'bool'>",
+          "has_visual_terms": "<class 'bool'>",
+          "has_visual_evidence": "<class 'bool'>",
+          "focused_turn_boost": "<class 'float'>",
+          "has_multi_hop_markers": "<class 'bool'>",
+          "relation_categories": "tuple[str, ...]",
+          "relation_category_hits": "tuple[str, ...]",
+          "relation_category_coverage_ratio": "<class 'float'>",
+          "communication_direction_grounded": "<class 'bool'>",
+          "communication_direction_ungrounded": "<class 'bool'>",
+          "communication_query_direction": "<class 'str'>",
+          "exact_count_evidence": "<class 'bool'>",
+          "list_item_count": "<class 'int'>",
+          "policy_boosts": "collections.abc.Mapping[str, float]",
+          "shape_boosts": "collections.abc.Mapping[str, float]",
+          "source_type": "<class 'str'>",
+          "source_ref_count": "<class 'int'>",
+          "turn_ref_count": "<class 'int'>",
+          "source_ref_density": "<class 'float'>",
+          "source_locality_score": "<class 'float'>",
+          "direct_speaker_turn": "<class 'bool'>",
+          "broad_summary": "<class 'bool'>",
+          "conflict_or_stale": "<class 'bool'>",
+          "negation_surface": "<class 'bool'>",
+          "currentness_surface": "<class 'bool'>",
+          "stale_surface": "<class 'bool'>",
+          "contrast_surface": "<class 'bool'>",
+          "answerability_score": "<class 'float'>",
+          "answerability_reason_codes": "tuple[str, ...]",
+          "evidence_need": "tuple[str, ...]",
+          "query_roles": "tuple[str, ...]",
+          "temporal_query_terms": "tuple[str, ...]",
+          "current_state_query": "<class 'bool'>",
+          "time_intent_kind": "<class 'str'>",
+          "has_duration_surface": "<class 'bool'>",
+          "has_relative_time_surface": "<class 'bool'>",
+          "has_explicit_time_surface": "<class 'bool'>",
+          "has_explicit_time_content_surface": "<class 'bool'>",
+          "has_temporal_sequence_surface": "<class 'bool'>",
+          "temporal_sequence_direction": "<class 'str'>",
+          "covered_answer_unit_shapes": "tuple[str, ...]",
+          "source_grounding_query": "<class 'bool'>",
+          "source_grounding_support": "<class 'bool'>",
+          "source_grounding_support_reason": "<class 'str'>",
+          "source_grounding_quote_relevant": "<class 'bool'>"
+        },
+        "methods": {},
+        "properties": {}
+      },
+      "BenchmarkRerankScore": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankScore"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(boost: 'float', signals: 'dict[str, object]') -> None",
+        "doc": "Final bounded boost and diagnostics for a rerank candidate.",
+        "fields": [
+          "boost",
+          "signals"
+        ],
+        "frozen": true,
+        "hints": {
+          "boost": "<class 'float'>",
+          "signals": "dict[str, object]"
+        },
+        "methods": {},
+        "properties": {}
+      },
+      "score_benchmark_rerank_candidate": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring.score_benchmark_rerank_candidate"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "public",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'BenchmarkRerankScore'",
+          "qualname": "score_benchmark_rerank_candidate",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankScore'>"
+          },
+          "globals": {
+            "BenchmarkRerankScore": {
+              "object": "infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankScore"
+            },
+            "_apply_provenance_safety_cap": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._apply_provenance_safety_cap"
+            },
+            "_bool_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._bool_signal"
+            },
+            "_boost_cap": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._boost_cap"
+            },
+            "_float_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._float_signal"
+            },
+            "_rounded_boosts": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._rounded_boosts"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "list": {
+              "object": "builtins.list"
+            },
+            "max": {
+              "object": "builtins.max"
+            },
+            "min": {
+              "object": "builtins.min"
+            },
+            "round": {
+              "object": "builtins.round"
+            },
+            "score_rerank_policy_contributions": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring.score_rerank_policy_contributions"
+            }
+          }
+        }
+      },
+      "_relation_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._relation_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+          "qualname": "_relation_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_relation_coverage_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._relation_coverage_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+          "qualname": "_relation_coverage_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_focused_relation_density_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._focused_relation_density_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'float'",
+          "qualname": "_focused_relation_density_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_boost_cap": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._boost_cap"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(*, features: 'BenchmarkRerankFeatures', focused_turn_boost: 'float', focused_relation_density_boost: 'float', communication_direction_boost: 'float', relation_coverage_boost: 'float', strong_relation_evidence: 'bool', rich_direct_speaker_relation_evidence: 'bool', direct_speaker_relation_evidence: 'bool', temporal_boost: 'float', temporal_sequence_boost: 'float', currentness_boost: 'float', preference_boost: 'float', visual_boost: 'float', answerability_boost: 'float', source_grounding_boost: 'float', speaker_grounding_boost: 'float', temporal_role_support_boost: 'float', contrast_support_boost: 'float', location_support_boost: 'float', value_answer_shape_boost: 'float', count_list_answer_shape_boost: 'float', typed_relation_support_boost: 'float', policy_boosts: 'Mapping[str, float]', shape_boosts: 'Mapping[str, float]') -> 'float'",
+          "qualname": "_boost_cap",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "focused_turn_boost": "<class 'float'>",
+            "focused_relation_density_boost": "<class 'float'>",
+            "communication_direction_boost": "<class 'float'>",
+            "relation_coverage_boost": "<class 'float'>",
+            "strong_relation_evidence": "<class 'bool'>",
+            "rich_direct_speaker_relation_evidence": "<class 'bool'>",
+            "direct_speaker_relation_evidence": "<class 'bool'>",
+            "temporal_boost": "<class 'float'>",
+            "temporal_sequence_boost": "<class 'float'>",
+            "currentness_boost": "<class 'float'>",
+            "preference_boost": "<class 'float'>",
+            "visual_boost": "<class 'float'>",
+            "answerability_boost": "<class 'float'>",
+            "source_grounding_boost": "<class 'float'>",
+            "speaker_grounding_boost": "<class 'float'>",
+            "temporal_role_support_boost": "<class 'float'>",
+            "contrast_support_boost": "<class 'float'>",
+            "location_support_boost": "<class 'float'>",
+            "value_answer_shape_boost": "<class 'float'>",
+            "count_list_answer_shape_boost": "<class 'float'>",
+            "typed_relation_support_boost": "<class 'float'>",
+            "policy_boosts": "collections.abc.Mapping[str, float]",
+            "shape_boosts": "collections.abc.Mapping[str, float]",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "_has_temporal_sequence_direction_conflict": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_temporal_sequence_direction_conflict"
+            },
+            "_has_unmeasured_source_ref_locality": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+            },
+            "any": {
+              "object": "builtins.any"
+            }
+          }
+        }
+      },
+      "_has_temporal_sequence_direction_conflict": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_temporal_sequence_direction_conflict"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'bool'",
+          "qualname": "_has_temporal_sequence_direction_conflict",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "str": {
+              "object": "builtins.str"
+            }
+          }
+        }
+      },
+      "_apply_provenance_safety_cap": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._apply_provenance_safety_cap"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(boost_cap: 'float', *, features: 'BenchmarkRerankFeatures', score_signals: 'Mapping[str, object]') -> 'tuple[float, tuple[str, ...]]'",
+          "qualname": "_apply_provenance_safety_cap",
+          "doc": null,
+          "hints": {
+            "boost_cap": "<class 'float'>",
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "tuple[float, tuple[str, ...]]"
+          },
+          "globals": {
+            "_provenance_safety_cap": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._provenance_safety_cap"
+            },
+            "min": {
+              "object": "builtins.min"
+            }
+          }
+        }
+      },
+      "_provenance_safety_cap": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._provenance_safety_cap"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures', *, score_signals: 'Mapping[str, object]') -> 'tuple[float | None, tuple[str, ...]]'",
+          "qualname": "_provenance_safety_cap",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "tuple[float | None, tuple[str, ...]]"
+          },
+          "globals": {
+            "_bool_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._bool_signal"
+            },
+            "_current_goal_temporal_context_grounded": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._current_goal_temporal_context_grounded"
+            },
+            "_has_contrast_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_contrast_grounding"
+            },
+            "_has_count_list_answer_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_count_list_answer_grounding"
+            },
+            "_has_precise_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_precise_grounding"
+            },
+            "_has_role_specific_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_role_specific_grounding"
+            },
+            "_partial_commitment_status_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._partial_commitment_status_evidence"
+            },
+            "_stale_only_current_state_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._stale_only_current_state_evidence"
+            },
+            "min": {
+              "object": "builtins.min"
+            },
+            "set": {
+              "object": "builtins.set"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_current_goal_temporal_context_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._current_goal_temporal_context_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures', reason: 'str') -> 'bool'",
+          "qualname": "_current_goal_temporal_context_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "reason": "<class 'str'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_unmeasured_source_ref_locality": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_has_precise_grounding": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_precise_grounding"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures', *, score_signals: 'Mapping[str, object]') -> 'bool'",
+          "qualname": "_has_precise_grounding",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_bool_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._bool_signal"
+            },
+            "_has_unmeasured_source_ref_locality": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_has_role_specific_grounding": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_role_specific_grounding"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures', *, score_signals: 'Mapping[str, object]') -> 'bool'",
+          "qualname": "_has_role_specific_grounding",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_float_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._float_signal"
+            },
+            "_has_contrast_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_contrast_grounding"
+            },
+            "_has_precise_grounding": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_precise_grounding"
+            },
+            "_has_unmeasured_source_ref_locality": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+            },
+            "any": {
+              "object": "builtins.any"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "float": {
+              "object": "builtins.float"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_has_count_list_answer_grounding": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_count_list_answer_grounding"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures', *, score_signals: 'Mapping[str, object]') -> 'bool'",
+          "qualname": "_has_count_list_answer_grounding",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_float_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._float_signal"
+            },
+            "_has_unmeasured_source_ref_locality": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+            }
+          }
+        }
+      },
+      "_has_unmeasured_source_ref_locality": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_unmeasured_source_ref_locality"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'bool'",
+          "qualname": "_has_unmeasured_source_ref_locality",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_has_contrast_grounding": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._has_contrast_grounding"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(score_signals: 'Mapping[str, object]') -> 'bool'",
+          "qualname": "_has_contrast_grounding",
+          "doc": null,
+          "hints": {
+            "score_signals": "collections.abc.Mapping[str, object]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_float_signal": {
+              "object": "infinity_context_benchmarks.rerank_policy.scoring._float_signal"
+            }
+          }
+        }
+      },
+      "_rounded_boosts": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._rounded_boosts"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(boosts: 'Mapping[str, float]') -> 'dict[str, float]'",
+          "qualname": "_rounded_boosts",
+          "doc": null,
+          "hints": {
+            "boosts": "collections.abc.Mapping[str, float]",
+            "return": "dict[str, float]"
+          },
+          "globals": {
+            "float": {
+              "object": "builtins.float"
+            },
+            "round": {
+              "object": "builtins.round"
+            }
+          }
+        }
+      },
+      "_float_signal": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._float_signal"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(signals: 'Mapping[str, object]', key: 'str') -> 'float'",
+          "qualname": "_float_signal",
+          "doc": null,
+          "hints": {
+            "signals": "collections.abc.Mapping[str, object]",
+            "key": "<class 'str'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "TypeError": {
+              "object": "builtins.TypeError"
+            },
+            "ValueError": {
+              "object": "builtins.ValueError"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "float": {
+              "object": "builtins.float"
+            },
+            "isinstance": {
+              "object": "builtins.isinstance"
+            }
+          }
+        }
+      },
+      "_stale_only_current_state_evidence": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._stale_only_current_state_evidence"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'bool'",
+          "qualname": "_stale_only_current_state_evidence",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_partial_commitment_status_evidence": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._partial_commitment_status_evidence"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'BenchmarkRerankFeatures') -> 'bool'",
+          "qualname": "_partial_commitment_status_evidence",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.BenchmarkRerankFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_bool_signal": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring._bool_signal"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(signals: 'Mapping[str, object]', key: 'str') -> 'bool'",
+          "qualname": "_bool_signal",
+          "doc": null,
+          "hints": {
+            "signals": "collections.abc.Mapping[str, object]",
+            "key": "<class 'str'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {}
+        }
+      }
+    },
+    "infinity_context_server.memory_comparison_rerank_policies": {
+      "annotations": {
+        "value": {
+          "future": "_Feature((3, 7, 0, 'beta', 1), None, 16777216)"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "Mapping": {
+        "value": {
+          "object": "collections.abc.Mapping"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "Sequence": {
+        "value": {
+          "object": "collections.abc.Sequence"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "dataclass": {
+        "value": {
+          "object": "dataclasses.dataclass"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "Protocol": {
+        "value": {
+          "object": "typing.Protocol"
+        },
+        "visibility": "imported-compatibility"
+      },
+      "RerankPolicyFeatures": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(*args, **kwargs)",
+        "doc": null,
+        "hints": {
+          "overlap_terms": "tuple[str, ...]",
+          "entity_hits": "tuple[str, ...]",
+          "speaker_hits": "tuple[str, ...]",
+          "relation_hits": "tuple[str, ...]",
+          "relation_terms": "tuple[str, ...]",
+          "relation_categories": "tuple[str, ...]",
+          "relation_category_hits": "tuple[str, ...]",
+          "relation_category_coverage_ratio": "<class 'float'>",
+          "covered_answer_unit_shapes": "tuple[str, ...]",
+          "exact_count_evidence": "<class 'bool'>",
+          "list_item_count": "<class 'int'>",
+          "query_has_entities": "<class 'bool'>",
+          "high_signal_relation_hit_count": "<class 'int'>",
+          "communication_direction_grounded": "<class 'bool'>",
+          "communication_direction_ungrounded": "<class 'bool'>",
+          "communication_query_direction": "<class 'str'>",
+          "is_temporal_query": "<class 'bool'>",
+          "time_intent_kind": "<class 'str'>",
+          "has_temporal_surface": "<class 'bool'>",
+          "has_sequence_surface": "<class 'bool'>",
+          "has_duration_surface": "<class 'bool'>",
+          "has_relative_time_surface": "<class 'bool'>",
+          "has_explicit_time_surface": "<class 'bool'>",
+          "has_explicit_time_content_surface": "<class 'bool'>",
+          "has_temporal_sequence_surface": "<class 'bool'>",
+          "temporal_sequence_direction": "<class 'str'>",
+          "is_preference_query": "<class 'bool'>",
+          "has_preference_evidence": "<class 'bool'>",
+          "has_visual_terms": "<class 'bool'>",
+          "has_visual_evidence": "<class 'bool'>",
+          "focused_turn_boost": "<class 'float'>",
+          "has_multi_hop_markers": "<class 'bool'>",
+          "policy_boosts": "collections.abc.Mapping[str, float]",
+          "shape_boosts": "collections.abc.Mapping[str, float]",
+          "source_type": "<class 'str'>",
+          "source_ref_count": "<class 'int'>",
+          "turn_ref_count": "<class 'int'>",
+          "source_ref_density": "<class 'float'>",
+          "source_locality_score": "<class 'float'>",
+          "direct_speaker_turn": "<class 'bool'>",
+          "broad_summary": "<class 'bool'>",
+          "conflict_or_stale": "<class 'bool'>",
+          "negation_surface": "<class 'bool'>",
+          "currentness_surface": "<class 'bool'>",
+          "stale_surface": "<class 'bool'>",
+          "contrast_surface": "<class 'bool'>",
+          "answerability_score": "<class 'float'>",
+          "answerability_reason_codes": "tuple[str, ...]",
+          "evidence_need": "tuple[str, ...]",
+          "query_roles": "tuple[str, ...]",
+          "temporal_query_terms": "tuple[str, ...]",
+          "current_state_query": "<class 'bool'>",
+          "source_grounding_query": "<class 'bool'>",
+          "source_grounding_support": "<class 'bool'>",
+          "source_grounding_support_reason": "<class 'str'>",
+          "source_grounding_quote_relevant": "<class 'bool'>"
+        },
+        "methods": {},
+        "properties": {}
+      },
+      "_COUNT_LIST_GENERIC_RELATION_TERMS": {
+        "value": {
+          "set": [
+            "amount",
+            "count",
+            "counts",
+            "had",
+            "has",
+            "have",
+            "how",
+            "include",
+            "included",
+            "includes",
+            "including",
+            "item",
+            "items",
+            "list",
+            "many",
+            "much",
+            "name",
+            "named",
+            "names",
+            "number",
+            "numbers",
+            "quantity",
+            "thing",
+            "things",
+            "time",
+            "times",
+            "total",
+            "totals"
+          ]
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "compatibility-only"
+      },
+      "RerankPolicyContribution": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(policy: 'str', score: 'float', signals: 'Mapping[str, object]', reason_codes: 'tuple[str, ...]') -> None",
+        "doc": "One bounded policy contribution with diagnostics.",
+        "fields": [
+          "policy",
+          "score",
+          "signals",
+          "reason_codes"
+        ],
+        "frozen": true,
+        "hints": {
+          "policy": "<class 'str'>",
+          "score": "<class 'float'>",
+          "signals": "collections.abc.Mapping[str, object]",
+          "reason_codes": "tuple[str, ...]"
+        },
+        "methods": {
+          "to_diagnostics": {
+            "signature": "(self) -> 'dict[str, object]'",
+            "qualname": "RerankPolicyContribution.to_diagnostics",
+            "doc": null,
+            "hints": {
+              "return": "dict[str, object]"
+            },
+            "globals": {
+              "dict": {
+                "object": "builtins.dict"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "RerankPolicyPlan": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyPlan"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(contributions: 'tuple[RerankPolicyContribution, ...]') -> None",
+        "doc": "All policy contributions for one rerank candidate.",
+        "fields": [
+          "contributions"
+        ],
+        "frozen": true,
+        "hints": {
+          "contributions": "tuple[infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution, ...]"
+        },
+        "methods": {
+          "to_diagnostics": {
+            "signature": "(self) -> 'dict[str, object]'",
+            "qualname": "RerankPolicyPlan.to_diagnostics",
+            "doc": null,
+            "hints": {
+              "return": "dict[str, object]"
+            },
+            "globals": {
+              "len": {
+                "object": "builtins.len"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "tuple": {
+                "object": "builtins.tuple"
+              }
+            }
+          }
+        },
+        "properties": {
+          "score_signals": {
+            "signature": "(self) -> 'dict[str, object]'",
+            "qualname": "RerankPolicyPlan.score_signals",
+            "doc": null,
+            "hints": {
+              "return": "dict[str, object]"
+            },
+            "globals": {}
+          },
+          "total_score": {
+            "signature": "(self) -> 'float'",
+            "qualname": "RerankPolicyPlan.total_score",
+            "doc": null,
+            "hints": {
+              "return": "<class 'float'>"
+            },
+            "globals": {
+              "round": {
+                "object": "builtins.round"
+              },
+              "sum": {
+                "object": "builtins.sum"
+              }
+            }
+          }
+        }
+      },
+      "RerankPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.contracts",
+        "visibility": "public",
+        "signature": "(*args, **kwargs)",
+        "doc": null,
+        "hints": {
+          "name": "<class 'str'>"
+        },
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "RerankPolicy.score",
+            "doc": "Score one policy for a candidate.",
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {}
+          }
+        },
+        "properties": {}
+      },
+      "EntitySpeakerPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence.EntitySpeakerPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "EntitySpeakerPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_speaker_grounding_eligible": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._speaker_grounding_eligible"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "min": {
+                "object": "builtins.min"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "RelationCoveragePolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence.RelationCoveragePolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "RelationCoveragePolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_relation_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_boost"
+              },
+              "_relation_category_coverage_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_category_coverage_boost"
+              },
+              "_relation_coverage_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_coverage_boost"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "float": {
+                "object": "builtins.float"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "TemporalPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal.TemporalPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "TemporalPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_stale_only_current_state_evidence": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._stale_only_current_state_evidence"
+              },
+              "_temporal_role_support_eligible": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_role_support_eligible"
+              },
+              "_temporal_sequence_direction": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction"
+              },
+              "_temporal_sequence_direction_conflict": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction_conflict"
+              },
+              "_temporal_sequence_query_direction": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_query_direction"
+              },
+              "_typed_temporal_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.temporal._typed_temporal_boost"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "float": {
+                "object": "builtins.float"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "PreferenceIntentPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent.PreferenceIntentPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "PreferenceIntentPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_preference_evidence_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.intent._preference_evidence_grounded"
+              },
+              "_preference_reason_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.intent._preference_reason_grounded"
+              },
+              "_preference_reason_required": {
+                "object": "infinity_context_benchmarks.rerank_policy.intent._preference_reason_required"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_rounded_boosts": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._rounded_boosts"
+              },
+              "float": {
+                "object": "builtins.float"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "sum": {
+                "object": "builtins.sum"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "FocusedTurnPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence.FocusedTurnPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "FocusedTurnPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_direct_speaker_relation_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._direct_speaker_relation_grounded"
+              },
+              "_focused_relation_density_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._focused_relation_density_boost"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "abs": {
+                "object": "builtins.abs"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "EvidenceBundlePolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence.EvidenceBundlePolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "EvidenceBundlePolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_rounded_boosts": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._rounded_boosts"
+              },
+              "_visual_evidence_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._visual_evidence_grounded"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "sum": {
+                "object": "builtins.sum"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "SourceGroundingPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence.SourceGroundingPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "SourceGroundingPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_source_grounding_evidence_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._source_grounding_evidence_grounded"
+              },
+              "_source_grounding_plausible_but_ungrounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.evidence._source_grounding_plausible_but_ungrounded"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "AnswerabilityPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.AnswerabilityPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "AnswerabilityPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_answerability_boost": {
+                "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._answerability_boost"
+              },
+              "_answerability_boost_eligible": {
+                "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._answerability_boost_eligible"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "tuple": {
+                "object": "builtins.tuple"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "MultiHopPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent.MultiHopPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "MultiHopPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "ContrastIntentPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent.ContrastIntentPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "ContrastIntentPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_contrast_boost_eligible": {
+                "object": "infinity_context_benchmarks.rerank_policy.intent._contrast_boost_eligible"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "NegativeAbsencePolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent.NegativeAbsencePolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "NegativeAbsencePolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_negative_absence_evidence_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.intent._negative_absence_evidence_grounded"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "set": {
+                "object": "builtins.set"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "LocationIntentPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent.LocationIntentPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "LocationIntentPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_LOCATION_SUPPORT_TERMS": {
+                "set": [
+                  "barn",
+                  "bas",
+                  "based",
+                  "born",
+                  "camp",
+                  "camped",
+                  "campground",
+                  "camping",
+                  "campsite",
+                  "ceremony",
+                  "city",
+                  "company",
+                  "country",
+                  "drive",
+                  "employer",
+                  "from",
+                  "gallery",
+                  "grew",
+                  "home",
+                  "hometown",
+                  "hotel",
+                  "liv",
+                  "live",
+                  "lived",
+                  "living",
+                  "move",
+                  "moved",
+                  "museum",
+                  "office",
+                  "origin",
+                  "originally",
+                  "place",
+                  "rais",
+                  "raise",
+                  "reception",
+                  "relocated",
+                  "stay",
+                  "stayed",
+                  "staying",
+                  "theater",
+                  "theatre",
+                  "travel",
+                  "trip",
+                  "venue",
+                  "wedding",
+                  "work",
+                  "worked",
+                  "working",
+                  "workplace"
+                ]
+              },
+              "_has_precise_or_unmeasured_source_provenance": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._has_precise_or_unmeasured_source_provenance"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "set": {
+                "object": "builtins.set"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "ValueAnswerShapePolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.ValueAnswerShapePolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "ValueAnswerShapePolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_has_precise_or_unmeasured_source_provenance": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._has_precise_or_unmeasured_source_provenance"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "set": {
+                "object": "builtins.set"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "CountListAnswerShapePolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.CountListAnswerShapePolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "CountListAnswerShapePolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_has_count_list_subject_grounding": {
+                "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._has_count_list_subject_grounding"
+              },
+              "_has_precise_or_unmeasured_source_provenance": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._has_precise_or_unmeasured_source_provenance"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "round": {
+                "object": "builtins.round"
+              },
+              "set": {
+                "object": "builtins.set"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "_has_count_list_subject_grounding": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._has_count_list_subject_grounding"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_has_count_list_subject_grounding",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_COUNT_LIST_GENERIC_RELATION_TERMS": {
+              "set": [
+                "amount",
+                "count",
+                "counts",
+                "had",
+                "has",
+                "have",
+                "how",
+                "include",
+                "included",
+                "includes",
+                "including",
+                "item",
+                "items",
+                "list",
+                "many",
+                "much",
+                "name",
+                "named",
+                "names",
+                "number",
+                "numbers",
+                "quantity",
+                "thing",
+                "things",
+                "time",
+                "times",
+                "total",
+                "totals"
+              ]
+            },
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "TypedRelationSupportPolicy": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations.TypedRelationSupportPolicy"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "public",
+        "signature": "()",
+        "doc": null,
+        "hints": {},
+        "methods": {
+          "score": {
+            "signature": "(self, features: 'RerankPolicyFeatures') -> 'RerankPolicyContribution'",
+            "qualname": "TypedRelationSupportPolicy.score",
+            "doc": null,
+            "hints": {
+              "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+              "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution'>"
+            },
+            "globals": {
+              "RerankPolicyContribution": {
+                "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyContribution"
+              },
+              "_has_precise_or_unmeasured_source_provenance": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._has_precise_or_unmeasured_source_provenance"
+              },
+              "_reason_codes": {
+                "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+              },
+              "_typed_relation_support_category_hits": {
+                "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_category_hits"
+              },
+              "_typed_relation_support_grounded": {
+                "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_grounded"
+              },
+              "_typed_relation_support_hit_roles": {
+                "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_hit_roles"
+              },
+              "_typed_relation_support_roles": {
+                "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_roles"
+              },
+              "bool": {
+                "object": "builtins.bool"
+              },
+              "len": {
+                "object": "builtins.len"
+              },
+              "list": {
+                "object": "builtins.list"
+              },
+              "min": {
+                "object": "builtins.min"
+              },
+              "round": {
+                "object": "builtins.round"
+              }
+            }
+          }
+        },
+        "properties": {}
+      },
+      "score_rerank_policy_contributions": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.scoring.score_rerank_policy_contributions"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "public",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', *, policies: 'Sequence[RerankPolicy]' = ()) -> 'RerankPolicyPlan'",
+          "qualname": "score_rerank_policy_contributions",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "policies": "collections.abc.Sequence[infinity_context_benchmarks.rerank_policy.contracts.RerankPolicy]",
+            "return": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyPlan'>"
+          },
+          "globals": {
+            "RerankPolicyPlan": {
+              "object": "infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyPlan"
+            },
+            "_DEFAULT_POLICIES": [
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.evidence.EntitySpeakerPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.evidence.RelationCoveragePolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.temporal.TemporalPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.intent.PreferenceIntentPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.evidence.FocusedTurnPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.evidence.EvidenceBundlePolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.evidence.SourceGroundingPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.AnswerabilityPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.intent.MultiHopPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.intent.ContrastIntentPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.intent.NegativeAbsencePolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.typed_relations.TypedRelationSupportPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.intent.LocationIntentPolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.CountListAnswerShapePolicy"
+                },
+                "state": {}
+              },
+              {
+                "instance": {
+                  "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.ValueAnswerShapePolicy"
+                },
+                "state": {}
+              }
+            ],
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_relation_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+          "qualname": "_relation_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_relation_coverage_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_coverage_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+          "qualname": "_relation_coverage_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_relation_category_coverage_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._relation_category_coverage_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+          "qualname": "_relation_category_coverage_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            },
+            "min": {
+              "object": "builtins.min"
+            }
+          }
+        }
+      },
+      "_focused_relation_density_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._focused_relation_density_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'float'",
+          "qualname": "_focused_relation_density_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_speaker_grounding_eligible": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._speaker_grounding_eligible"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_speaker_grounding_eligible",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_measured_locality_below": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+            },
+            "_has_positive_boost": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_positive_boost"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_preference_evidence_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._preference_evidence_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_preference_evidence_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_PREFERENCE_POLARITY_TERMS": {
+              "set": [
+                "avoid",
+                "avoided",
+                "avoids",
+                "dislik",
+                "dislike",
+                "disliked",
+                "enjoy",
+                "enjoyed",
+                "fan",
+                "favorite",
+                "favourite",
+                "hat",
+                "hate",
+                "hated",
+                "hates",
+                "interest",
+                "interested",
+                "like",
+                "liked",
+                "love",
+                "loved",
+                "prefer",
+                "preference",
+                "preferred",
+                "prioritize"
+              ]
+            },
+            "_has_typed_preference_relation_hit": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent._has_typed_preference_relation_hit"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_preference_reason_required": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._preference_reason_required"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_preference_reason_required",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_preference_reason_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._preference_reason_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_preference_reason_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_preference_reason_required": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent._preference_reason_required"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_has_typed_preference_relation_hit": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._has_typed_preference_relation_hit"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_has_typed_preference_relation_hit",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_visual_evidence_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._visual_evidence_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_visual_evidence_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_source_grounding_evidence_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._source_grounding_evidence_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_source_grounding_evidence_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_measured_locality_below": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_source_grounding_plausible_but_ungrounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._source_grounding_plausible_but_ungrounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', *, grounded: 'bool') -> 'bool'",
+          "qualname": "_source_grounding_plausible_but_ungrounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "grounded": "<class 'bool'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_measured_locality_below": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_direct_speaker_relation_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.evidence._direct_speaker_relation_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.evidence",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', *, relation_hit_count: 'int') -> 'bool'",
+          "qualname": "_direct_speaker_relation_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "relation_hit_count": "<class 'int'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_measured_locality_below": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_has_measured_locality_below": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', threshold: 'float') -> 'bool'",
+          "qualname": "_has_measured_locality_below",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "threshold": "<class 'float'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {}
+        }
+      },
+      "_has_precise_or_unmeasured_source_provenance": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._has_precise_or_unmeasured_source_provenance"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_has_precise_or_unmeasured_source_provenance",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_has_positive_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._has_positive_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(boosts: 'Mapping[str, float]') -> 'bool'",
+          "qualname": "_has_positive_boost",
+          "doc": null,
+          "hints": {
+            "boosts": "collections.abc.Mapping[str, float]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "any": {
+              "object": "builtins.any"
+            },
+            "float": {
+              "object": "builtins.float"
+            }
+          }
+        }
+      },
+      "_rounded_boosts": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._rounded_boosts"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(boosts: 'Mapping[str, float]') -> 'dict[str, float]'",
+          "qualname": "_rounded_boosts",
+          "doc": null,
+          "hints": {
+            "boosts": "collections.abc.Mapping[str, float]",
+            "return": "dict[str, float]"
+          },
+          "globals": {
+            "float": {
+              "object": "builtins.float"
+            },
+            "round": {
+              "object": "builtins.round"
+            }
+          }
+        }
+      },
+      "_typed_temporal_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._typed_temporal_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'tuple[float, str]'",
+          "qualname": "_typed_temporal_boost",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "tuple[float, str]"
+          },
+          "globals": {
+            "_has_content_temporal_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._has_content_temporal_evidence"
+            },
+            "_stale_only_current_state_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._stale_only_current_state_evidence"
+            },
+            "_temporal_sequence_direction": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction"
+            },
+            "_temporal_sequence_direction_conflict": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction_conflict"
+            },
+            "_temporal_sequence_query_direction": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_query_direction"
+            }
+          }
+        }
+      },
+      "_temporal_sequence_direction": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'str'",
+          "qualname": "_temporal_sequence_direction",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'str'>"
+          },
+          "globals": {
+            "getattr": {
+              "object": "builtins.getattr"
+            },
+            "str": {
+              "object": "builtins.str"
+            }
+          }
+        }
+      },
+      "_temporal_sequence_query_direction": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_query_direction"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(temporal_query_terms: 'Sequence[str]') -> 'str'",
+          "qualname": "_temporal_sequence_query_direction",
+          "doc": null,
+          "hints": {
+            "temporal_query_terms": "collections.abc.Sequence[str]",
+            "return": "<class 'str'>"
+          },
+          "globals": {
+            "str": {
+              "object": "builtins.str"
+            }
+          }
+        }
+      },
+      "_temporal_sequence_direction_conflict": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction_conflict"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(*, query_direction: 'str', evidence_direction: 'str') -> 'bool'",
+          "qualname": "_temporal_sequence_direction_conflict",
+          "doc": null,
+          "hints": {
+            "query_direction": "<class 'str'>",
+            "evidence_direction": "<class 'str'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_temporal_role_support_eligible": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_role_support_eligible"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_temporal_role_support_eligible",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_temporal_query_role": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._has_temporal_query_role"
+            },
+            "_stale_only_current_state_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._stale_only_current_state_evidence"
+            },
+            "_temporal_sequence_direction": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction"
+            },
+            "_temporal_sequence_direction_conflict": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_direction_conflict"
+            },
+            "_temporal_sequence_query_direction": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal._temporal_sequence_query_direction"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_has_content_temporal_evidence": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._has_content_temporal_evidence"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_has_content_temporal_evidence",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_stale_only_current_state_evidence": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._stale_only_current_state_evidence"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_stale_only_current_state_evidence",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            }
+          }
+        }
+      },
+      "_has_temporal_query_role": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.temporal._has_temporal_query_role"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.temporal",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(query_roles: 'Sequence[str]') -> 'bool'",
+          "qualname": "_has_temporal_query_role",
+          "doc": null,
+          "hints": {
+            "query_roles": "collections.abc.Sequence[str]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "any": {
+              "object": "builtins.any"
+            }
+          }
+        }
+      },
+      "_answerability_boost": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._answerability_boost"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(score: 'float') -> 'float'",
+          "qualname": "_answerability_boost",
+          "doc": null,
+          "hints": {
+            "score": "<class 'float'>",
+            "return": "<class 'float'>"
+          },
+          "globals": {}
+        }
+      },
+      "_answerability_boost_eligible": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._answerability_boost_eligible"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_answerability_boost_eligible",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_missing_required_answer_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_missing_required_answer_evidence"
+            },
+            "_typed_category_answerability_grounded": {
+              "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._typed_category_answerability_grounded"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_has_missing_required_answer_evidence": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._has_missing_required_answer_evidence"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_has_missing_required_answer_evidence",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS": {
+              "set": [
+                "missing_action_event_evidence",
+                "missing_activity_evidence",
+                "missing_activity_profile_evidence",
+                "missing_age_profile_evidence",
+                "missing_alias_profile_evidence",
+                "missing_causal_evidence",
+                "missing_commitment_profile_evidence",
+                "missing_communication_evidence",
+                "missing_community_membership_evidence",
+                "missing_contact_profile_evidence",
+                "missing_contrast_evidence",
+                "missing_current_goal_evidence",
+                "missing_date_profile_evidence",
+                "missing_diet_profile_evidence",
+                "missing_duration_temporal_evidence",
+                "missing_education_profile_evidence",
+                "missing_emotion_response_evidence",
+                "missing_employment_profile_evidence",
+                "missing_exchange_evidence",
+                "missing_explicit_temporal_evidence",
+                "missing_favorite_preference_evidence",
+                "missing_health_profile_evidence",
+                "missing_identity_profile_evidence",
+                "missing_location_transition_evidence",
+                "missing_participation_event_evidence",
+                "missing_pet_profile_evidence",
+                "missing_preference_evidence",
+                "missing_registration_event_evidence",
+                "missing_relative_temporal_evidence",
+                "missing_sequence_temporal_evidence",
+                "missing_skill_profile_evidence",
+                "missing_status_profile_evidence",
+                "missing_support_goal_evidence",
+                "missing_symbolic_meaning_evidence",
+                "missing_temporal_evidence",
+                "missing_vehicle_profile_evidence",
+                "missing_visual_evidence"
+              ]
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_typed_category_answerability_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.answer_shapes._typed_category_answerability_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.answer_shapes",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_typed_category_answerability_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_contrast_boost_eligible": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._contrast_boost_eligible"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_contrast_boost_eligible",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_negative_absence_evidence_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.intent._negative_absence_evidence_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'bool'",
+          "qualname": "_negative_absence_evidence_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_has_measured_locality_below": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_measured_locality_below"
+            },
+            "_has_missing_required_answer_evidence": {
+              "object": "infinity_context_benchmarks.rerank_policy.common._has_missing_required_answer_evidence"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "len": {
+              "object": "builtins.len"
+            }
+          }
+        }
+      },
+      "_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": {
+        "value": {
+          "action_support": {
+            "set": [
+              "action_event"
+            ]
+          },
+          "causal_support": {
+            "set": [
+              "causal"
+            ]
+          },
+          "activity_support": {
+            "set": [
+              "activity",
+              "activity_profile"
+            ]
+          },
+          "age_support": {
+            "set": [
+              "age_profile"
+            ]
+          },
+          "alias_support": {
+            "set": [
+              "alias_profile"
+            ]
+          },
+          "commitment_support": {
+            "set": [
+              "commitment_profile"
+            ]
+          },
+          "community_membership_support": {
+            "set": [
+              "community_membership"
+            ]
+          },
+          "communication_support": {
+            "set": [
+              "communication"
+            ]
+          },
+          "contact_support": {
+            "set": [
+              "contact_profile"
+            ]
+          },
+          "current_goal_support": {
+            "set": [
+              "current_goal"
+            ]
+          },
+          "date_support": {
+            "set": [
+              "date_profile"
+            ]
+          },
+          "diet_support": {
+            "set": [
+              "diet_profile"
+            ]
+          },
+          "education_support": {
+            "set": [
+              "education_profile"
+            ]
+          },
+          "employment_support": {
+            "set": [
+              "employment_profile"
+            ]
+          },
+          "emotion_response_support": {
+            "set": [
+              "emotion_response"
+            ]
+          },
+          "event_support": {
+            "set": [
+              "participation_event",
+              "registration_event"
+            ]
+          },
+          "exchange_support": {
+            "set": [
+              "exchange"
+            ]
+          },
+          "favorite_support": {
+            "set": [
+              "favorite_preference"
+            ]
+          },
+          "health_support": {
+            "set": [
+              "health_profile"
+            ]
+          },
+          "identity_support": {
+            "set": [
+              "identity_profile"
+            ]
+          },
+          "pet_support": {
+            "set": [
+              "pet_profile"
+            ]
+          },
+          "skill_support": {
+            "set": [
+              "skill_profile"
+            ]
+          },
+          "status_support": {
+            "set": [
+              "status_profile"
+            ]
+          },
+          "support_goal_support": {
+            "set": [
+              "support_goal"
+            ]
+          },
+          "symbolic_meaning_support": {
+            "set": [
+              "symbolic_meaning"
+            ]
+          },
+          "vehicle_support": {
+            "set": [
+              "vehicle_profile"
+            ]
+          }
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only"
+      },
+      "_PREFERENCE_POLARITY_TERMS": {
+        "value": {
+          "set": [
+            "avoid",
+            "avoided",
+            "avoids",
+            "dislik",
+            "dislike",
+            "disliked",
+            "enjoy",
+            "enjoyed",
+            "fan",
+            "favorite",
+            "favourite",
+            "hat",
+            "hate",
+            "hated",
+            "hates",
+            "interest",
+            "interested",
+            "like",
+            "liked",
+            "love",
+            "loved",
+            "prefer",
+            "preference",
+            "preferred",
+            "prioritize"
+          ]
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only"
+      },
+      "_MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS": {
+        "value": {
+          "set": [
+            "missing_action_event_evidence",
+            "missing_activity_evidence",
+            "missing_activity_profile_evidence",
+            "missing_age_profile_evidence",
+            "missing_alias_profile_evidence",
+            "missing_causal_evidence",
+            "missing_commitment_profile_evidence",
+            "missing_communication_evidence",
+            "missing_community_membership_evidence",
+            "missing_contact_profile_evidence",
+            "missing_contrast_evidence",
+            "missing_current_goal_evidence",
+            "missing_date_profile_evidence",
+            "missing_diet_profile_evidence",
+            "missing_duration_temporal_evidence",
+            "missing_education_profile_evidence",
+            "missing_emotion_response_evidence",
+            "missing_employment_profile_evidence",
+            "missing_exchange_evidence",
+            "missing_explicit_temporal_evidence",
+            "missing_favorite_preference_evidence",
+            "missing_health_profile_evidence",
+            "missing_identity_profile_evidence",
+            "missing_location_transition_evidence",
+            "missing_participation_event_evidence",
+            "missing_pet_profile_evidence",
+            "missing_preference_evidence",
+            "missing_registration_event_evidence",
+            "missing_relative_temporal_evidence",
+            "missing_sequence_temporal_evidence",
+            "missing_skill_profile_evidence",
+            "missing_status_profile_evidence",
+            "missing_support_goal_evidence",
+            "missing_symbolic_meaning_evidence",
+            "missing_temporal_evidence",
+            "missing_vehicle_profile_evidence",
+            "missing_visual_evidence"
+          ]
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only"
+      },
+      "_TYPED_RELATION_SUPPORT_NEEDS": {
+        "value": {
+          "action_support": {
+            "set": [
+              "action_support"
+            ]
+          },
+          "causal_support": {
+            "set": [
+              "causal_support"
+            ]
+          },
+          "activity_support": {
+            "set": [
+              "activity_profile",
+              "activity_support"
+            ]
+          },
+          "age_support": {
+            "set": [
+              "age_profile"
+            ]
+          },
+          "alias_support": {
+            "set": [
+              "alias_profile"
+            ]
+          },
+          "commitment_support": {
+            "set": [
+              "commitment_profile"
+            ]
+          },
+          "community_membership_support": {
+            "set": [
+              "community_membership"
+            ]
+          },
+          "communication_support": {
+            "set": [
+              "communication"
+            ]
+          },
+          "contact_support": {
+            "set": [
+              "contact_profile"
+            ]
+          },
+          "current_goal_support": {
+            "set": [
+              "current_goal"
+            ]
+          },
+          "date_support": {
+            "set": [
+              "date_profile"
+            ]
+          },
+          "diet_support": {
+            "set": [
+              "diet_profile"
+            ]
+          },
+          "education_support": {
+            "set": [
+              "education_profile"
+            ]
+          },
+          "employment_support": {
+            "set": [
+              "employment_profile"
+            ]
+          },
+          "emotion_response_support": {
+            "set": [
+              "emotion_response"
+            ]
+          },
+          "event_support": {
+            "set": [
+              "participation_event",
+              "registration_event"
+            ]
+          },
+          "exchange_support": {
+            "set": [
+              "exchange"
+            ]
+          },
+          "favorite_support": {
+            "set": [
+              "favorite_preference"
+            ]
+          },
+          "health_support": {
+            "set": [
+              "health_profile"
+            ]
+          },
+          "identity_support": {
+            "set": [
+              "identity_profile"
+            ]
+          },
+          "pet_support": {
+            "set": [
+              "pet_profile"
+            ]
+          },
+          "skill_support": {
+            "set": [
+              "skill_profile"
+            ]
+          },
+          "status_support": {
+            "set": [
+              "status_profile"
+            ]
+          },
+          "support_goal_support": {
+            "set": [
+              "support_goal"
+            ]
+          },
+          "symbolic_meaning_support": {
+            "set": [
+              "symbolic_meaning"
+            ]
+          },
+          "vehicle_support": {
+            "set": [
+              "vehicle_profile"
+            ]
+          }
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only"
+      },
+      "_typed_relation_support_roles": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_roles"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures') -> 'tuple[str, ...]'",
+          "qualname": "_typed_relation_support_roles",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "_TYPED_RELATION_SUPPORT_NEEDS": {
+              "action_support": {
+                "set": [
+                  "action_support"
+                ]
+              },
+              "causal_support": {
+                "set": [
+                  "causal_support"
+                ]
+              },
+              "activity_support": {
+                "set": [
+                  "activity_profile",
+                  "activity_support"
+                ]
+              },
+              "age_support": {
+                "set": [
+                  "age_profile"
+                ]
+              },
+              "alias_support": {
+                "set": [
+                  "alias_profile"
+                ]
+              },
+              "commitment_support": {
+                "set": [
+                  "commitment_profile"
+                ]
+              },
+              "community_membership_support": {
+                "set": [
+                  "community_membership"
+                ]
+              },
+              "communication_support": {
+                "set": [
+                  "communication"
+                ]
+              },
+              "contact_support": {
+                "set": [
+                  "contact_profile"
+                ]
+              },
+              "current_goal_support": {
+                "set": [
+                  "current_goal"
+                ]
+              },
+              "date_support": {
+                "set": [
+                  "date_profile"
+                ]
+              },
+              "diet_support": {
+                "set": [
+                  "diet_profile"
+                ]
+              },
+              "education_support": {
+                "set": [
+                  "education_profile"
+                ]
+              },
+              "employment_support": {
+                "set": [
+                  "employment_profile"
+                ]
+              },
+              "emotion_response_support": {
+                "set": [
+                  "emotion_response"
+                ]
+              },
+              "event_support": {
+                "set": [
+                  "participation_event",
+                  "registration_event"
+                ]
+              },
+              "exchange_support": {
+                "set": [
+                  "exchange"
+                ]
+              },
+              "favorite_support": {
+                "set": [
+                  "favorite_preference"
+                ]
+              },
+              "health_support": {
+                "set": [
+                  "health_profile"
+                ]
+              },
+              "identity_support": {
+                "set": [
+                  "identity_profile"
+                ]
+              },
+              "pet_support": {
+                "set": [
+                  "pet_profile"
+                ]
+              },
+              "skill_support": {
+                "set": [
+                  "skill_profile"
+                ]
+              },
+              "status_support": {
+                "set": [
+                  "status_profile"
+                ]
+              },
+              "support_goal_support": {
+                "set": [
+                  "support_goal"
+                ]
+              },
+              "symbolic_meaning_support": {
+                "set": [
+                  "symbolic_meaning"
+                ]
+              },
+              "vehicle_support": {
+                "set": [
+                  "vehicle_profile"
+                ]
+              }
+            },
+            "_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": {
+              "action_support": {
+                "set": [
+                  "action_event"
+                ]
+              },
+              "causal_support": {
+                "set": [
+                  "causal"
+                ]
+              },
+              "activity_support": {
+                "set": [
+                  "activity",
+                  "activity_profile"
+                ]
+              },
+              "age_support": {
+                "set": [
+                  "age_profile"
+                ]
+              },
+              "alias_support": {
+                "set": [
+                  "alias_profile"
+                ]
+              },
+              "commitment_support": {
+                "set": [
+                  "commitment_profile"
+                ]
+              },
+              "community_membership_support": {
+                "set": [
+                  "community_membership"
+                ]
+              },
+              "communication_support": {
+                "set": [
+                  "communication"
+                ]
+              },
+              "contact_support": {
+                "set": [
+                  "contact_profile"
+                ]
+              },
+              "current_goal_support": {
+                "set": [
+                  "current_goal"
+                ]
+              },
+              "date_support": {
+                "set": [
+                  "date_profile"
+                ]
+              },
+              "diet_support": {
+                "set": [
+                  "diet_profile"
+                ]
+              },
+              "education_support": {
+                "set": [
+                  "education_profile"
+                ]
+              },
+              "employment_support": {
+                "set": [
+                  "employment_profile"
+                ]
+              },
+              "emotion_response_support": {
+                "set": [
+                  "emotion_response"
+                ]
+              },
+              "event_support": {
+                "set": [
+                  "participation_event",
+                  "registration_event"
+                ]
+              },
+              "exchange_support": {
+                "set": [
+                  "exchange"
+                ]
+              },
+              "favorite_support": {
+                "set": [
+                  "favorite_preference"
+                ]
+              },
+              "health_support": {
+                "set": [
+                  "health_profile"
+                ]
+              },
+              "identity_support": {
+                "set": [
+                  "identity_profile"
+                ]
+              },
+              "pet_support": {
+                "set": [
+                  "pet_profile"
+                ]
+              },
+              "skill_support": {
+                "set": [
+                  "skill_profile"
+                ]
+              },
+              "status_support": {
+                "set": [
+                  "status_profile"
+                ]
+              },
+              "support_goal_support": {
+                "set": [
+                  "support_goal"
+                ]
+              },
+              "symbolic_meaning_support": {
+                "set": [
+                  "symbolic_meaning"
+                ]
+              },
+              "vehicle_support": {
+                "set": [
+                  "vehicle_profile"
+                ]
+              }
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_typed_relation_support_category_hits": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_category_hits"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', support_roles: 'Sequence[str]') -> 'tuple[str, ...]'",
+          "qualname": "_typed_relation_support_category_hits",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "support_roles": "collections.abc.Sequence[str]",
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": {
+              "action_support": {
+                "set": [
+                  "action_event"
+                ]
+              },
+              "causal_support": {
+                "set": [
+                  "causal"
+                ]
+              },
+              "activity_support": {
+                "set": [
+                  "activity",
+                  "activity_profile"
+                ]
+              },
+              "age_support": {
+                "set": [
+                  "age_profile"
+                ]
+              },
+              "alias_support": {
+                "set": [
+                  "alias_profile"
+                ]
+              },
+              "commitment_support": {
+                "set": [
+                  "commitment_profile"
+                ]
+              },
+              "community_membership_support": {
+                "set": [
+                  "community_membership"
+                ]
+              },
+              "communication_support": {
+                "set": [
+                  "communication"
+                ]
+              },
+              "contact_support": {
+                "set": [
+                  "contact_profile"
+                ]
+              },
+              "current_goal_support": {
+                "set": [
+                  "current_goal"
+                ]
+              },
+              "date_support": {
+                "set": [
+                  "date_profile"
+                ]
+              },
+              "diet_support": {
+                "set": [
+                  "diet_profile"
+                ]
+              },
+              "education_support": {
+                "set": [
+                  "education_profile"
+                ]
+              },
+              "employment_support": {
+                "set": [
+                  "employment_profile"
+                ]
+              },
+              "emotion_response_support": {
+                "set": [
+                  "emotion_response"
+                ]
+              },
+              "event_support": {
+                "set": [
+                  "participation_event",
+                  "registration_event"
+                ]
+              },
+              "exchange_support": {
+                "set": [
+                  "exchange"
+                ]
+              },
+              "favorite_support": {
+                "set": [
+                  "favorite_preference"
+                ]
+              },
+              "health_support": {
+                "set": [
+                  "health_profile"
+                ]
+              },
+              "identity_support": {
+                "set": [
+                  "identity_profile"
+                ]
+              },
+              "pet_support": {
+                "set": [
+                  "pet_profile"
+                ]
+              },
+              "skill_support": {
+                "set": [
+                  "skill_profile"
+                ]
+              },
+              "status_support": {
+                "set": [
+                  "status_profile"
+                ]
+              },
+              "support_goal_support": {
+                "set": [
+                  "support_goal"
+                ]
+              },
+              "symbolic_meaning_support": {
+                "set": [
+                  "symbolic_meaning"
+                ]
+              },
+              "vehicle_support": {
+                "set": [
+                  "vehicle_profile"
+                ]
+              }
+            },
+            "dict": {
+              "object": "builtins.dict"
+            },
+            "set": {
+              "object": "builtins.set"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_typed_relation_support_hit_roles": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_hit_roles"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', support_roles: 'Sequence[str]') -> 'tuple[str, ...]'",
+          "qualname": "_typed_relation_support_hit_roles",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "support_roles": "collections.abc.Sequence[str]",
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "_TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": {
+              "action_support": {
+                "set": [
+                  "action_event"
+                ]
+              },
+              "causal_support": {
+                "set": [
+                  "causal"
+                ]
+              },
+              "activity_support": {
+                "set": [
+                  "activity",
+                  "activity_profile"
+                ]
+              },
+              "age_support": {
+                "set": [
+                  "age_profile"
+                ]
+              },
+              "alias_support": {
+                "set": [
+                  "alias_profile"
+                ]
+              },
+              "commitment_support": {
+                "set": [
+                  "commitment_profile"
+                ]
+              },
+              "community_membership_support": {
+                "set": [
+                  "community_membership"
+                ]
+              },
+              "communication_support": {
+                "set": [
+                  "communication"
+                ]
+              },
+              "contact_support": {
+                "set": [
+                  "contact_profile"
+                ]
+              },
+              "current_goal_support": {
+                "set": [
+                  "current_goal"
+                ]
+              },
+              "date_support": {
+                "set": [
+                  "date_profile"
+                ]
+              },
+              "diet_support": {
+                "set": [
+                  "diet_profile"
+                ]
+              },
+              "education_support": {
+                "set": [
+                  "education_profile"
+                ]
+              },
+              "employment_support": {
+                "set": [
+                  "employment_profile"
+                ]
+              },
+              "emotion_response_support": {
+                "set": [
+                  "emotion_response"
+                ]
+              },
+              "event_support": {
+                "set": [
+                  "participation_event",
+                  "registration_event"
+                ]
+              },
+              "exchange_support": {
+                "set": [
+                  "exchange"
+                ]
+              },
+              "favorite_support": {
+                "set": [
+                  "favorite_preference"
+                ]
+              },
+              "health_support": {
+                "set": [
+                  "health_profile"
+                ]
+              },
+              "identity_support": {
+                "set": [
+                  "identity_profile"
+                ]
+              },
+              "pet_support": {
+                "set": [
+                  "pet_profile"
+                ]
+              },
+              "skill_support": {
+                "set": [
+                  "skill_profile"
+                ]
+              },
+              "status_support": {
+                "set": [
+                  "status_profile"
+                ]
+              },
+              "support_goal_support": {
+                "set": [
+                  "support_goal"
+                ]
+              },
+              "symbolic_meaning_support": {
+                "set": [
+                  "symbolic_meaning"
+                ]
+              },
+              "vehicle_support": {
+                "set": [
+                  "vehicle_profile"
+                ]
+              }
+            },
+            "set": {
+              "object": "builtins.set"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_typed_relation_support_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_relation_support_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', support_roles: 'Sequence[str]') -> 'bool'",
+          "qualname": "_typed_relation_support_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "support_roles": "collections.abc.Sequence[str]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_support_goal_category_grounded": {
+              "object": "infinity_context_benchmarks.rerank_policy.typed_relations._support_goal_category_grounded"
+            },
+            "_typed_profile_category_grounded": {
+              "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_profile_category_grounded"
+            },
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_support_goal_category_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._support_goal_category_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', support_roles: 'Sequence[str]') -> 'bool'",
+          "qualname": "_support_goal_category_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "support_roles": "collections.abc.Sequence[str]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "bool": {
+              "object": "builtins.bool"
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_typed_profile_category_grounded": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.typed_relations._typed_profile_category_grounded"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(features: 'RerankPolicyFeatures', support_roles: 'Sequence[str]') -> 'bool'",
+          "qualname": "_typed_profile_category_grounded",
+          "doc": null,
+          "hints": {
+            "features": "<class 'infinity_context_benchmarks.rerank_policy.contracts.RerankPolicyFeatures'>",
+            "support_roles": "collections.abc.Sequence[str]",
+            "return": "<class 'bool'>"
+          },
+          "globals": {
+            "_TYPED_PROFILE_SUPPORT_CATEGORIES": {
+              "action_support": {
+                "set": []
+              },
+              "causal_support": {
+                "set": []
+              },
+              "activity_support": {
+                "set": [
+                  "activity_profile"
+                ]
+              },
+              "age_support": {
+                "set": [
+                  "age_profile"
+                ]
+              },
+              "alias_support": {
+                "set": [
+                  "alias_profile"
+                ]
+              },
+              "commitment_support": {
+                "set": [
+                  "commitment_profile"
+                ]
+              },
+              "community_membership_support": {
+                "set": [
+                  "community_membership"
+                ]
+              },
+              "communication_support": {
+                "set": []
+              },
+              "contact_support": {
+                "set": [
+                  "contact_profile"
+                ]
+              },
+              "current_goal_support": {
+                "set": []
+              },
+              "date_support": {
+                "set": [
+                  "date_profile"
+                ]
+              },
+              "diet_support": {
+                "set": [
+                  "diet_profile"
+                ]
+              },
+              "education_support": {
+                "set": [
+                  "education_profile"
+                ]
+              },
+              "employment_support": {
+                "set": [
+                  "employment_profile"
+                ]
+              },
+              "emotion_response_support": {
+                "set": []
+              },
+              "event_support": {
+                "set": []
+              },
+              "exchange_support": {
+                "set": []
+              },
+              "favorite_support": {
+                "set": [
+                  "favorite_preference"
+                ]
+              },
+              "health_support": {
+                "set": [
+                  "health_profile"
+                ]
+              },
+              "identity_support": {
+                "set": [
+                  "identity_profile"
+                ]
+              },
+              "pet_support": {
+                "set": [
+                  "pet_profile"
+                ]
+              },
+              "skill_support": {
+                "set": [
+                  "skill_profile"
+                ]
+              },
+              "status_support": {
+                "set": [
+                  "status_profile"
+                ]
+              },
+              "support_goal_support": {
+                "set": []
+              },
+              "symbolic_meaning_support": {
+                "set": []
+              },
+              "vehicle_support": {
+                "set": [
+                  "vehicle_profile"
+                ]
+              }
+            },
+            "set": {
+              "object": "builtins.set"
+            }
+          }
+        }
+      },
+      "_TYPED_PROFILE_SUPPORT_CATEGORIES": {
+        "value": {
+          "action_support": {
+            "set": []
+          },
+          "causal_support": {
+            "set": []
+          },
+          "activity_support": {
+            "set": [
+              "activity_profile"
+            ]
+          },
+          "age_support": {
+            "set": [
+              "age_profile"
+            ]
+          },
+          "alias_support": {
+            "set": [
+              "alias_profile"
+            ]
+          },
+          "commitment_support": {
+            "set": [
+              "commitment_profile"
+            ]
+          },
+          "community_membership_support": {
+            "set": [
+              "community_membership"
+            ]
+          },
+          "communication_support": {
+            "set": []
+          },
+          "contact_support": {
+            "set": [
+              "contact_profile"
+            ]
+          },
+          "current_goal_support": {
+            "set": []
+          },
+          "date_support": {
+            "set": [
+              "date_profile"
+            ]
+          },
+          "diet_support": {
+            "set": [
+              "diet_profile"
+            ]
+          },
+          "education_support": {
+            "set": [
+              "education_profile"
+            ]
+          },
+          "employment_support": {
+            "set": [
+              "employment_profile"
+            ]
+          },
+          "emotion_response_support": {
+            "set": []
+          },
+          "event_support": {
+            "set": []
+          },
+          "exchange_support": {
+            "set": []
+          },
+          "favorite_support": {
+            "set": [
+              "favorite_preference"
+            ]
+          },
+          "health_support": {
+            "set": [
+              "health_profile"
+            ]
+          },
+          "identity_support": {
+            "set": [
+              "identity_profile"
+            ]
+          },
+          "pet_support": {
+            "set": [
+              "pet_profile"
+            ]
+          },
+          "skill_support": {
+            "set": [
+              "skill_profile"
+            ]
+          },
+          "status_support": {
+            "set": [
+              "status_profile"
+            ]
+          },
+          "support_goal_support": {
+            "set": []
+          },
+          "symbolic_meaning_support": {
+            "set": []
+          },
+          "vehicle_support": {
+            "set": [
+              "vehicle_profile"
+            ]
+          }
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.typed_relations",
+        "visibility": "compatibility-only"
+      },
+      "_LOCATION_SUPPORT_TERMS": {
+        "value": {
+          "set": [
+            "barn",
+            "bas",
+            "based",
+            "born",
+            "camp",
+            "camped",
+            "campground",
+            "camping",
+            "campsite",
+            "ceremony",
+            "city",
+            "company",
+            "country",
+            "drive",
+            "employer",
+            "from",
+            "gallery",
+            "grew",
+            "home",
+            "hometown",
+            "hotel",
+            "liv",
+            "live",
+            "lived",
+            "living",
+            "move",
+            "moved",
+            "museum",
+            "office",
+            "origin",
+            "originally",
+            "place",
+            "rais",
+            "raise",
+            "reception",
+            "relocated",
+            "stay",
+            "stayed",
+            "staying",
+            "theater",
+            "theatre",
+            "travel",
+            "trip",
+            "venue",
+            "wedding",
+            "work",
+            "worked",
+            "working",
+            "workplace"
+          ]
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.intent",
+        "visibility": "compatibility-only"
+      },
+      "_reason_codes": {
+        "value": {
+          "object": "infinity_context_benchmarks.rerank_policy.common._reason_codes"
+        },
+        "owner": "infinity_context_benchmarks.rerank_policy.common",
+        "visibility": "compatibility-only",
+        "callable": {
+          "signature": "(*pairs: 'tuple[str, float]') -> 'tuple[str, ...]'",
+          "qualname": "_reason_codes",
+          "doc": null,
+          "hints": {
+            "pairs": "tuple[str, float]",
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      },
+      "_DEFAULT_POLICIES": {
+        "value": [
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.evidence.EntitySpeakerPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.evidence.RelationCoveragePolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.temporal.TemporalPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent.PreferenceIntentPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.evidence.FocusedTurnPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.evidence.EvidenceBundlePolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.evidence.SourceGroundingPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.AnswerabilityPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent.MultiHopPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent.ContrastIntentPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent.NegativeAbsencePolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.typed_relations.TypedRelationSupportPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.intent.LocationIntentPolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.CountListAnswerShapePolicy"
+            },
+            "state": {}
+          },
+          {
+            "instance": {
+              "object": "infinity_context_benchmarks.rerank_policy.answer_shapes.ValueAnswerShapePolicy"
+            },
+            "state": {}
+          }
+        ],
+        "owner": "infinity_context_benchmarks.rerank_policy.scoring",
+        "visibility": "compatibility-only"
+      }
+    }
+  },
+  "definitions": {
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankFeatures": "9416da2369fabcddff8dbb895342b1c2af4da2b314d424e9f45b6ab632838b2f",
+    "infinity_context_server.memory_comparison_rerank_policy.BenchmarkRerankScore": "b45ec4628a985a84a98eb966f782a86bb3cc0fa71b4d0fd957cf5806c455e9c2",
+    "infinity_context_server.memory_comparison_rerank_policy.score_benchmark_rerank_candidate": "b4c0277e8fadfc0d3d89aa16bccf89210815968a5e80fa2b20756169db2d9f77",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_boost": "4585b5085a152bf9a3916ffbd20689138af79af096ca694f8cfc0fd7db1c01e9",
+    "infinity_context_server.memory_comparison_rerank_policy._relation_coverage_boost": "39d0efe6ccec2c6b7720fe9e0debc81125b6de533d1fb74e182074a32dfb3aed",
+    "infinity_context_server.memory_comparison_rerank_policy._focused_relation_density_boost": "22f514815f7e88b536bf2fef7396279a26bfd42208fa6b1814d36168afd6c344",
+    "infinity_context_server.memory_comparison_rerank_policy._boost_cap": "0f758fc76ba5cb269c4134b0c5fb32caaa0e55d66fad6265e59f46bf2e998c63",
+    "infinity_context_server.memory_comparison_rerank_policy._has_temporal_sequence_direction_conflict": "b7a7725c3cf59d12133d726f2b73f5b997a795fb070aee7de2a1b4eac5b890b0",
+    "infinity_context_server.memory_comparison_rerank_policy._apply_provenance_safety_cap": "07fcbd1b443446ec55e71c462a45567f0791c6d33050b91eaf02148d762f968e",
+    "infinity_context_server.memory_comparison_rerank_policy._provenance_safety_cap": "d7201d272a537df3f9668641696dc690fff97fb11fe106958ed42c2c232aac44",
+    "infinity_context_server.memory_comparison_rerank_policy._current_goal_temporal_context_grounded": "b27d28be65a37afe042655820eb278ec406f417d6bfa5b6310018273ec8c8630",
+    "infinity_context_server.memory_comparison_rerank_policy._has_precise_grounding": "18f3c2e1f917e0d3c4725ebfb174f87b2748a990cf0944d978666f7363124b31",
+    "infinity_context_server.memory_comparison_rerank_policy._has_role_specific_grounding": "183118d57ef4878f070284e11a3416b6fe961c0e960c70d3dcde8a1eb1e664da",
+    "infinity_context_server.memory_comparison_rerank_policy._has_count_list_answer_grounding": "6ba3e042b6ef0240c2beabc90edf192322099fae965b415dd41a9159a8d03899",
+    "infinity_context_server.memory_comparison_rerank_policy._has_unmeasured_source_ref_locality": "6bd6435eb6009312e392a2aa553db89e4ca1e1b1c278e3d0c2e069696547c4b5",
+    "infinity_context_server.memory_comparison_rerank_policy._has_contrast_grounding": "e3af596bc3616b7f9d7e9ccfb5ef61599ef1056acad383a8d3e6acfd72379b0d",
+    "infinity_context_server.memory_comparison_rerank_policy._rounded_boosts": "0c99c766d2cfe2a62060ca2d8b414130985fbea7d4126c80d44e31db096be9c6",
+    "infinity_context_server.memory_comparison_rerank_policy._float_signal": "dc069af48c71e15d16693330f41e40ed51be2c80b0d05df9d4ed385f6ee42d9f",
+    "infinity_context_server.memory_comparison_rerank_policy._stale_only_current_state_evidence": "797ce05eb3c49899d28a0d36cf71fa424d5537991218e1aadfd49405cca414d0",
+    "infinity_context_server.memory_comparison_rerank_policy._partial_commitment_status_evidence": "a0dcb4073c6e75db994a3540997e0c580381edaeb00c477269743e7e0c42be11",
+    "infinity_context_server.memory_comparison_rerank_policy._bool_signal": "0426b51e21674ec0107518abce85aaca318b522268a888ac4506ae70d238f1d4",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyFeatures": "0f026f4a23056cda7c26b9ac58c551123c518c45eb555fffbfea3f66f646d637",
+    "infinity_context_server.memory_comparison_rerank_policies._COUNT_LIST_GENERIC_RELATION_TERMS": "893335e2a5e157fe837a702b8077ddf50e79c7f0d881d65e225715c47abd590a",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyContribution": "5d62da62b5eaf4b32b4e1a22626e9b8ea027938f1d80fa2e02253240e7559db5",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicyPlan": "b293de4fe5bf5af1213fd9697fda4b20c51fa56ed1937f891e5d2f0e15828385",
+    "infinity_context_server.memory_comparison_rerank_policies.RerankPolicy": "7e5e7adf066c17a6797ebba28eaa331cb639642b52c5013dc724dbb10aff03a0",
+    "infinity_context_server.memory_comparison_rerank_policies.EntitySpeakerPolicy": "8dc015bdbb8005f6a310d41885011b381238ef48c527d28220321b50abef3a7e",
+    "infinity_context_server.memory_comparison_rerank_policies.RelationCoveragePolicy": "21b9929cd2c67d60aceea483cf40ec90327b4dd21aa8a513cf761320b5b77c1a",
+    "infinity_context_server.memory_comparison_rerank_policies.TemporalPolicy": "07197e4080538e7a0bf26b8d46f259e60231bd561aa294febbe6ee4d17cd9433",
+    "infinity_context_server.memory_comparison_rerank_policies.PreferenceIntentPolicy": "6c95a6a91d23c2cd2a151c30e2289c96ff614ab6e1fea820370a0ebd2ab8eb06",
+    "infinity_context_server.memory_comparison_rerank_policies.FocusedTurnPolicy": "57e19555437512d27136c6f0a4f4b8f7528768828ba884c07c1d7c1df016ed58",
+    "infinity_context_server.memory_comparison_rerank_policies.EvidenceBundlePolicy": "93d955b6438c28547180ca7bd32c948f1ef39370a49ea6da1b7c6ab7e04ff19d",
+    "infinity_context_server.memory_comparison_rerank_policies.SourceGroundingPolicy": "adc4e8383612f493fe98e4ebfe186fa42f8a2946656655d6000cb18a6f57b06b",
+    "infinity_context_server.memory_comparison_rerank_policies.AnswerabilityPolicy": "520fc02db9a9ea36c2ebd940f61b9f0c8de58fee4aecdd9a3941838259061158",
+    "infinity_context_server.memory_comparison_rerank_policies.MultiHopPolicy": "3b7618614bd3adce675b35553e5c4578167d3d0f37419719f04e186afd8528e5",
+    "infinity_context_server.memory_comparison_rerank_policies.ContrastIntentPolicy": "1e87d620fefb54fb74edb07c626b1892f4940426b8c56335b4690bd7913940b3",
+    "infinity_context_server.memory_comparison_rerank_policies.NegativeAbsencePolicy": "c094fc65093e094bf665cd4d050f730e6233e759e0fb0fc0fe2a031ba66f9992",
+    "infinity_context_server.memory_comparison_rerank_policies.LocationIntentPolicy": "a9656db7efa6ca3e69a1e946943b2d399f3974f07da9c089d30d843b52caa322",
+    "infinity_context_server.memory_comparison_rerank_policies.ValueAnswerShapePolicy": "4bcaf13525d4f993df2b9cd1fb697080c79ac91a42b8092f1be56968c9816987",
+    "infinity_context_server.memory_comparison_rerank_policies.CountListAnswerShapePolicy": "8677fda6f371807da8f6bbda792fa84da7b0b428e6ea071968aabd56e5dbef7f",
+    "infinity_context_server.memory_comparison_rerank_policies._has_count_list_subject_grounding": "474b0c6cd656bf76d587348757603f40feb9cb6d0cbcc2a5d071f18cfbeb8d7e",
+    "infinity_context_server.memory_comparison_rerank_policies.TypedRelationSupportPolicy": "9d5b1cd1423fec72e1e5a88108e4957c5df04995f6ad944c10a0e253150d2ae4",
+    "infinity_context_server.memory_comparison_rerank_policies.score_rerank_policy_contributions": "15a9246b84e37d91e48ad721bbff8efbb6364407eb2ca1d5077b2a079f09402b",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_boost": "4b2a2cf546585660cb0025f04a66871ebe245be1c3c7f63e2dbae25c8b6634e9",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_coverage_boost": "afa34313f6c87549fa35b0c7d048461b6ced91ef96d18973afdc9abced9420e1",
+    "infinity_context_server.memory_comparison_rerank_policies._relation_category_coverage_boost": "abb3923ff181121fd84013bd39a9bbedff1849f1ce0e5c2954691277e3aa84e7",
+    "infinity_context_server.memory_comparison_rerank_policies._focused_relation_density_boost": "55b6e829a1e5fae1d1c754be361d466472256e91dd029adfb208666f87cc44b8",
+    "infinity_context_server.memory_comparison_rerank_policies._speaker_grounding_eligible": "8ae8a93ac55083a5532436a5035238ece1f921847e9dbc67dc9146b53ca4cd2b",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_evidence_grounded": "96853f3e6b5663536abba487236407dd9302737f6838637eaabfac036c482646",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_required": "f38d77811ab0284de4a3ec2129ec704841fa512fea617224939b18cdb3db96cc",
+    "infinity_context_server.memory_comparison_rerank_policies._preference_reason_grounded": "18278e8e4545e3e965cb9ecafe1c4324556d505b3caef476119c760718d81a81",
+    "infinity_context_server.memory_comparison_rerank_policies._has_typed_preference_relation_hit": "3d65ff073a1666766b8abc5994e8b65057cec64c42443bba765e06a92f97dba9",
+    "infinity_context_server.memory_comparison_rerank_policies._visual_evidence_grounded": "8e87ba6c90508a35c9e459eda7fc84753024788b977e2b315648e28ce35f81c1",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_evidence_grounded": "95abd8d29ff923598736fd07d71a3af424cf720655bb663a24f7612c7d6fc86d",
+    "infinity_context_server.memory_comparison_rerank_policies._source_grounding_plausible_but_ungrounded": "e0ab6dc1dcc3665bc67d92750b1a3b49dd93898a87a13588fdceab550b304c4a",
+    "infinity_context_server.memory_comparison_rerank_policies._direct_speaker_relation_grounded": "a6df3744e2454eda25b133d2570345a3344c570b0bbbcbc87fffa068e25c684c",
+    "infinity_context_server.memory_comparison_rerank_policies._has_measured_locality_below": "d9196f67f5a352d42bc6159881b1b6b17eb511d2739e6687b60046483d0ebbcc",
+    "infinity_context_server.memory_comparison_rerank_policies._has_precise_or_unmeasured_source_provenance": "c1a10f5faf56021ef80981f276e299bb403bdf2b5c429fe14b925912d9f8aad4",
+    "infinity_context_server.memory_comparison_rerank_policies._has_positive_boost": "ccc589a667cf329018992d5251a03474a9c9b9ac659d68f7751c4b3ad07cd077",
+    "infinity_context_server.memory_comparison_rerank_policies._rounded_boosts": "0c99c766d2cfe2a62060ca2d8b414130985fbea7d4126c80d44e31db096be9c6",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_temporal_boost": "2e06ba639600e119abe147a9a67c7ad2411a99abbfcc677b8069c604aab561c3",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction": "975dcba1973136e309ef8b6c98b08973f9642472171512071ba1496e603bb8ad",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_query_direction": "869f0d317ffd701c551a9515e545e02e89cebcbd33d5c56a1e79563c9c79b2eb",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_sequence_direction_conflict": "1abf696c806580801156eb73c082b60e333509b6933b0fb9253a9f9fb2c1a929",
+    "infinity_context_server.memory_comparison_rerank_policies._temporal_role_support_eligible": "991687ff6ed447015f3060a9f1d43992469ddfeab474e99abc46a5ebaa728709",
+    "infinity_context_server.memory_comparison_rerank_policies._has_content_temporal_evidence": "19077b163a763ef88a60ebe74a717d7db088b3452228212df6ba84d1bb4e3719",
+    "infinity_context_server.memory_comparison_rerank_policies._stale_only_current_state_evidence": "3218f6479de7f7595fa93c02bfb52ba7fb148d7dd2a279b598aa440a678d8f94",
+    "infinity_context_server.memory_comparison_rerank_policies._has_temporal_query_role": "60280f159c887c912e193a2419a87b8d1666fac2d593cdb13c826e99062afa67",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost": "adc2813f86f514f87d9986989302c214f8625963bed8b31770c6c1ec45bc4950",
+    "infinity_context_server.memory_comparison_rerank_policies._answerability_boost_eligible": "02bcd2ef64a39059bcad9e7f7b496c4d18c0f4607dce76c8c49c6d1185d548cd",
+    "infinity_context_server.memory_comparison_rerank_policies._has_missing_required_answer_evidence": "92c8f18f3d58dc07936dd84428bafbdcbdbf461c4b07c50d27d9a7c2403e9f04",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_category_answerability_grounded": "c73ef45e7b934436b4f4bd469427b4e6d7a89eefc6caf8f79e85e4e6700b817d",
+    "infinity_context_server.memory_comparison_rerank_policies._contrast_boost_eligible": "d95ca5ac8381cc0ba13aac1e4e2a7ae13350853bb5f19961803e692510905337",
+    "infinity_context_server.memory_comparison_rerank_policies._negative_absence_evidence_grounded": "99537a685b1ee2c732aaeda7eb5c614b662e4365cd9609c8a77896074692cdcf",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_RELATION_SUPPORT_ROLE_CATEGORIES": "29dcd2061629b1a94fd627d15c6dcffdb495fe517cae9da16612e0495311c42a",
+    "infinity_context_server.memory_comparison_rerank_policies._PREFERENCE_POLARITY_TERMS": "53952e68fce19a76cabf4d9e0187af151d025d368cf205629174a65832480384",
+    "infinity_context_server.memory_comparison_rerank_policies._MISSING_REQUIRED_ANSWER_EVIDENCE_REASONS": "94637cef46c7b9091f57b19419eec0fb4f68f249b4f036bfcae782d486ac3569",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_RELATION_SUPPORT_NEEDS": "9272fa63ea04dcd38334c99b96613141f9106e12c56f98592d037fe921df39eb",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_roles": "b6bc2b9d8144017fc84518eedc27836b55194f1d43a6c5d58d84d1fd719a8016",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_category_hits": "bc4108af1330b1179aaae940b4342c66f08c18e6ea692e2176b9ac97cbc8d613",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_hit_roles": "4ec39a4d7a960ea3bc3aab9d11707e50fa73e944be5af592f8af5d6b382abab7",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_relation_support_grounded": "68f3763f7ea2f582a1ec4dcf24a60e24d54b30c1858fa713ef6e82e7d4cf16f3",
+    "infinity_context_server.memory_comparison_rerank_policies._support_goal_category_grounded": "4ebecc2f409fb68c3c9658c6edf489068133c574c82015123d6876bd547fc5e2",
+    "infinity_context_server.memory_comparison_rerank_policies._typed_profile_category_grounded": "11980219ea02e2e67c1e53721e4a8306423363c3e2f29ed0297ce16619672dbe",
+    "infinity_context_server.memory_comparison_rerank_policies._TYPED_PROFILE_SUPPORT_CATEGORIES": "f05b975ff4fc96c0a35fdd9332e2a6bfa08b7fa4f5bb87f25fabb16490e57763",
+    "infinity_context_server.memory_comparison_rerank_policies._LOCATION_SUPPORT_TERMS": "832ed69730e61397008a9a1c65c94dbd1959c214c2d8219a4daccc2a430d68f2",
+    "infinity_context_server.memory_comparison_rerank_policies._reason_codes": "7d80f2b79ee02eed768bbe8f73f2697d9ae08b571cf5e6841438c869b6c93403",
+    "infinity_context_server.memory_comparison_rerank_policies._DEFAULT_POLICIES": "48d0f4424afc108e2a39c0292fd35b2989d680e51504af643359c64bcbd3d050"
+  }
+}
