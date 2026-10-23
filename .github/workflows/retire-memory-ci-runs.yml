@@ -1,0 +1,65 @@
+name: Retire superseded memory PR checks
+on:
+  push:
+    branches: [verify/memory-workbench-20261023]
+    paths: [.github/workflows/retire-memory-ci-runs.yml]
+permissions:
+  actions: write
+jobs:
+  retire:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Cancel only two superseded runs owned by this work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          from urllib.error import HTTPError
+          from urllib.request import Request, urlopen
+
+          root = "https://api.github.com/repos/777genius/infinity-context"
+          expected = {
+              39978068711: "350f8ceb64de91a3dd1b8f8efe5bd7ff5e16dfd2",
+              39981076763: "a5c79871d7dc23e12f8dd47aa73bc39e14b418e9",
+          }
+          headers = {
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2026-03-10",
+          }
+          def request(path, method="GET"):
+              with urlopen(Request(root + path, headers=headers, method=method), timeout=20) as response:
+                  data = response.read()
+                  return json.loads(data) if data else None
+          for run_id, sha in expected.items():
+              path = f"/actions/runs/{run_id}"
+              run = request(path)
+              assert run["head_sha"] == sha
+              assert run["head_branch"] == "perf/memory-retrieval-20261023"
+              assert run["event"] == "pull_request"
+              assert run["path"] == ".github/workflows/infinity-context-ci.yml"
+              if run["status"] == "completed":
+                  print(run_id, "already completed:", run["conclusion"])
+                  continue
+              try:
+                  request(path + "/cancel", "POST")
+              except HTTPError as error:
+                  if error.code != 409:
+                      raise
+              for _ in range(6):
+                  time.sleep(5)
+                  if request(path)["status"] == "completed":
+                      break
+              else:
+                  # Only after normal cancellation fails to finish an always() job.
+                  try:
+                      request(path + "/force-cancel", "POST")
+                  except HTTPError as error:
+                      if error.code != 409:
+                          raise
+              print(run_id, "cancellation requested; latest PR head is untouched")
+          PY
