@@ -1,6 +1,6 @@
 # Amendment: evidence policies belong in the benchmark bounded context
 
-Status: both independent critics approved amendment round 2 after round-one fixes; awaiting exact plan publication and coordinator production release. Preserve the existing uncommitted exact-body extraction as a checkpoint. Do not relocate or expand production scope until the same two critics complete two independent review/fix rounds and the coordinator releases this amendment.
+Status: implemented after both independent critics approved amendment round 2 and the coordinator published the exact amended plan tree and released production changes. Option A below is the accepted scope. Final source/DTO and packaging/runtime reviews both approved without substantive findings. See the [final verification record](comparison-policies-verification-20261023.md) for exact ownership, compatibility, artifact hashes and validation results. The planning discussion below remains the review history.
 
 ## Discovered architectural requirement
 
@@ -87,11 +87,11 @@ All original source-identity and partial-support declaration ASTs must also matc
 
 Only source-path entries and directly associated assertions change in these existing path inventories; no launcher behavior, provider configuration or test isolation assertions change:
 
-- `scripts/install.sh` generated launcher; `docker-compose.yml` source PYTHONPATH; the nine generated `plugins/infinity-context-agent-plugin*/bin/infinity-context-{mcp,mcp-doctor,plugin-hook}` wrappers (three plugin variants).
+- `docker-compose.yml` source PYTHONPATH. The generated `scripts/install.sh` CLI launcher and the eight existing plugin bin wrappers were audited and left unchanged because their Python entrypoints do not import server/benchmark code; see the bounded client decision below.
 - `tests/e2e/infinity_context_server_harness.py`; all four explicit subprocess path lists in `tests/unit/test_memory_comparison_lightweight_imports.py`; `tests/unit/test_memory_comparison_latency_contracts.py`; `tests/unit/test_multimodal_live_provider_canary.py`.
 - `benchmarks/mem0-oss-adapter-v5/pyproject.toml` and its `tests/test_package_import_boundary.py`, including the actual package-file-origin assertion.
 - `scripts/mem0_v5_live_micro_canary.py`, `scripts/mem0_v5_live_project_one_unit.py`, `scripts/obsidian_connector_live_smoke.py`, and `scripts/obsidian_mcp_smoke.py`, only where they construct checkout package paths.
-- `packages/infinity_context_obsidian_plugin/test/fixtures/real-infinity-context-obsidian.cjs` and the explicit pythonpath arrays in `test/specs/{full-stack-helpers.ts,full-stack-path-safety.e2e.ts,full-stack-churn.e2e.ts,full-stack-frontmatter.e2e.ts,plugin-install.e2e.ts,full-stack-import-toggle.e2e.ts,full-stack-race.e2e.ts,full-stack-plugin-lifecycle.e2e.ts,plugin-settings-recovery.e2e.ts,full-stack-prepare.e2e.ts,full-stack-settings-rotation.e2e.ts,full-stack-scope-bulk.e2e.ts,full-stack-batch.e2e.ts,full-stack-friendly-names.e2e.ts,full-stack-control-center.e2e.ts,full-stack-root-control.e2e.ts,full-stack-conflict-ux.e2e.ts}`. These start the real product server, whose router composition imports the compatibility source policy. No unrelated TypeScript behavior edits.
+- The explicit pythonpath arrays in `packages/infinity_context_obsidian_plugin/test/specs/{full-stack-helpers.ts,full-stack-path-safety.e2e.ts,full-stack-churn.e2e.ts,full-stack-frontmatter.e2e.ts,plugin-install.e2e.ts,full-stack-import-toggle.e2e.ts,full-stack-race.e2e.ts,full-stack-plugin-lifecycle.e2e.ts,plugin-settings-recovery.e2e.ts,full-stack-prepare.e2e.ts,full-stack-settings-rotation.e2e.ts,full-stack-scope-bulk.e2e.ts,full-stack-batch.e2e.ts,full-stack-friendly-names.e2e.ts,full-stack-control-center.e2e.ts,full-stack-root-control.e2e.ts,full-stack-conflict-ux.e2e.ts}`. These start the real product server, whose router composition imports the compatibility source policy. The direct CLI fixture `test/fixtures/real-infinity-context-obsidian.cjs` is unchanged after verifying its client-only import closure. No unrelated TypeScript behavior edits.
 - `packages/infinity_context_server/infinity_context_server/build_identity.py`: add benchmark package to `_RUNTIME_PACKAGES`. This existing inventory controls source runtime hashing and installed runtime-root/RECORD/shadow-import checks; moved executed code must remain measured. The file is 295 lines, well below the cap. Add <=180-line `tests/unit/test_benchmark_build_identity.py`: changing a benchmark source changes source runtime digest; changing an installed benchmark module changes installed runtime digest; missing/out-of-root benchmark RECORD identity remains rejected. Keep existing identity checks intact.
 
 `Dockerfile` already copies all packages; `scripts/build_manifest.py` already includes the entire packages tree, so neither needs a semantic change. Verify rather than duplicate their inventories. For any inventory above whose actual transitive import does not reach moved policy, record the reason and avoid its edit. New/repartitioned modules and existing non-legacy modules remain <=1,000 lines. The existing 1,649-line test_multimodal_live_provider_canary.py receives only its required source-path list update and must keep or lower its frozen legacy ceiling; no fixture rewrite or ceiling increase.
@@ -109,9 +109,10 @@ python scripts/smoke_benchmark_package_wheels.py --output /tmp/infinity-context-
 The script first creates a clean staging copy of the necessary root metadata, packages and deployment-package sources under its temporary output, excluding .git, virtual environments, caches, node_modules and prior build/dist artifacts. Build that copy so setuptools build/egg-info output cannot contaminate checkout source-runtime identity hashing. It executes the equivalent of these exact commands from the staging copy, with absolute project/output paths:
 
 ```bash
+python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir WHEELS .
 python -m pip wheel --no-index --no-deps --no-build-isolation --wheel-dir WHEELS \
   packages/infinity_context_core packages/infinity_context_benchmarks \
-  packages/infinity_context_runtime_bridge packages/infinity_context_server .
+  packages/infinity_context_runtime_bridge packages/infinity_context_server
 python -m pip install --no-index --no-deps --target CORE_BENCH_TARGET \
   WHEELS/infinity_context_core-0.1.0-py3-none-any.whl \
   WHEELS/infinity_context_benchmarks-0.1.0-py3-none-any.whl
@@ -134,7 +135,7 @@ Build core/server independent wheels using their actual default setuptools backe
 
 ### Bounded plugin authoring decision
 
-Read all three plugin AGENTS.md and GENERATED.md before planning wrapper edits. Their managed guidance says edit only plugin/; listed managed outputs exclude bin wrappers, and the referenced plugin/README.md does not exist. The actual launcher.yaml points to shell wrappers; wrappers execute infinity_context_mcp entrypoints. Audit of MCP/CLI/Obsidian Python sources finds no imports from infinity_context_server (only Docker service-name strings). Thus these client launchers do not transitively load moved benchmark policy. Leave all nine plugin bin wrappers and all managed generated plugin files unchanged; no generator workflow or user exception is needed for a nonexistent dependency. Verify their relevant entrypoint imports with a guard rejecting server/benchmark imports, and document this closure rather than adding every package to unrelated clients.
+Read all three plugin AGENTS.md and GENERATED.md before planning wrapper edits. Their managed guidance says edit only plugin/; listed managed outputs exclude bin wrappers, and the referenced plugin/README.md does not exist. The actual launcher.yaml points to shell wrappers; wrappers execute infinity_context_mcp entrypoints. Independent inventory found eight wrappers: three main, two Cursor and three Gemini; Cursor has no hook wrapper. Audit of MCP/CLI/Obsidian Python sources finds no imports from infinity_context_server (only Docker service-name strings). Thus these client launchers do not transitively load moved benchmark policy. All eight plugin bin wrappers and all managed generated plugin files remain unchanged. The relevant MCP, hook, CLI and Obsidian CLI imports passed with a guard rejecting server/benchmark imports; the doctor inline Python is stdlib-only. No generator workflow or user exception was needed.
 
 ## Architecture bookkeeping and tests
 
@@ -152,6 +153,6 @@ Read all three plugin AGENTS.md and GENERATED.md before planning wrapper edits. 
 - Amendment round 2 core critic: approved; plans/review-amendment-r2-server-by-core.md. Canonical DTO metadata and exact isolated packaging proof resolve R1. Bounded notes: retain existing oversized path-test ceiling and reconcile plugin authoring guidance.
 - Amendment round 2 lifecycle critic: approved; plans/review-amendment-r2-server-by-lifecycle.md. All R1 DTO, isolation and runtime-identity/path findings resolved; no substantive blocker remains.
 - Owner fixes after amendment round 2: clarify the existing 1,649-line path-test exception cannot grow; audited all three plugin guidance/inventories and concrete MCP import closure, so unrelated client bin/generated files remain unchanged. Scoped metadata wording correctly distinguishes DTO contracts from naturally relocated function defining modules. No production scope expansion after review.
-- Coordinator release: awaiting exact plan-tree publication. All supporting source/safety/packaging relocation remains untouched.
+- Coordinator release: amended plan published in PR #93 as `2567a855` (exact reviewed tree `744fcd06`); production gate released only after both amendment round-two approvals. Published production source commit `2736456a`, validation commit `2cbd369b`, and the one-entry fake RECORD fixture correction `079bef8d` were then independently reviewed. Final evidence is recorded separately without changing baseline expectations.
 
-No relocation or public safety/packaging edits before this amended gate is complete.
+No relocation or public safety/packaging edits preceded this amended gate.

@@ -1,6 +1,6 @@
 # Evidence bundle planning: policy boundaries with identical results
 
-Status: both independent critics approved round 2 after round 1 fixes; awaiting coordinator release. No production implementation is authorized until the coordinator releases the review gate.
+Status: completed under the subsequently reviewed [benchmark-boundary amendment](comparison-benchmark-boundary-amendment-20261023.md). The coordinator released the original implementation gate after both critics approved round 2. The architecture gate then exposed an aggregate benchmark-debt constraint that required the amendment, another two independent review rounds, and a separate release before relocation. This document preserves the original plan; the amendment supersedes its proposed server leaf paths and moved-DTO defining-module policy. See the [final verification record](comparison-policies-verification-20261023.md) for implemented ownership, compatibility and measured results.
 
 Base: `44ac164a8395c5847ae8792dded95d0dfe4526dd` (`main`). Direction: server comparison policies. Worktree: `worktrees/server`; branch: `refactor/comparison-policies-20261023`.
 
@@ -119,6 +119,6 @@ Primary risks are hidden ordering dependence, cycles between ordering and role s
 - Round 1 fixes: exact commands and named composition scenarios added; base/post composition gates mandatory; raw and normalized constructor config recorded; tuple fields explicitly reconstructed and types checked; clamped caps/max_items, empty/unknown roles and tied-input permutations added to characterization. No production scope expansion.
 - Round 2 critic 1: core direction owner approved the revised plan after independently rechecking actual composition scenarios, tuple/config restoration and policy graph. Full review: `plans/review-r2-server-by-core.md`.
 - Round 2 critic 2: lifecycle direction owner independently approved exact mandatory consumers and type-faithful recorder reconstruction. Full review: `plans/review-r2-server-by-lifecycle.md`.
-- Round 2 fixes: no additional blocking or medium findings; production scope unchanged. Parent implementation release: pending.
+- Round 2 fixes: no additional blocking or medium findings; production scope unchanged. Parent implementation release: granted after exact plan publication in PR #93. The later package-boundary amendment received its own two-critic, two-round gate before supporting relocation.
 
 Read-only baseline before release: 349 focused planner/evidence/source/answer-context/quality tests passed in 7.24s; the mandatory benchmark file then passed 306 tests in 8.57s (655 total). The default sandbox first blocked benchmark collection because `/proc/{os.getpid()}/stat` exposes mismatched namespace PIDs. Running the identical authorized local pytest command with sandbox escalation resolved the environment issue without any code changes or runtime-identity policy patches. Use the same supported execution mode for final composition/architecture tests. The benchmark run emitted only an existing Starlette TestClient deprecation warning.
