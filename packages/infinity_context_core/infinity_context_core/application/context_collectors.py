@@ -20,6 +20,7 @@ from infinity_context_core.application.context_canonical_fact_retrieval import (
 )
 from infinity_context_core.application.context_hydration import ContextHydrator
 from infinity_context_core.application.context_media_time import enrich_context_item_with_media_time
+from infinity_context_core.application.context_query_execution import collect_query_results
 from infinity_context_core.application.context_query_expansion import (
     QueryExpansion,
     QueryExpansionPlan,
@@ -40,12 +41,15 @@ from infinity_context_core.domain.entities import MemoryAnchor, MemoryChunk, Mem
 from infinity_context_core.ports.adapters import (
     EmbeddingPort,
     GraphMemoryPort,
+    GraphSearchResult,
     PortStatus,
     VectorMemoryPort,
+    VectorSearchResult,
 )
 from infinity_context_core.ports.capabilities import (
     CapabilityRecallCandidate,
     CapabilityRecallQuery,
+    CapabilityRecallResult,
     CapabilityStatus,
     MemoryScopeFilter,
     RagRecallPort,
@@ -438,22 +442,29 @@ class VectorContextCollector:
         total_candidates = 0
         degraded_count = 0
         degraded_reason: str | None = None
-        for index, (retrieval_query, vector) in enumerate(vector_queries):
-            try:
-                result = await _await_with_deadline(
-                    self._vector_index.search_chunks(
-                        space_id=str(query.space_id),
-                        memory_scope_ids=memory_scope_ids,
-                        thread_id=str(query.thread_id) if query.thread_id else None,
-                        query_vector=vector,
-                        query_text=retrieval_query.query,
-                        limit=int(diagnostics["vector_query_limit"]),
-                    ),
-                    timeout_seconds=self._deadlines.vector_search_seconds,
-                )
-            except Exception as exc:
+
+        async def search_vector(
+            item: tuple[QueryExpansion, tuple[float, ...]],
+        ) -> VectorSearchResult:
+            retrieval_query, vector = item
+            return await self._vector_index.search_chunks(
+                space_id=str(query.space_id),
+                memory_scope_ids=memory_scope_ids,
+                thread_id=str(query.thread_id) if query.thread_id else None,
+                query_vector=vector,
+                query_text=retrieval_query.query,
+                limit=int(diagnostics["vector_query_limit"]),
+            )
+
+        results = await collect_query_results(
+            vector_queries, search_vector, timeout_seconds=self._deadlines.vector_search_seconds
+        )
+        for index, ((retrieval_query, _), result) in enumerate(
+            zip(vector_queries, results, strict=True)
+        ):
+            if isinstance(result, Exception):
                 degraded_count += 1
-                degraded_reason = _exception_code("vector", exc)
+                degraded_reason = _exception_code("vector", result)
                 if degraded_reason == "vector.timeout":
                     _mark_derived_retrieval_degraded(
                         diagnostics,
@@ -567,21 +578,25 @@ class GraphContextCollector:
         total_candidates = 0
         degraded_count = 0
         degraded_reason: str | None = None
-        for index, retrieval_query in enumerate(retrieval_queries):
-            try:
-                result = await _await_with_deadline(
-                    self._graph_index.search(
-                        space_id=str(query.space_id),
-                        memory_scope_ids=memory_scope_ids,
-                        thread_id=str(query.thread_id) if query.thread_id else None,
-                        query=retrieval_query.query,
-                        limit=int(diagnostics["graph_query_limit"]),
-                    ),
-                    timeout_seconds=self._deadlines.graph_search_seconds,
-                )
-            except Exception as exc:
+
+        async def search_graph(retrieval_query: QueryExpansion) -> GraphSearchResult:
+            return await self._graph_index.search(
+                space_id=str(query.space_id),
+                memory_scope_ids=memory_scope_ids,
+                thread_id=str(query.thread_id) if query.thread_id else None,
+                query=retrieval_query.query,
+                limit=int(diagnostics["graph_query_limit"]),
+            )
+
+        results = await collect_query_results(
+            retrieval_queries, search_graph, timeout_seconds=self._deadlines.graph_search_seconds
+        )
+        for index, (retrieval_query, result) in enumerate(
+            zip(retrieval_queries, results, strict=True)
+        ):
+            if isinstance(result, Exception):
                 degraded_count += 1
-                degraded_reason = _exception_code("graph", exc)
+                degraded_reason = _exception_code("graph", result)
                 if degraded_reason == "graph.timeout":
                     _mark_derived_retrieval_degraded(
                         diagnostics,
@@ -672,25 +687,29 @@ class RagContextCollector:
         total_candidates = 0
         degraded_count = 0
         degraded_reason: str | None = None
-        for index, retrieval_query in enumerate(retrieval_queries):
-            try:
-                result = await _await_with_deadline(
-                    self._rag_recall.recall(
-                        CapabilityRecallQuery(
-                            scope=MemoryScopeFilter(
-                                space_id=str(query.space_id),
-                                memory_scope_ids=memory_scope_ids,
-                                thread_id=str(query.thread_id) if query.thread_id else None,
-                            ),
-                            query=retrieval_query.query,
-                            limit=int(diagnostics["rag_query_limit"]),
-                        )
+
+        async def search_rag(retrieval_query: QueryExpansion) -> CapabilityRecallResult:
+            return await self._rag_recall.recall(
+                CapabilityRecallQuery(
+                    scope=MemoryScopeFilter(
+                        space_id=str(query.space_id),
+                        memory_scope_ids=memory_scope_ids,
+                        thread_id=str(query.thread_id) if query.thread_id else None,
                     ),
-                    timeout_seconds=self._deadlines.rag_recall_seconds,
+                    query=retrieval_query.query,
+                    limit=int(diagnostics["rag_query_limit"]),
                 )
-            except Exception as exc:
+            )
+
+        results = await collect_query_results(
+            retrieval_queries, search_rag, timeout_seconds=self._deadlines.rag_recall_seconds
+        )
+        for index, (retrieval_query, result) in enumerate(
+            zip(retrieval_queries, results, strict=True)
+        ):
+            if isinstance(result, Exception):
                 degraded_count += 1
-                degraded_reason = _exception_code("rag", exc)
+                degraded_reason = _exception_code("rag", result)
                 if degraded_reason == "rag.timeout":
                     _mark_derived_retrieval_degraded(
                         diagnostics,
@@ -821,17 +840,13 @@ def _rag_chunk_item(
     source_refs = source_refs_with_query_snippet(
         chunk_source_refs(
             chunk,
-            text_preview=(
-                cite_snippet.text if cite_snippet else chunk.text.strip()
-            ),
+            text_preview=(cite_snippet.text if cite_snippet else chunk.text.strip()),
         ),
         cite_snippet,
         include_char_range=True,
         source_char_base=chunk_char_base,
     )
-    query_snippet_diag = query_snippet_diagnostics(
-        cite_snippet, source_char_base=chunk_char_base
-    )
+    query_snippet_diag = query_snippet_diagnostics(cite_snippet, source_char_base=chunk_char_base)
     return enrich_context_item_with_media_time(
         ContextItem(
             item_id=str(chunk.id),
@@ -849,9 +864,7 @@ def _rag_chunk_item(
                     "retrieval_channel": "rag_recall",
                     "rag_query_reason": query_reason,
                     "source_ref_count": len(source_refs),
-                    **query_snippet_score_signals(
-                        cite_snippet, source_char_base=chunk_char_base
-                    ),
+                    **query_snippet_score_signals(cite_snippet, source_char_base=chunk_char_base),
                 },
                 "provenance": {
                     "retrieval_sources": ["rag_recall"],
