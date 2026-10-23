@@ -143,3 +143,18 @@ Review must focus on import cycles, helper identity, schema callback order and p
 - Round 2 core critic (`review-r2-lifecycle-by-core.md`): L1 and L2 separately approved, no unresolved blocker.
 - Round 2 runtime critic (`review-r2-lifecycle-by-runtime.md`): L1 and L2 separately approved, no unresolved blocker.
 - Coordinator implementation release: pending. Do not infer source authorization from critic approval alone.
+
+## L1 implementation evidence
+
+Coordinator released L1 after both independent critics' round-2 approvals. L2 remains a separate
+future branch/PR. Before changing production source, the bounded executable audit captured all
+31 original definitions/constants with explicit final owners, function/method global bindings,
+signatures/evaluated hints/docstrings, legacy class/function reference pickles, the complete
+15-step actual schema callback trace and the one-session/one-clock UoW contract. The capture
+checks that production source is byte-identical to pinned `b0b87bd7` and refuses fixture overwrite.
+
+The approved focused schema/error/repository suite passed against unchanged production:
+**39 passed, 1 skipped in 8.55s**. The skip is the PostgreSQL fence case without a DSN in this
+focused invocation; coordinator separately proved all six targeted real-Postgres baseline cases
+on the isolated PostgreSQL 18.6 runtime. Post-change real-PG evidence remains mandatory and will
+run when coordinator releases that shared runtime after the broader baseline E2E.
