@@ -30,9 +30,10 @@ PREFIX = "infinity_context_benchmarks.rerank_policy"
 
 
 def _read(name):
-    if name == "cases.json":
-        raw = gzip.decompress((FIXTURES / "cases.json.gz").read_bytes())
-        assert hashlib.sha256(raw).hexdigest() == _read("contract.json")["cases_sha256"]
+    if name in {"cases.json", "activation_cases.json"}:
+        raw = gzip.decompress((FIXTURES / (name + ".gz")).read_bytes())
+        key = "cases_sha256" if name == "cases.json" else "activation_cases_sha256"
+        assert hashlib.sha256(raw).hexdigest() == _read("contract.json")[key]
         return json.loads(raw)
     return json.loads((FIXTURES / name).read_text())
 
@@ -55,9 +56,20 @@ def test_complete_frozen_scores_contributions_and_signal_order():
     assert len(cases) == _read("contract.json")["case_count"]
     for case in cases:
         assert replay_scoring_case(case, api) == case["expected"]
+    activation = _read("activation_cases.json")
+    assert len(activation) == _read("contract.json")["activation_case_count"]
+    for case in activation:
+        assert replay_scoring_case(case, api) == case["expected"]
+    active = {
+        item["policy"]
+        for case in [*cases, *activation]
+        for item in case["expected"]["plan"]["contributions"]
+        if item["score"] != 0 or item["reason_codes"]
+    }
+    assert active == set(_read("contract.json")["default_order"])
     if importlib.util.find_spec(PREFIX):
         canonical = importlib.import_module(PREFIX)
-        for case in cases:
+        for case in [*cases, *activation]:
             assert replay_scoring_case(case, canonical) == case["expected"]
 
 
@@ -158,6 +170,18 @@ def test_original_definitions_and_duplicate_arithmetic_have_one_canonical_body()
     for qualified, expected in manifest["definitions"].items():
         module, name = qualified.rsplit(".", 1)
         if module == score.__name__ and name in contract["typed_delegates"]:
+            owner = importlib.import_module(manifest["owners"][qualified])
+            node = next(
+                node
+                for node in ast.parse(Path(owner.__file__).read_text()).body
+                if isinstance(node, ast.FunctionDef) and node.name == name
+            )
+            assert len(node.body) == 1 and isinstance(node.body[0], ast.Return)
+            call = node.body[0].value
+            assert isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            assert call.func.id == "_shared" + name and not call.keywords
+            assert len(call.args) == 1 and isinstance(call.args[0], ast.Name)
+            assert call.args[0].id == "features"
             continue
         owner = importlib.import_module(manifest["owners"][qualified])
         definitions = []

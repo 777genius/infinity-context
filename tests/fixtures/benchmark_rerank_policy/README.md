@@ -20,3 +20,12 @@ Four concrete/protocol feature annotations differ; their declared typed compatib
 preserve that difference while one canonical body owns computation. Only `_rounded_boosts` has
 an identical contract suitable for a direct shared alias. No expected behavior was regenerated
 from moved production.
+
+An activation audit after the move found that the initial 213 cases activated thirteen policies.
+The untouched original main checkout was retained at the pinned base; a separate fresh interpreter
+verified both original source SHA-256 values, loaded module file origins and complete original
+namespace/global contracts before capturing 28 additional negative-absence/value-shape activation
+and locality/broad-summary boundary cases. Those supplement cases are stored independently in
+`activation_cases.json.gz`, with their own hash, count and original-source provenance in the
+contract. All original 213 compressed case bytes remain unchanged. The combined corpus asserts
+that every one of the fifteen policies contributes a score or reason in at least one case.

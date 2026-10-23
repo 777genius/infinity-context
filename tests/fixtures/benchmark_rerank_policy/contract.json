@@ -738,5 +738,15 @@
     }
   },
   "cases_sha256": "299965fcdaf93a17fcbcc960cfc2b1ef2776ab522092bdf8e620e8fff5c010ef",
-  "case_count": 213
+  "case_count": 213,
+  "activation_cases_sha256": "a8a73e944886182ddf942821244337fb9344e65dfeeeeed1872d8595dc49c79a",
+  "activation_case_count": 28,
+  "activation_source_sha256": {
+    "infinity_context_server.memory_comparison_rerank_policy": "55a3fb0530fbba07117e6623463001dbad5bb7fbfc0903bdc127c4a756f6cca3",
+    "infinity_context_server.memory_comparison_rerank_policies": "a7d19cfac56e90b7c404d85aa2eb962f751535f127d7f3a83c857d5337691051"
+  },
+  "activation_module_origins": {
+    "infinity_context_server.memory_comparison_rerank_policy": "/workspace/scratch/b6182bae50e9/infinity-context/packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policy.py",
+    "infinity_context_server.memory_comparison_rerank_policies": "/workspace/scratch/b6182bae50e9/infinity-context/packages/infinity_context_server/infinity_context_server/memory_comparison_rerank_policies.py"
+  }
 }

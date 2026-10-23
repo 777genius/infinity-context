@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from benchmark_policy_contract_inventory import binding_inventory, callable_record
+from benchmark_policy_contract_inventory import binding_inventory, callable_record, scoring_features
 
 SERVER = "infinity_context_server."
 PREFIX = "infinity_context_benchmarks.rerank_policy."
@@ -128,8 +128,7 @@ def normalized(value):
     return json.loads(json.dumps(value))
 
 
-def capture(base_sha, output):
-    assert not output.exists(), "Never overwrite immutable scoring expectations"
+def original_sources(base_sha):
     sources = {}
     nodes = {}
     for module in (SCORE, POLICIES):
@@ -140,6 +139,12 @@ def capture(base_sha, output):
         assert path.read_bytes() == raw, "Refuse oracle capture from changed production"
         sources[module] = hashlib.sha256(raw).hexdigest()
         nodes[module] = definitions(raw.decode())
+    return sources, nodes
+
+
+def capture(base_sha, output):
+    assert not output.exists(), "Never overwrite immutable scoring expectations"
+    sources, nodes = original_sources(base_sha)
     owners = {}
     for module, members in nodes.items():
         for name in members:
@@ -368,12 +373,81 @@ def capture(base_sha, output):
     )
 
 
+def supplement(base_sha, output):
+    """Add activation coverage only from independently verified unchanged original sources."""
+    sources, _ = original_sources(base_sha)
+    manifest = json.loads((output / "ownership.json").read_text())
+    contract = json.loads((output / "contract.json").read_text())
+    assert sources == manifest["source_sha256"]
+    assert not (output / "activation_cases.json.gz").exists()
+    score, policies = importlib.import_module(SCORE), importlib.import_module(POLICIES)
+    origins = {}
+    for module in (score, policies):
+        expected_path = (
+            Path.cwd()
+            / "packages/infinity_context_server/infinity_context_server"
+            / (module.__name__.rsplit(".", 1)[-1] + ".py")
+        ).resolve()
+        assert Path(module.__file__).resolve() == expected_path
+        origins[module.__name__] = str(expected_path)
+        assert (
+            binding_inventory(module, manifest["owners"], contract["public_names"])
+            == (manifest["bindings"][module.__name__])
+        ), "Original source/global contracts must still match the pre-move oracle"
+    base = scoring_features(contract["single_policy_input"], score)
+    cases = []
+    for overrides in (
+        {
+            "evidence_need": ("negative_absence",),
+            "negation_surface": True,
+            "query_roles": ("negative_support",),
+        },
+        {
+            "evidence_need": ("value_support",),
+            "covered_answer_unit_shapes": ("quantity_dollar",),
+            "query_roles": ("value_support",),
+        },
+    ):
+        for locality in (-1.0, 0.0, 0.449999, 0.45, 0.649999, 0.65, 1.0):
+            for broad in (False, True):
+                features = dataclasses.replace(
+                    base, **overrides, source_locality_score=locality, broad_summary=broad
+                )
+                result = score.score_benchmark_rerank_candidate(features)
+                plan = policies.score_rerank_policy_contributions(features)
+                cases.append(
+                    {
+                        "input": dataclasses.asdict(features),
+                        "expected": normalized(
+                            {
+                                "score": dataclasses.asdict(result),
+                                "plan": plan.to_diagnostics(),
+                                "signals": plan.score_signals,
+                            }
+                        ),
+                    }
+                )
+    raw = (json.dumps(cases, separators=(",", ":")) + "\n").encode()
+    (output / "activation_cases.json.gz").write_bytes(gzip.compress(raw, mtime=0))
+    contract.update(
+        {
+            "activation_cases_sha256": hashlib.sha256(raw).hexdigest(),
+            "activation_case_count": len(cases),
+            "activation_source_sha256": sources,
+            "activation_module_origins": origins,
+        }
+    )
+    (output / "contract.json").write_text(json.dumps(contract, indent=2) + "\n")
+    print(f"supplemented {len(cases)} activation cases from unchanged original source contracts")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-sha", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--supplement", action="store_true")
     args = parser.parse_args()
-    capture(args.base_sha, args.output)
+    (supplement if args.supplement else capture)(args.base_sha, args.output)
 
 
 if __name__ == "__main__":
