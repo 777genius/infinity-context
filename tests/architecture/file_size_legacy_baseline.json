@@ -10,7 +10,6 @@
   "packages/infinity_context_core/infinity_context_core/application/anchor_event_extraction.py": 1571,
   "packages/infinity_context_core/infinity_context_core/application/anchor_extraction.py": 1144,
   "packages/infinity_context_core/infinity_context_core/application/context_action_roles.py": 2365,
-  "packages/infinity_context_core/infinity_context_core/application/context_packer_answer_support.py": 3101,
   "packages/infinity_context_core/infinity_context_core/application/context_packer_answer_support_patterns.py": 1267,
   "packages/infinity_context_core/infinity_context_core/application/context_packer_answer_support_slots.py": 1209,
   "packages/infinity_context_core/infinity_context_core/application/context_query_expansion_rule_catalog_part1.py": 1279,
