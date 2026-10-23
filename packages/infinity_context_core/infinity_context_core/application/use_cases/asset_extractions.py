@@ -3,26 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import suppress
 from dataclasses import replace
-from datetime import datetime, timedelta
-from hashlib import sha256
+from datetime import timedelta
 
 from infinity_context_core.application.asset_extraction_mapping import (
     ASSET_EXTRACTION_SOURCE_TYPE,
-    artifact_storage_key,
     asset_extraction_chunk_metadata,
     extracted_text,
-    result_json,
 )
 from infinity_context_core.application.asset_upload_policy import (
-    UPLOAD_POLICY_VERSION,
     assess_asset_upload,
     detect_magic_content_type,
-)
-from infinity_context_core.application.context_link_candidate_policy import (
-    source_text_risk_metadata,
 )
 from infinity_context_core.application.dto import (
     AssetExtractionResult,
@@ -45,30 +37,51 @@ from infinity_context_core.application.extraction_resource_policy import (
     extraction_limits_metadata,
     normalize_extraction_limits,
 )
-from infinity_context_core.application.multimodal_manifest import (
-    multimodal_manifest_artifact_candidate,
-    should_store_generic_multimodal_manifest,
-)
 from infinity_context_core.application.normalize import content_hash
-from infinity_context_core.application.safe_payload import safe_metadata, safe_metadata_text
+from infinity_context_core.application.safe_payload import safe_metadata_text
+from infinity_context_core.application.use_cases.asset_extraction_artifacts import (
+    _artifact_byte_limit,  # noqa: F401 - retain the original helper import path.
+    _artifact_summary_bytes,  # noqa: F401 - retain the original helper import path.
+    _bounded_artifact_candidate,  # noqa: F401 - retain the original helper import path.
+    _truncated_artifact_filename,  # noqa: F401 - retain the original helper import path.
+    store_artifacts,
+)
+from infinity_context_core.application.use_cases.asset_extraction_lifecycle import (
+    acknowledge_cancel_after_document_commit,
+    cancel_if_requested,
+    get_current_job,
+    mark_failed,
+    mark_running,
+    mark_succeeded,
+    mark_unsupported,
+    save_progress,
+    update_job_metadata,
+)
+from infinity_context_core.application.use_cases.asset_extraction_result_policy import (
+    _append_limit_applied,  # noqa: F401 - retain the original helper import path.
+    _apply_extracted_text_limit,
+    _file_type_detection_metadata,
+    _resource_limit_result,
+    _upload_policy_rejection_result,
+    _upload_policy_revalidation_metadata,
+)
 from infinity_context_core.application.use_cases.asset_extraction_support import (
-    NON_RUNNABLE_EXTRACTION_STATUSES,
-    ActiveAssetExtractionLeaseError,
     AssetExtractionParserTimeoutError,
-    DeferredAssetExtractionRetryError,
     ExtractionRetryPolicy,
-    actual_media_analysis_seconds,
     asset_extract_event,
     estimated_media_analysis_seconds,
     indexing_status,
     is_non_runnable_extraction_job,
     parser_config_hash,
-    positive_int,
-    safe_error_text,
     safe_exception_code,
     safe_exception_message,
     usage_idempotency_key,
-    usage_reconciliation_idempotency_key,
+)
+from infinity_context_core.application.use_cases.asset_extraction_support import (
+    datetime_after as _datetime_after,
+)
+from infinity_context_core.application.use_cases.asset_extraction_usage import (
+    reconcile_media_usage,
 )
 from infinity_context_core.domain.assets import AssetStatus, MemoryAsset
 from infinity_context_core.domain.errors import (
@@ -83,11 +96,9 @@ from infinity_context_core.domain.extraction import (
     AssetExtractionJobId,
     AssetExtractionStatus,
     ExtractionArtifact,
-    ExtractionArtifactId,
     ExtractionRetryDisposition,
 )
 from infinity_context_core.domain.usage import (
-    USAGE_RECONCILIATION_SOURCE_TYPE,
     ProductPlan,
     UsageRecord,
     UsageRecordId,
@@ -100,20 +111,14 @@ from infinity_context_core.ports.assets import BlobStoragePort
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import (
     ContentExtractionPort,
-    ExtractionArtifactCandidate,
     ExtractionLimits,
     ExtractionRequest,
     ExtractionResult,
     FileTypeDetectionRequest,
-    FileTypeDetectionResult,
     FileTypeDetectorPort,
 )
 from infinity_context_core.ports.ids import IdGeneratorPort
 from infinity_context_core.ports.unit_of_work import UnitOfWorkFactoryPort
-
-_MIN_ARTIFACT_BYTE_LIMIT = 16_384
-_MAX_ARTIFACT_BYTE_LIMIT = 5_000_000
-_ARTIFACT_PREVIEW_CHARS = 1_000
 
 
 class RequestAssetExtractionUseCase:
@@ -813,68 +818,16 @@ class RunAssetExtractionUseCase:
             await task
 
     async def _get_current_job(self, job_id: str) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(job_id)
-        if current is None:
-            raise MemoryNotFoundError("Asset extraction job not found")
-        return current
+        return await get_current_job(uow_factory=self._uow_factory, job_id=job_id)
 
     async def _mark_running(self, command: RunAssetExtractionCommand) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            job = await uow.asset_extractions.get_by_id(command.job_id)
-            if job is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            if job.status in NON_RUNNABLE_EXTRACTION_STATUSES:
-                return job
-            now = self._clock.now()
-            if job.status == AssetExtractionStatus.FAILED:
-                if job.retry_disposition == ExtractionRetryDisposition.PERMANENT:
-                    return job
-                if (
-                    job.retry_after_at is not None
-                    and _datetime_after(job.retry_after_at, now)
-                    and not command.force
-                ):
-                    raise DeferredAssetExtractionRetryError(
-                        job_id=str(job.id),
-                        retry_after_at=job.retry_after_at,
-                    )
-            if job.status == AssetExtractionStatus.RUNNING:
-                if job.cancellation_requested_at is not None:
-                    return job
-                if job.lease_expires_at is None and not command.force:
-                    raise ActiveAssetExtractionLeaseError(
-                        job_id=str(job.id),
-                        lease_owner=job.lease_owner,
-                        retry_after_at=None,
-                    )
-                if job.lease_expires_at is not None and _datetime_after(
-                    job.lease_expires_at,
-                    now,
-                ):
-                    raise ActiveAssetExtractionLeaseError(
-                        job_id=str(job.id),
-                        lease_owner=job.lease_owner,
-                        retry_after_at=job.lease_expires_at,
-                    )
-            running = job.mark_running(
-                now=now,
-                lease_owner=command.worker_id or f"asset-extraction:{command.job_id}",
-                lease_expires_at=now + self._execution_lease,
-            )
-            running = running.with_metadata_updates(
-                now=now,
-                metadata={
-                    "processing_stage": "reading_asset",
-                    "progress_percent": 10,
-                    "progress_message": "Reading uploaded asset",
-                    "execution_lease_seconds": int(self._execution_lease.total_seconds()),
-                    **self._limits_metadata,
-                },
-            )
-            saved = await uow.asset_extractions.save(running)
-            await uow.commit()
-        return saved
+        return await mark_running(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            execution_lease=self._execution_lease,
+            limits_metadata=self._limits_metadata,
+            command=command,
+        )
 
     async def _save_progress(
         self,
@@ -884,68 +837,28 @@ class RunAssetExtractionUseCase:
         percent: int,
         message: str,
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            if current.status != AssetExtractionStatus.RUNNING:
-                return current
-            now = self._clock.now()
-            updated = current.record_heartbeat(
-                now=now,
-                lease_expires_at=now + self._execution_lease,
-                metadata={
-                    "processing_stage": stage,
-                    "progress_percent": max(0, min(percent, 99)),
-                    "progress_message": message,
-                },
-            )
-            saved = await uow.asset_extractions.save(updated)
-            await uow.commit()
-        return saved
+        return await save_progress(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            execution_lease=self._execution_lease,
+            job=job,
+            stage=stage,
+            percent=percent,
+            message=message,
+        )
 
     async def _cancel_if_requested(self, job: AssetExtractionJob) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            if current.cancellation_requested_at is None:
-                return current
-            canceled = current.mark_canceled(
-                now=self._clock.now(),
-                code="asset_extraction.canceled",
-                message="Extraction was canceled by request",
-            )
-            saved = await uow.asset_extractions.save(canceled)
-            await uow.commit()
-        return saved
+        return await cancel_if_requested(uow_factory=self._uow_factory, clock=self._clock, job=job)
 
     async def _acknowledge_cancel_after_document_commit(
         self,
         job: AssetExtractionJob,
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            if (
-                current.status != AssetExtractionStatus.RUNNING
-                or current.cancellation_requested_at is None
-            ):
-                return current
-            updated = current.with_metadata_updates(
-                now=self._clock.now(),
-                metadata={
-                    "cancellation_status": "ignored_after_document_commit",
-                    "cancellation_message": (
-                        "Cancellation requested after canonical document commit; "
-                        "finalizing extraction to keep evidence consistent"
-                    ),
-                },
-            )
-            saved = await uow.asset_extractions.save(updated)
-            await uow.commit()
-        return saved
+        return await acknowledge_cancel_after_document_commit(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            job=job,
+        )
 
     async def _store_artifacts(
         self,
@@ -955,82 +868,18 @@ class RunAssetExtractionUseCase:
         result: ExtractionResult,
         markdown: str,
     ) -> list[ExtractionArtifact]:
-        candidates = [
-            ExtractionArtifactCandidate(
-                artifact_type="markdown",
-                filename="extracted.md",
-                content_type="text/markdown",
-                content=markdown.encode("utf-8"),
-                metadata={"parser": result.parser_name},
-            ),
-            ExtractionArtifactCandidate(
-                artifact_type="extracted_json",
-                filename="extracted.json",
-                content_type="application/json",
-                content=result_json(result).encode("utf-8"),
-                metadata={"parser": result.parser_name},
-            ),
-        ]
-        if should_store_generic_multimodal_manifest(result):
-            candidates.append(
-                multimodal_manifest_artifact_candidate(asset=asset, job=job, result=result)
-            )
-        candidates.extend(result.artifacts)
-        byte_limit = _artifact_byte_limit(self._limits)
-        stored: list[ExtractionArtifact] = []
-        written_storage_keys: list[str] = []
-        now = self._clock.now()
-        try:
-            for raw_candidate in candidates:
-                candidate = _bounded_artifact_candidate(
-                    raw_candidate,
-                    byte_limit=byte_limit,
-                )
-                if not candidate.content:
-                    continue
-                digest = sha256(candidate.content).hexdigest()
-                artifact = ExtractionArtifact.create(
-                    artifact_id=ExtractionArtifactId(self._ids.new_id("artifact")),
-                    job_id=job.id,
-                    asset_id=job.asset_id,
-                    artifact_type=candidate.artifact_type,
-                    storage_backend=self._artifact_storage_backend,
-                    storage_key=artifact_storage_key(
-                        space_id=str(job.space_id),
-                        memory_scope_id=str(job.memory_scope_id),
-                        job_id=str(job.id),
-                        digest=digest,
-                        filename=candidate.filename,
-                    ),
-                    sha256_hex=digest,
-                    byte_size=len(candidate.content),
-                    now=now,
-                    metadata={
-                        "content_type": safe_metadata_text(candidate.content_type),
-                        "filename": safe_metadata_text(candidate.filename),
-                        "artifact_byte_limit": byte_limit,
-                        **safe_metadata(candidate.metadata),
-                    },
-                )
-                await self._blob_storage.write_bytes(
-                    storage_key=artifact.storage_key,
-                    content=candidate.content,
-                )
-                written_storage_keys.append(artifact.storage_key)
-                stored.append(artifact)
-            if stored:
-                async with self._uow_factory() as uow:
-                    persisted = []
-                    for artifact in stored:
-                        persisted.append(await uow.asset_extractions.create_artifact(artifact))
-                    await uow.commit()
-                return persisted
-            return []
-        except Exception:
-            for storage_key in written_storage_keys:
-                with suppress(Exception):
-                    await self._blob_storage.delete(storage_key=storage_key)
-            raise
+        return await store_artifacts(
+            uow_factory=self._uow_factory,
+            blob_storage=self._blob_storage,
+            clock=self._clock,
+            ids=self._ids,
+            limits=self._limits,
+            artifact_storage_backend=self._artifact_storage_backend,
+            asset=asset,
+            job=job,
+            result=result,
+            markdown=markdown,
+        )
 
     async def _mark_succeeded(
         self,
@@ -1040,42 +889,14 @@ class RunAssetExtractionUseCase:
         extracted_text_value: str,
         result_document_ids: tuple[str, ...],
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            if current.status != AssetExtractionStatus.RUNNING:
-                skipped = current.with_metadata_updates(
-                    now=self._clock.now(),
-                    metadata={
-                        "success_finalization_status": "skipped_non_running_state",
-                        "success_finalization_skipped_status": current.status.value,
-                    },
-                )
-                saved = await uow.asset_extractions.save(skipped)
-                await uow.commit()
-                return saved
-            succeeded = current.mark_succeeded(
-                now=self._clock.now(),
-                result_document_ids=result_document_ids,
-                parser_name=safe_metadata_text(result.parser_name),
-                parser_version=safe_metadata_text(result.parser_version)
-                if result.parser_version
-                else None,
-                model_version=safe_metadata_text(result.model_version)
-                if result.model_version
-                else None,
-                metadata={
-                    "normalized_content_type": safe_metadata_text(result.normalized_content_type),
-                    "language": safe_metadata_text(result.language) if result.language else None,
-                    "element_count": len(result.elements),
-                    **safe_metadata(result.technical_metadata),
-                    **source_text_risk_metadata(extracted_text_value),
-                },
-            )
-            saved = await uow.asset_extractions.save(succeeded)
-            await uow.commit()
-        return saved
+        return await mark_succeeded(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            job=job,
+            result=result,
+            extracted_text_value=extracted_text_value,
+            result_document_ids=result_document_ids,
+        )
 
     async def _reconcile_media_usage(
         self,
@@ -1083,69 +904,13 @@ class RunAssetExtractionUseCase:
         *,
         result: ExtractionResult,
     ) -> AssetExtractionJob:
-        actual_seconds = actual_media_analysis_seconds(result)
-        if actual_seconds is None:
-            return job
-        reserved_seconds = positive_int(job.metadata.get("usage_media_analysis_seconds_requested"))
-        if reserved_seconds is None or reserved_seconds <= 0:
-            return job
-        desired_delta = actual_seconds - reserved_seconds
-        reconciliation_metadata = {
-            "usage_media_analysis_seconds_actual": actual_seconds,
-            "usage_media_analysis_seconds_delta": desired_delta,
-            "usage_media_analysis_seconds_final": actual_seconds,
-            "usage_reconciled": True,
-        }
-
-        window = UsageWindow.calendar_month_for(self._clock.now())
-        key = usage_reconciliation_idempotency_key(
-            job_id=str(job.id),
-            actual_seconds=actual_seconds,
+        return await reconcile_media_usage(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            ids=self._ids,
+            job=job,
+            result=result,
         )
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            existing_adjustments = await uow.usage.list_for_source(
-                source_type=USAGE_RECONCILIATION_SOURCE_TYPE,
-                source_id=str(current.id),
-                resource=UsageResource.MEDIA_ANALYSIS_SECONDS.value,
-            )
-            already_recorded_delta = sum(record.quantity for record in existing_adjustments)
-            delta_to_record = desired_delta - already_recorded_delta
-            existing = await uow.usage.find_by_idempotency_key(key)
-            if delta_to_record != 0 and existing is None:
-                await uow.usage.create(
-                    UsageRecord.create(
-                        record_id=UsageRecordId(self._ids.new_id("usage")),
-                        subject_type=UsageSubjectType.SPACE.value,
-                        subject_id=str(current.space_id),
-                        space_id=current.space_id,
-                        memory_scope_id=current.memory_scope_id,
-                        resource=UsageResource.MEDIA_ANALYSIS_SECONDS.value,
-                        quantity=delta_to_record,
-                        source_type=USAGE_RECONCILIATION_SOURCE_TYPE,
-                        source_id=str(current.id),
-                        idempotency_key=key,
-                        window=window,
-                        now=self._clock.now(),
-                        metadata={
-                            "reserved_seconds": reserved_seconds,
-                            "actual_seconds": actual_seconds,
-                            "desired_delta_seconds": desired_delta,
-                            "delta_seconds": delta_to_record,
-                            "parser_profile": current.parser_profile,
-                            "result_content_type": result.normalized_content_type,
-                        },
-                    )
-                )
-            updated = current.with_metadata_updates(
-                now=self._clock.now(),
-                metadata=reconciliation_metadata,
-            )
-            saved = await uow.asset_extractions.save(updated)
-            await uow.commit()
-        return saved
 
     async def _update_job_metadata(
         self,
@@ -1153,14 +918,12 @@ class RunAssetExtractionUseCase:
         *,
         metadata: dict[str, object],
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            updated = current.with_metadata_updates(now=self._clock.now(), metadata=metadata)
-            saved = await uow.asset_extractions.save(updated)
-            await uow.commit()
-        return saved
+        return await update_job_metadata(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            job=job,
+            metadata=metadata,
+        )
 
     async def _mark_unsupported(
         self,
@@ -1168,29 +931,12 @@ class RunAssetExtractionUseCase:
         *,
         result: ExtractionResult,
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            unsupported = current.mark_unsupported(
-                now=self._clock.now(),
-                code=result.safe_error_code or "asset_extraction.unsupported",
-                message=safe_error_text(result.safe_error_message or "Asset type is unsupported"),
-                parser_name=safe_metadata_text(result.parser_name) if result.parser_name else None,
-                parser_version=safe_metadata_text(result.parser_version)
-                if result.parser_version
-                else None,
-                model_version=safe_metadata_text(result.model_version)
-                if result.model_version
-                else None,
-                metadata={
-                    "normalized_content_type": safe_metadata_text(result.normalized_content_type),
-                    **safe_metadata(result.technical_metadata),
-                },
-            )
-            saved = await uow.asset_extractions.save(unsupported)
-            await uow.commit()
-        return saved
+        return await mark_unsupported(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            job=job,
+            result=result,
+        )
 
     async def _mark_failed(
         self,
@@ -1200,44 +946,15 @@ class RunAssetExtractionUseCase:
         message: str,
         metadata: dict[str, object] | None = None,
     ) -> AssetExtractionJob:
-        async with self._uow_factory() as uow:
-            current = await uow.asset_extractions.get_by_id(str(job.id))
-            if current is None:
-                raise MemoryNotFoundError("Asset extraction job not found")
-            now = self._clock.now()
-            policy_retry_disposition = self._retry_policy.disposition_for_code(code)
-            retry_after_at = self._retry_policy.retry_after(
-                now=now,
-                attempt_count=current.attempt_count,
-                code=code,
-            )
-            retry_exhausted = (
-                policy_retry_disposition == ExtractionRetryDisposition.RETRYABLE
-                and retry_after_at is None
-                and current.attempt_count >= self._retry_policy.max_attempts
-            )
-            retry_disposition = (
-                ExtractionRetryDisposition.PERMANENT
-                if retry_exhausted
-                else policy_retry_disposition
-            )
-            retry_metadata = {
-                "retry_disposition": retry_disposition.value,
-                "retry_after_at": retry_after_at.isoformat() if retry_after_at else None,
-                "retry_max_attempts": self._retry_policy.max_attempts,
-                **({"retry_exhausted": True} if retry_exhausted else {}),
-            }
-            failed = current.mark_failed(
-                now=now,
-                code=code,
-                message=safe_error_text(message),
-                metadata={**safe_metadata(metadata or {}), **retry_metadata},
-                retry_disposition=retry_disposition,
-                retry_after_at=retry_after_at,
-            )
-            saved = await uow.asset_extractions.save(failed)
-            await uow.commit()
-        return saved
+        return await mark_failed(
+            uow_factory=self._uow_factory,
+            clock=self._clock,
+            retry_policy=self._retry_policy,
+            job=job,
+            code=code,
+            message=message,
+            metadata=metadata,
+        )
 
     async def _mark_failed_unless_terminal(
         self,
@@ -1263,14 +980,6 @@ class RunAssetExtractionUseCase:
         )
 
 
-def _datetime_after(value: datetime, reference: datetime) -> bool:
-    if value.tzinfo is None and reference.tzinfo is not None:
-        value = value.replace(tzinfo=reference.tzinfo)
-    elif value.tzinfo is not None and reference.tzinfo is None:
-        value = value.replace(tzinfo=None)
-    return value > reference
-
-
 def _metadata_text(metadata: object, key: str, *, limit: int = 120) -> str | None:
     if not isinstance(metadata, dict):
         return None
@@ -1279,176 +988,3 @@ def _metadata_text(metadata: object, key: str, *, limit: int = 120) -> str | Non
         return None
     safe_value = safe_metadata_text(value, limit=limit).strip()
     return safe_value or None
-
-
-def _artifact_byte_limit(limits: ExtractionLimits) -> int:
-    requested = max(1, int(limits.max_output_chars)) * 4
-    return min(max(requested, _MIN_ARTIFACT_BYTE_LIMIT), _MAX_ARTIFACT_BYTE_LIMIT)
-
-
-def _file_type_detection_metadata(
-    detection: FileTypeDetectionResult,
-) -> dict[str, object]:
-    return {
-        "detected_content_type": safe_metadata_text(detection.content_type),
-        "detector_confidence": safe_metadata_text(detection.confidence),
-        **safe_metadata(detection.diagnostics),
-    }
-
-
-def _resource_limit_result(
-    *,
-    asset: MemoryAsset,
-    code: str | None,
-    message: str | None,
-    metadata: dict[str, object],
-) -> ExtractionResult:
-    return ExtractionResult(
-        status="unsupported",
-        normalized_content_type=safe_metadata_text(asset.content_type),
-        title=asset.filename,
-        parser_name="resource_policy",
-        parser_version=metadata.get("extraction_resource_policy_version")
-        if isinstance(metadata.get("extraction_resource_policy_version"), str)
-        else None,
-        safe_error_code=code or "asset_extraction.resource_limit",
-        safe_error_message=message or "Asset exceeds extraction resource policy",
-        technical_metadata=metadata,
-    )
-
-
-def _apply_extracted_text_limit(
-    *,
-    result: ExtractionResult,
-    extracted_text_value: str,
-    limits: ExtractionLimits,
-) -> tuple[ExtractionResult, str]:
-    max_chars = max(1, int(limits.max_output_chars))
-    if len(extracted_text_value) <= max_chars:
-        return result, extracted_text_value
-
-    notice = "\n\n[Extraction output truncated by resource policy]"
-    if max_chars > len(notice) + 32:
-        text = extracted_text_value[: max_chars - len(notice)].rstrip() + notice
-    else:
-        text = extracted_text_value[:max_chars]
-    metadata = {
-        **dict(result.technical_metadata),
-        "extraction_output_truncated": True,
-        "extraction_output_chars_original": len(extracted_text_value),
-        "extraction_output_chars_stored": len(text),
-        "extraction_max_output_chars": max_chars,
-        "extraction_resource_limits_applied": _append_limit_applied(
-            result.technical_metadata.get("extraction_resource_limits_applied"),
-            "max_output_chars",
-        ),
-    }
-    return replace(result, markdown=text, technical_metadata=metadata), text
-
-
-def _append_limit_applied(value: object, item: str) -> list[str]:
-    existing: list[str] = []
-    if isinstance(value, list | tuple):
-        existing = [str(raw)[:80] for raw in value if str(raw).strip()]
-    if item not in existing:
-        existing.append(item)
-    return existing
-
-
-def _upload_policy_revalidation_metadata(metadata: dict[str, object]) -> dict[str, object]:
-    return {
-        "extraction_upload_policy_revalidated": True,
-        "extraction_upload_policy_status": "allowed",
-        **safe_metadata(metadata),
-    }
-
-
-def _upload_policy_rejection_result(
-    *,
-    asset: MemoryAsset,
-    content: bytes,
-    message: str,
-) -> ExtractionResult:
-    metadata = {
-        "upload_policy_version": UPLOAD_POLICY_VERSION,
-        "extraction_upload_policy_revalidated": True,
-        "extraction_upload_policy_status": "rejected",
-        "extraction_upload_policy_rejection": safe_metadata_text(message),
-        "extraction_upload_magic_content_type": safe_metadata_text(
-            detect_magic_content_type(content)
-        ),
-        "extraction_asset_byte_size": len(content),
-    }
-    return ExtractionResult(
-        status="unsupported",
-        normalized_content_type=safe_metadata_text(asset.content_type),
-        title=asset.filename,
-        parser_name="upload_policy",
-        parser_version=UPLOAD_POLICY_VERSION,
-        safe_error_code="asset_extraction.upload_policy_rejected",
-        safe_error_message="Asset violates upload security policy",
-        technical_metadata=metadata,
-    )
-
-
-def _bounded_artifact_candidate(
-    candidate: ExtractionArtifactCandidate,
-    *,
-    byte_limit: int,
-) -> ExtractionArtifactCandidate:
-    if len(candidate.content) <= byte_limit:
-        return candidate
-    original_size = len(candidate.content)
-    return ExtractionArtifactCandidate(
-        artifact_type=candidate.artifact_type,
-        filename=_truncated_artifact_filename(candidate.filename),
-        content_type="application/json",
-        content=_artifact_summary_bytes(
-            candidate,
-            original_size=original_size,
-            byte_limit=byte_limit,
-        ),
-        metadata={
-            **candidate.metadata,
-            "artifact_truncated": True,
-            "artifact_original_byte_size": original_size,
-            "artifact_original_content_type": candidate.content_type,
-            "artifact_original_filename": candidate.filename,
-        },
-    )
-
-
-def _artifact_summary_bytes(
-    candidate: ExtractionArtifactCandidate,
-    *,
-    original_size: int,
-    byte_limit: int,
-) -> bytes:
-    preview = safe_metadata_text(
-        candidate.content[: min(original_size, _ARTIFACT_PREVIEW_CHARS * 4)].decode(
-            "utf-8",
-            errors="replace",
-        ),
-        limit=_ARTIFACT_PREVIEW_CHARS,
-    )
-    payload = {
-        "truncated": True,
-        "reason": "artifact_byte_limit",
-        "original_byte_size": original_size,
-        "byte_limit": byte_limit,
-        "original_filename": safe_metadata_text(candidate.filename),
-        "original_content_type": safe_metadata_text(candidate.content_type),
-        "preview": preview,
-    }
-    content = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-    if len(content) <= byte_limit:
-        return content
-    payload["preview"] = ""
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-
-
-def _truncated_artifact_filename(filename: str) -> str:
-    safe_name = filename.strip() or "artifact"
-    if safe_name.endswith(".truncated.json"):
-        return safe_name
-    return f"{safe_name}.truncated.json"

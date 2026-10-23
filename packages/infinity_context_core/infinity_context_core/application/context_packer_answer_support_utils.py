@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from infinity_context_core.application.context_diagnostics import diagnostic_retrieval_sources
 from infinity_context_core.application.dto import ContextItem
 
 _TURN_SOURCE_ORDER_RE = re.compile(r"(?:^|:)session_(\d+):D\d+[:-](\d+):turn$")
@@ -471,3 +472,70 @@ def _answer_support_activity_family_slot(family: str) -> str:
     }:
         return ""
     return parts[2]
+
+
+
+
+def _first_dialogue_marker(text: str) -> str:
+    match = _DIALOGUE_MARKER_RE.search(text)
+    return match.group(0) if match is not None else ""
+
+
+def _primary_exact_turn_marker(item: ContextItem) -> str:
+    source_id = _primary_exact_turn_source_id(item)
+    match = _DIALOGUE_MARKER_RE.search(source_id)
+    return match.group(0) if match is not None else ""
+
+
+def _exact_marker_should_precede_inventory(item: ContextItem, *, marker: str) -> bool:
+    if len(item.source_refs) != 1:
+        return False
+    first_marker = _first_dialogue_marker(item.text)
+    return bool(first_marker and marker and first_marker != marker)
+
+
+def _answer_support_query_reason(item: ContextItem) -> str:
+    query_reason = _diagnostic_signal_text(item, "query_expansion_reason")
+    deterministic_reason = _diagnostic_signal_text(item, "deterministic_rerank_query_reason")
+    if (
+        deterministic_reason
+        and deterministic_reason != "original_query"
+        and query_reason
+        in {
+            "decomposition_evidence_reason",
+            "decomposition_inference_support",
+        }
+    ):
+        return deterministic_reason
+    return (
+        query_reason
+        or _diagnostic_signal_text(item, "bm25_lexical_query_reason")
+        or deterministic_reason
+    )
+
+
+def _answer_support_source_group(item: ContextItem) -> str:
+    aggregation_source_group = _diagnostic_text(item, "keyword_aggregation_source_group")
+    if aggregation_source_group:
+        return aggregation_source_group
+    if set(diagnostic_retrieval_sources(item.diagnostics)).intersection(
+        {
+            "keyword_aggregation_chunks",
+            "keyword_source_sibling_chunks",
+        }
+    ):
+        return _source_group_key(item)
+    if _has_derived_source_group_ref(item):
+        return _source_group_key(item)
+    return ""
+
+
+def _has_derived_source_group_ref(item: ContextItem) -> bool:
+    if not item.source_refs:
+        return False
+    source_group_key = _source_group_key(item)
+    return source_group_key != _source_key(item)
+
+
+def _is_business_commonality_reason(query_reason: str) -> bool:
+    return query_reason in {"business_commonality_bridge", "business_start_reason_bridge"}
