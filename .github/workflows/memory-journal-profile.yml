@@ -1,0 +1,83 @@
+name: Bounded memory journal profile (2026-10-23)
+
+# Diagnostic branch only; this interrupted profile is not an acceptance test.
+on:
+  push:
+    branches: [verify/memory-journal-profile-20261023]
+permissions:
+  contents: read
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: 88d47260f5ef17ba55abb67178952ee7fa413855
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11.15"
+      - name: Install locked environment and verify source
+        run: |
+          test "$(git rev-parse HEAD)" = "88d47260f5ef17ba55abb67178952ee7fa413855"
+          python -m pip install --disable-pip-version-check "uv==0.11.28"
+          uv sync --extra dev --frozen
+      - name: Profile sixty seconds of the unchanged synthetic composition
+        run: |
+          mkdir -p profile-results
+          .venv/bin/python - <<'PY'
+          import json
+          import pstats
+          import subprocess
+          import sys
+          import time
+          from pathlib import Path
+          from scripts.run_provider_free_benchmark_ci import _provider_free_environment
+          node = (
+              "tests/server/test_publishable_composition_synthetic_2040.py::"
+              "test_composition_traverses_exact_2040_pairs_and_replays_with_zero_calls"
+          )
+          destination = Path("profile-results")
+          started = time.monotonic()
+          with (destination / "pytest.log").open("w") as output:
+              result = subprocess.run(
+                  ["timeout", "--signal=INT", "--kill-after=15s", "60s",
+                   sys.executable, "-m", "cProfile", "-o", str(destination / "traversal.prof"),
+                   "-m", "pytest", "-q", "--tb=short", "-o", "addopts=", node],
+                  env=_provider_free_environment(), stdout=output,
+                  stderr=subprocess.STDOUT, check=False,
+              )
+          elapsed = time.monotonic() - started
+          if result.returncode not in (0, 124):
+              raise SystemExit(f"Unexpected profiling exit status: {result.returncode}")
+          stats = pstats.Stats(str(destination / "traversal.prof"))
+          functions = []
+          for (filename, line, function), (primitive, calls, own, cumulative, callers) in stats.stats.items():
+              functions.append({
+                  "file": filename.split("/infinity-context/")[-1],
+                  "line": line, "function": function, "primitive_calls": primitive,
+                  "calls": calls, "own_seconds": own, "cumulative_seconds": cumulative,
+              })
+          functions.sort(key=lambda item: item["cumulative_seconds"], reverse=True)
+          report = {
+              "kind": "bounded_profile_not_full_acceptance",
+              "source_sha": "88d47260f5ef17ba55abb67178952ee7fa413855",
+              "test_node": node, "python": sys.version,
+              "wall_seconds": elapsed, "exit_code": result.returncode,
+              "full_test_completed": result.returncode == 0,
+              "total_profile_seconds": stats.total_tt,
+              "functions": functions,
+          }
+          (destination / "profile.json").write_text(json.dumps(report, indent=2) + "\n")
+          (destination / "source-sha.txt").write_text(report["source_sha"] + "\n")
+          stats.sort_stats("cumulative").print_stats(30)
+          PY
+      - name: Preserve bounded-profile evidence
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: bounded-memory-journal-profile-88d47260
+          path: profile-results/
+          if-no-files-found: error
+          retention-days: 14
