@@ -69,6 +69,16 @@ UNCHANGED = (
 OWNERS = {name: PREFIX + "schema_compatibility" for name in COMPATIBILITY}
 OWNERS.update({name: PREFIX + "schema_runtime" for name in RUNTIME})
 OWNERS.update({name: ORIGINAL for name in UNCHANGED})
+SLICE = "l1"
+REPOSITORY_OWNERS = {
+    "_keyword_search_statement": PREFIX + "document_repositories",
+    "PostgresDocumentRepository": PREFIX + "document_repositories",
+    "PostgresChunkRepository": PREFIX + "document_repositories",
+    "PostgresAnchorRepository": PREFIX + "anchor_repositories",
+    "PostgresEpisodeRepository": PREFIX + "episode_repositories",
+    "PostgresCaptureRepository": PREFIX + "capture_repositories",
+    "PostgresSuggestionRepository": PREFIX + "suggestion_repositories",
+}
 TRACE = (
     "_ensure_legacy_profile_schema",
     "metadata.create_all",
@@ -91,6 +101,9 @@ TRACE = (
 def reference(value: object) -> str:
     module = value.__module__
     name = value.__qualname__
+    # L2 deliberately changes these existing UoW dependencies' canonical modules.
+    if SLICE == "l1" and REPOSITORY_OWNERS.get(name.split(".")[0]) == module:
+        module = PREFIX + "repositories"
     if module == ORIGINAL and name.split(".")[0] in OWNERS:
         module = OWNERS[name.split(".")[0]]
     return f"{module}.{name}"
@@ -107,6 +120,8 @@ def describe(value: object) -> object:
         return {"module": value.__name__}
     if inspect.isclass(value) or inspect.isfunction(value):
         return {"reference": reference(value)}
+    if value is importlib.import_module("sqlalchemy").func:
+        return {"singleton": "sqlalchemy.func"}
     return {"repr": repr(value)}
 
 
@@ -228,32 +243,36 @@ def capture(path: Path) -> None:
     pinned = subprocess.check_output(["git", "show", f"{BASE}:{relative}"], cwd=ROOT)
     assert pinned == Path(module.__file__).read_bytes(), "Production source changed before capture"
     nodes = source_nodes(ORIGINAL)
-    assert set(nodes) == set(OWNERS), "Every original definition must have one reviewed owner"
+    expected = set(OWNERS) - {"PostgresIdempotencyRepository", "PostgresOutbox"}
+    assert set(nodes) == expected, "Every original definition must have one reviewed owner"
+    definitions = {}
+    for name in OWNERS:
+        value = getattr(module, name)
+        source_module = value.__module__ if functions(value) else ORIGINAL
+        definitions[name] = fingerprint(source_nodes(source_module)[name])
     payload = {
         "base": BASE,
+        "checkout_base": subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip(),
         "original": ORIGINAL,
         "owners": OWNERS,
         "source_sha256": hashlib.sha256(pinned).hexdigest(),
-        "definitions": {name: fingerprint(nodes[name]) for name in OWNERS},
+        "definitions": definitions,
         "contracts": {name: contract(getattr(module, name)) for name in OWNERS},
-        "operation_trace": operation_trace(module._ensure_runtime_schema),
+        "operation_trace": operation_trace(module._ensure_runtime_schema) if SLICE == "l1" else [],
         "legacy_pickles": {
             name: base64.b64encode(pickle.dumps(getattr(module, name))).decode()
-            for name in (
-                "PostgresUnitOfWork",
-                "PostgresUnitOfWorkFactory",
-                "create_schema",
-                "_ensure_runtime_schema",
-                "_column_names",
-            )
+            for name in OWNERS
+            if functions(getattr(module, name))
         },
     }
-    assert payload["operation_trace"] == list(TRACE)
+    assert payload["operation_trace"] == (list(TRACE) if SLICE == "l1" else [])
     assert not path.exists(), "Never replace the unchanged-source evidence"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n")
-    asyncio.run(session_contract(module))
-    print(f"captured {len(OWNERS)} definitions, {len(TRACE)} ordered schema operations")
+    asyncio.run(session_contract(importlib.import_module(PREFIX + "unit_of_work")))
+    print(f"captured {len(OWNERS)} definitions; slice {SLICE} contracts and session lifetime")
 
 
 def check(path: Path) -> None:
@@ -282,10 +301,11 @@ def check(path: Path) -> None:
                         assert getattr(canonical, bound.__qualname__) is bound, global_name
     for name, encoded in payload["legacy_pickles"].items():
         assert pickle.loads(base64.b64decode(encoded)) is getattr(original, name)
-    callback = original.create_schema.__globals__["_ensure_runtime_schema"]
-    assert callback is original._ensure_runtime_schema
-    assert operation_trace(callback) == payload["operation_trace"] == list(TRACE)
-    for owner in (PREFIX + "schema_compatibility", PREFIX + "schema_runtime"):
+    if SLICE == "l1":
+        callback = original.create_schema.__globals__["_ensure_runtime_schema"]
+        assert callback is original._ensure_runtime_schema
+        assert operation_trace(callback) == payload["operation_trace"] == list(TRACE)
+    for owner in modules.keys() - {ORIGINAL}:
         tree = ast.parse(Path(modules[owner].__file__).read_text())
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
@@ -294,7 +314,7 @@ def check(path: Path) -> None:
                 assert all(
                     item.name not in {ORIGINAL, PREFIX + "repositories"} for item in node.names
                 )
-    asyncio.run(session_contract(original))
+    asyncio.run(session_contract(importlib.import_module(PREFIX + "unit_of_work")))
     for order in ((ORIGINAL, *modules), (*reversed(modules), ORIGINAL)):
         paths = [str(package) for package in sorted((ROOT / "packages").iterdir())]
         code = f"import importlib, sys; sys.path[:0] = {paths!r};"
@@ -304,16 +324,25 @@ def check(path: Path) -> None:
         )
         subprocess.run([sys.executable, "-c", code], check=True, cwd=ROOT)
     print(
-        f"verified {len(OWNERS)} bodies/bindings/aliases/hints; schema trace and session lifetime"
+        f"verified {len(OWNERS)} bodies/bindings/aliases/hints; slice {SLICE} and session lifetime"
     )
 
 
 def main() -> None:
+    global ORIGINAL, OWNERS, SLICE
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("capture", "check"))
-    parser.add_argument("--slice", choices=("l1",), required=True)
+    parser.add_argument("--slice", choices=("l1", "l2"), required=True)
     args = parser.parse_args()
-    path = ROOT / "tests/fixtures/canonical_persistence_refactor/l1_contract.json"
+    SLICE = args.slice
+    if SLICE == "l2":
+        ORIGINAL = PREFIX + "repositories"
+        OWNERS = {
+            **REPOSITORY_OWNERS,
+            "PostgresIdempotencyRepository": PREFIX + "record_repositories",
+            "PostgresOutbox": PREFIX + "record_repositories",
+        }
+    path = ROOT / f"tests/fixtures/canonical_persistence_refactor/{SLICE}_contract.json"
     {"capture": capture, "check": check}[args.mode](path)
 
 
