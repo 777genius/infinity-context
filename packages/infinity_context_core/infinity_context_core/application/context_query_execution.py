@@ -28,11 +28,14 @@ async def collect_query_results(
         raise ValueError("query concurrency must be an integer between 1 and 4")
     if not queries:
         return ()
+    stopping = False
     pending = iter(enumerate(queries))
     results: list[_Result | Exception | None] = [None] * len(queries)
 
     async def worker() -> None:
         for index, query in pending:
+            if stopping:
+                return
             try:
                 operation = search(query)
                 results[index] = (
@@ -48,6 +51,7 @@ async def collect_query_results(
     try:
         await asyncio.shield(completion)
     except BaseException:
+        stopping = True
         for task in tasks:
             if not task.done():
                 task.cancel()
