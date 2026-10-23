@@ -1,0 +1,301 @@
+{
+  "source": "synthetic:empty-and-missing-roles",
+  "input": {
+    "config": {
+      "max_items": 8,
+      "max_items_per_source_type": 3,
+      "max_items_per_retrieval_source": 3
+    },
+    "normalized_config": {
+      "max_items": 8,
+      "max_items_per_source_type": 3,
+      "max_items_per_retrieval_source": 3
+    },
+    "candidate_sequence_type": "tuple",
+    "candidate_tuple_fields_verified": true,
+    "candidates": [
+      {
+        "rank": 1,
+        "retrieval_order": 1,
+        "item_id": "primary",
+        "covered_expected_terms": [
+          "answer"
+        ],
+        "covered_evidence_terms": [
+          "D1:1"
+        ],
+        "query_support_terms": [
+          "person",
+          "answer"
+        ],
+        "query_support_score": 1.0,
+        "bundle_strength_score": 1.0,
+        "focused_evidence_score": 1.0,
+        "primary_signal": true,
+        "dedupe_key": "source_turn_refs:D1:1",
+        "source_refs": [
+          "D1:1"
+        ],
+        "source_type": "raw_turn",
+        "retrieval_sources": [
+          "raw_turns"
+        ],
+        "direct_speaker_turn": true,
+        "answerability_score": 0.9,
+        "source_locality_score": 1.0,
+        "relation_hits": [
+          "answer"
+        ],
+        "entity_hits": [
+          "person"
+        ],
+        "query_has_entities": true
+      }
+    ],
+    "case_group": "single",
+    "required_roles_sequence_type": "tuple",
+    "required_roles": [
+      "unknown_role"
+    ]
+  },
+  "expected": {
+    "items": [
+      {
+        "rank": 1,
+        "retrieval_order": 1,
+        "id": "primary",
+        "role": "primary",
+        "covered_expected_terms": [
+          "answer"
+        ],
+        "covered_evidence_terms": [
+          "D1:1"
+        ],
+        "query_support_terms": [
+          "person",
+          "answer"
+        ],
+        "query_support_score": 1.0,
+        "bundle_strength_score": 1.0,
+        "focused_evidence_score": 1.0,
+        "answerability_score": 0.9,
+        "answerability_reason_codes": [],
+        "time_intent_kind": "",
+        "has_duration_surface": false,
+        "has_relative_time_surface": false,
+        "has_explicit_time_surface": false,
+        "has_explicit_time_content_surface": false,
+        "has_temporal_sequence_surface": false,
+        "covered_answer_unit_shapes": [],
+        "exact_count_evidence": false,
+        "list_item_count": 0,
+        "list_items": [],
+        "source_locality_score": 1.0,
+        "negation_surface": false,
+        "currentness_surface": false,
+        "stale_surface": false,
+        "contrast_surface": false,
+        "source_refs": [
+          "D1:1"
+        ],
+        "dedupe_key": "source_turn_refs:D1:1",
+        "planner_reason_codes": [
+          "role:primary",
+          "primary_signal",
+          "expected_terms",
+          "evidence_terms",
+          "query_support",
+          "answer_evidence",
+          "focused_turn",
+          "high_answerability",
+          "direct_speaker_turn",
+          "entity_hits",
+          "case_group:single"
+        ],
+        "source_ref_dedupe_key": "source_turn_refs:D1:1",
+        "source_type": "raw_turn",
+        "retrieval_sources": [
+          "raw_turns"
+        ],
+        "entity_hits": [
+          "person"
+        ]
+      }
+    ],
+    "diagnostics": {
+      "schema_version": "evidence_bundle_planner.v1",
+      "candidate_count": 1,
+      "selected_item_count": 1,
+      "deduplicated_item_count": 0,
+      "dropped_duplicate_keys": [],
+      "dropped_diversity_count": 0,
+      "dropped_source_type_diversity_count": 0,
+      "dropped_retrieval_source_diversity_count": 0,
+      "dropped_source_ref_overlap_count": 0,
+      "dropped_source_ref_overlap_keys_sample": [],
+      "dropped_noisy_source_overlap_count": 0,
+      "dropped_noisy_source_overlap_keys_sample": [],
+      "role_counts": {
+        "primary": 1
+      },
+      "required_roles": [
+        "unknown_role"
+      ],
+      "satisfied_required_roles": [],
+      "missing_required_roles": [
+        "unknown_role"
+      ],
+      "role_requirement_complete": false,
+      "required_role_repair_count": 0,
+      "repaired_required_roles": [],
+      "source_type_counts": {
+        "raw_turn": 1
+      },
+      "retrieval_source_counts": {
+        "raw_turns": 1
+      },
+      "covered_required_term_count": 2,
+      "covered_query_support_term_count": 2,
+      "max_answerability_score": 0.9,
+      "average_selected_answerability_score": 0.9,
+      "average_measured_selected_answerability_score": 0.9,
+      "unmeasured_selected_answerability_count": 0,
+      "average_selected_source_locality_score": 1.0,
+      "average_measured_selected_source_locality_score": 1.0,
+      "unmeasured_selected_source_locality_count": 0,
+      "selected_dedupe_keys": [
+        "source_turn_refs:D1:1"
+      ],
+      "primary_selection_reason_codes": [
+        "role:primary",
+        "primary_signal",
+        "expected_terms",
+        "evidence_terms",
+        "query_support",
+        "answer_evidence",
+        "focused_turn",
+        "high_answerability",
+        "direct_speaker_turn",
+        "entity_hits",
+        "case_group:single"
+      ],
+      "bundle_quality": {
+        "schema_version": "evidence_bundle_quality.v1",
+        "confidence_score": 0.456,
+        "confidence_band": "low",
+        "component_scores": {
+          "answerability": 0.216,
+          "bridge_support": 0.0,
+          "causal_support": 0.0,
+          "communication_support": 0.0,
+          "contrast_support": 0.0,
+          "emotion_response_support": 0.0,
+          "event_support": 0.0,
+          "exchange_support": 0.0,
+          "favorite_support": 0.0,
+          "focused_or_direct": 0.16,
+          "inference_support": 0.0,
+          "location_support": 0.0,
+          "negative_absence_support": 0.0,
+          "preference_support": 0.0,
+          "primary": 0.18,
+          "source_diversity": 0.0,
+          "source_proximity": 0.0,
+          "source_refs": 0.08,
+          "supporting": 0.0,
+          "symbolic_meaning_support": 0.0,
+          "typed_relation_support": 0.0,
+          "visual_support": 0.0
+        },
+        "risk_penalty": 0.18,
+        "reason_codes": [
+          "has_primary_evidence",
+          "has_focused_evidence",
+          "has_direct_speaker_evidence",
+          "has_source_refs",
+          "high_answerability",
+          "has_partial_required_role_support",
+          "partial_required_unknown_role",
+          "risk:missing_required_role",
+          "risk:missing_required_unknown_role"
+        ],
+        "selected_item_count": 1,
+        "primary_count": 1,
+        "supporting_count": 0,
+        "focused_item_count": 1,
+        "direct_speaker_count": 1,
+        "source_ref_item_count": 1,
+        "source_ref_support_item_count": 1,
+        "source_ref_support_ref_count": 1,
+        "source_identity_item_count": 1,
+        "source_identity_ref_count": 2,
+        "source_identity_support_item_count": 1,
+        "source_identity_support_ref_count": 2,
+        "source_type_diversity": 1,
+        "retrieval_source_diversity": 1,
+        "source_type_support_diversity": 1,
+        "retrieval_source_support_diversity": 1,
+        "average_answerability_score": 0.9,
+        "average_measured_answerability_score": 0.9,
+        "max_answerability_score": 0.9,
+        "low_answerability_count": 0,
+        "generic_measured_answerability_count": 0,
+        "measured_answerability_count": 1,
+        "unmeasured_answerability_count": 0,
+        "average_measured_source_locality_score": 1.0,
+        "measured_source_locality_count": 1,
+        "unmeasured_source_locality_count": 0,
+        "bridge_count": 0,
+        "bridge_query_hit_count": 0,
+        "person_grounding_item_count": 1,
+        "person_grounding_ref_count": 1,
+        "distinct_person_grounding_count": 1,
+        "repeated_person_grounding_count": 0,
+        "causal_support_count": 0,
+        "communication_support_count": 0,
+        "event_support_count": 0,
+        "exchange_support_count": 0,
+        "inference_support_count": 0,
+        "location_support_count": 0,
+        "emotion_response_support_count": 0,
+        "symbolic_meaning_support_count": 0,
+        "preference_support_count": 0,
+        "favorite_support_count": 0,
+        "visual_support_count": 0,
+        "typed_relation_support_count": 0,
+        "typed_relation_support_counts": {},
+        "partial_required_role_support_count": 1,
+        "partial_required_role_support_counts": {
+          "unknown_role": 1
+        },
+        "participant_grounding_blocked_required_role_count": 0,
+        "participant_grounding_blocked_required_role_counts": {},
+        "participant_grounding_blocked_required_role_samples": [],
+        "location_relation_category_hit_count": 0,
+        "source_proximity_support_count": 0,
+        "source_chain_proximity_support_count": 0,
+        "source_proximity_closest_distance": null,
+        "source_chain_proximity_closest_distance": null,
+        "source_proximity_distance_counts": {},
+        "source_chain_proximity_distance_counts": {},
+        "source_proximity_window": 3,
+        "diffuse_source_ref_count": 0,
+        "diffuse_source_ref_samples": [],
+        "weak_source_locality_count": 0,
+        "weak_source_locality_samples": [],
+        "missing_required_role_count": 1,
+        "missing_required_roles": [
+          "unknown_role"
+        ],
+        "contrast_count": 0,
+        "negative_absence_support_count": 0,
+        "contrast_surface_count": 0,
+        "negation_surface_count": 0,
+        "currentness_surface_count": 0,
+        "stale_surface_count": 0,
+        "broad_summary_count": 0,
+        "conflict_or_stale_count": 0
+      }
+    }
+  }
+}
