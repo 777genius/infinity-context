@@ -232,7 +232,11 @@ async def _assert_cleanup_derivation(database_url: str, dataset: Path, tmp_path:
         await _restore_writer(database, saved_writer)
 
         await _set_registered_at(database, run_id, receipt.registered_at.replace(year=2025))
-        with pytest.raises(ProjectionReceiptError, match="preparation_registration_invalid"):
+        # Recovery rejects the poisoned canonical registration before the later receipt check.
+        with pytest.raises(
+            ProjectionReceiptError,
+            match=r"^projection_receipt\.context_authority_collision$",
+        ):
             await reader.read_registered_strict_v4(run_id)
         await _set_registered_at(database, run_id, receipt.registered_at)
         assert recovery_calls == 4

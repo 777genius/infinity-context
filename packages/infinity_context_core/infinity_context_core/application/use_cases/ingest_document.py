@@ -5,6 +5,15 @@ from __future__ import annotations
 from infinity_context_core.application.benchmark_managed_write_admission import (
     require_managed_document_admission,
 )
+from infinity_context_core.application.document_fragment_metadata import (
+    _chunk_metadata_for_fragment as _chunk_metadata_for_fragment,
+)
+from infinity_context_core.application.document_fragment_metadata import (
+    _optional_int as _optional_int,
+)
+from infinity_context_core.application.document_fragment_metadata import (
+    _source_refs_for_fragment as _source_refs_for_fragment,
+)
 from infinity_context_core.application.document_fragments import fragment_document_text
 from infinity_context_core.application.document_ingestion_replay import (
     document_idempotency_key,
@@ -66,7 +75,7 @@ class IngestDocumentUseCase:
                 body_hash = (
                     content_hash(command.text) if managed else document_content_digest(command.text)
                 )
-                keys = await self._keys(uow, command, body_hash)
+                keys, managed_admitted = await self._keys(uow, command, body_hash)
                 for key in keys:
                     existing = await uow.idempotency.find(space_id=str(command.space_id), key=key)
                     if existing is not None:
@@ -76,12 +85,13 @@ class IngestDocumentUseCase:
                                 command,
                                 existing,
                                 modern_hash=document_content_digest(command.text),
+                                managed=managed_admitted,
                             )
                         except MemoryConflictError:
                             if key == keys[0]:
                                 raise
                 duplicate = await find_document_duplicate(
-                    uow, command, body_hash=body_hash, managed=managed
+                    uow, command, body_hash=body_hash, managed=managed_admitted
                 )
                 if duplicate is not None:
                     if command.idempotency_key or managed:
@@ -93,9 +103,11 @@ class IngestDocumentUseCase:
                             # A different request may have bound this explicit
                             # key while we recovered the shared document.
                             async with self._uow_factory() as replay_uow:
-                                await self._keys(replay_uow, command, body_hash)
+                                replay_keys, replay_managed = await self._keys(
+                                    replay_uow, command, body_hash
+                                )
                                 record = await replay_uow.idempotency.find(
-                                    space_id=str(command.space_id), key=keys[0]
+                                    space_id=str(command.space_id), key=replay_keys[0]
                                 )
                                 if record is None:
                                     raise
@@ -104,22 +116,23 @@ class IngestDocumentUseCase:
                                     command,
                                     record,
                                     modern_hash=document_content_digest(command.text),
+                                    managed=replay_managed,
                                 )
                     return duplicate
             raise exc
 
-    async def _keys(self, uow, command, body_hash: str) -> tuple[str, ...]:
+    async def _keys(self, uow, command, body_hash: str) -> tuple[tuple[str, ...], bool]:
         managed_key = await require_managed_document_admission(
             uow=uow, command=command, strict_v4_authority=self._strict_v4_authority
         )
         strict = self._strict_v4_authority is not None
         key = document_idempotency_key(command, body_hash, managed_key, strict)
         if managed_key is not None or command.idempotency_key:
-            return (key,)
+            return (key,), managed_key is not None
         legacy_key = document_idempotency_key(
             command, legacy_document_content_digest(command.text), None, False
         )
-        return tuple(dict.fromkeys((key, legacy_key)))
+        return tuple(dict.fromkeys((key, legacy_key))), False
 
     async def _execute_once(self, command: IngestDocumentCommand) -> IngestDocumentResult:
         managed_benchmark = is_managed_benchmark_space_id(str(command.space_id))
@@ -129,7 +142,7 @@ class IngestDocumentUseCase:
             else document_content_digest(command.text)
         )
         async with self._uow_factory() as uow:
-            keys = await self._keys(uow, command, body_hash)
+            keys, managed_admitted = await self._keys(uow, command, body_hash)
             key = keys[0]
             for lookup_key in keys:
                 existing = await uow.idempotency.find(
@@ -142,12 +155,13 @@ class IngestDocumentUseCase:
                             command,
                             existing,
                             modern_hash=document_content_digest(command.text),
+                            managed=managed_admitted,
                         )
                     except MemoryConflictError:
                         if lookup_key == keys[0]:
                             raise
             duplicate = await find_document_duplicate(
-                uow, command, body_hash=body_hash, managed=managed_benchmark
+                uow, command, body_hash=body_hash, managed=managed_admitted
             )
             if duplicate is not None:
                 if command.idempotency_key or managed_benchmark:
@@ -281,67 +295,3 @@ class IngestDocumentUseCase:
 
 def _can_project_document_to_external_memory(classification: str) -> bool:
     return classification in {"public", "internal"}
-
-
-def _chunk_metadata_for_fragment(
-    metadata: dict[str, object] | None,
-    *,
-    char_start: int,
-    char_end: int,
-) -> dict[str, object]:
-    safe = dict(metadata or {})
-    refs = _source_refs_for_fragment(
-        safe.get("source_refs"),
-        char_start=char_start,
-        char_end=char_end,
-    )
-    if refs:
-        safe["source_refs"] = refs
-        safe["source_ref_count"] = len(refs)
-    else:
-        safe.pop("source_refs", None)
-        safe.pop("source_ref_count", None)
-    return safe
-
-
-def _source_refs_for_fragment(
-    value: object,
-    *,
-    char_start: int,
-    char_end: int,
-) -> list[dict[str, object]]:
-    if not isinstance(value, (list, tuple)):
-        return []
-    refs: list[dict[str, object]] = []
-    for item in value:
-        if not isinstance(item, dict):
-            continue
-        ref_start = _optional_int(item.get("char_start"))
-        ref_end = _optional_int(item.get("char_end"))
-        if ref_start is None or ref_end is None:
-            if char_start != 0:
-                continue
-            refs.append(dict(item))
-        elif ref_start <= char_end and ref_end >= char_start:
-            ref = dict(item)
-            ref["chunk_char_start"] = max(ref_start, char_start) - char_start
-            ref["chunk_char_end"] = max(min(ref_end, char_end) - char_start, 0)
-            refs.append(ref)
-        if len(refs) >= 24:
-            break
-    return refs
-
-
-def _optional_int(value: object) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float):
-        return int(value)
-    if isinstance(value, str):
-        try:
-            return int(float(value.strip()))
-        except ValueError:
-            return None
-    return None

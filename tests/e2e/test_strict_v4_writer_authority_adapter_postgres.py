@@ -847,6 +847,13 @@ async def _assert_multirole_canonical_rejected(
                         "public.memory_idempotency_records TO "
                         "infinity_context_canonical_writer"
                     )
+                elif key == "function-capability-owner":
+                    # Restore the explicit non-grantable grant after the owner roundtrip.
+                    await admin.execute(
+                        "GRANT EXECUTE ON FUNCTION "
+                        "public.memory_comparison_is_strict_v4_canonical_writer() TO "
+                        "infinity_context_canonical_writer"
+                    )
             finally:
                 await admin.close()
 

@@ -119,17 +119,50 @@ class SourceIndex:
 
     def top_binding(self, path: Path, node: ast.AST, bindings: dict[str, str]) -> None:
         """Shared extraction for repository scans and in-memory counterexamples."""
+        if isinstance(node, ast.If):
+            guard = node.test
+            while isinstance(guard, ast.Attribute):
+                guard = guard.value
+            if (
+                isinstance(guard, ast.Name)
+                and guard.id in bindings
+                and dotted(node.test, bindings) == "typing.TYPE_CHECKING"
+            ):
+                for declaration in node.body:
+                    if isinstance(declaration, (ast.Import, ast.ImportFrom)):
+                        if all(alias.name != "*" for alias in declaration.names):
+                            self.import_binding(path, declaration, bindings)
+                    elif isinstance(declaration, (ast.Assign, ast.AnnAssign)):
+                        targets = (
+                            declaration.targets
+                            if isinstance(declaration, ast.Assign)
+                            else [declaration.target]
+                        )
+                        value = declaration.value
+                        while isinstance(value, ast.Attribute):
+                            value = value.value
+                        if isinstance(value, ast.Name) and all(
+                            isinstance(target, ast.Name) for target in targets
+                        ):
+                            self.top_binding(path, declaration, bindings)
+            return
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
             bindings[node.name] = f"{module_name(path)}.{node.name}"
         self.import_binding(path, node, bindings)
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = dotted(node.value, bindings)
+            root = node.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id not in bindings:
+                value = ""
             for target in targets:
                 if isinstance(target, ast.Name):
-                    value = dotted(node.value, bindings)
+                    binding = value
                     if isinstance(node.value, ast.Call) and value.endswith(".APIRouter"):
-                        value = f"{module_name(path)}.{target.id}"
-                    bindings[target.id] = value or target.id
+                        binding = f"{module_name(path)}.{target.id}"
+                    bindings[target.id] = binding or f"{module_name(path)}.{target.id}"
 
     def resolve(self, symbol: str) -> str:
         seen = set()

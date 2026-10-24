@@ -138,6 +138,16 @@ class AssetExtractionRepositoryPort(Protocol):
     async def save(self, job: AssetExtractionJob) -> AssetExtractionJob:
         """Persist changed extraction job state."""
 
+    async def save_running_progress(
+        self, proposed: AssetExtractionJob, *, expected: AssetExtractionJob
+    ) -> AssetExtractionJob:
+        """Atomically save owned progress, returning fresh persisted state on conflict.
+
+        Only progress metadata, heartbeat, lease expiry and update time may change.
+        Invalid snapshots raise validation errors; missing jobs raise not-found.
+        The caller owns commit. Lifecycle/reset transitions use ordinary save.
+        """
+
     async def create_artifact(self, artifact: ExtractionArtifact) -> ExtractionArtifact:
         """Persist an extraction artifact row."""
 

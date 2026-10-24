@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
+from infinity_context_core.application.document_fragment_metadata import (
+    _chunk_metadata_for_fragment,
+)
 from infinity_context_core.application.document_fragments import fragment_document_text
 from infinity_context_core.application.dto import IngestDocumentCommand, IngestDocumentResult
 from infinity_context_core.application.normalize import scoped_idempotency_key
@@ -40,6 +45,7 @@ def validate_document_replay(
     chunks: list[MemoryChunk],
     *,
     modern: bool,
+    managed: bool = False,
 ) -> IngestDocumentResult:
     allowed_threads = (None, command.thread_id) if command.thread_id else (None,)
     if (
@@ -66,7 +72,9 @@ def validate_document_replay(
         for chunk in ordered
     ):
         raise MemoryInvariantError("Document chunk ownership is incomplete or unrelated")
-    if modern:
+    if managed:
+        _validate_managed_document_projection(command, document, ordered)
+    elif modern:
         if document.content_hash != document_content_digest(command.text):
             raise MemoryConflictError("Document content differs from the stored request")
         if not _modern_projection_matches(command.text, ordered):
@@ -96,6 +104,64 @@ def validate_document_replay(
     )
 
 
+def _validate_managed_document_projection(
+    command: IngestDocumentCommand,
+    document: MemoryDocument,
+    chunks: list[MemoryChunk],
+) -> None:
+    # The caller has freshly admitted this exact managed operation. Its digest
+    # stays v1, but its complete authenticated projection is available for proof.
+    if (
+        document.content_hash != legacy_document_content_digest(command.text)
+        or document.thread_id != command.thread_id
+        or document.title != command.title.strip()
+        or document.source_type != command.source_type.strip()
+        or document.source_external_id != command.source_external_id.strip()
+        or document.classification != command.classification
+    ):
+        raise MemoryConflictError("Managed document identity differs from the admitted request")
+    pieces = fragment_document_text(command.text)
+    if len(chunks) != len(pieces) or any(
+        type(chunk.sequence) is not int
+        or chunk.sequence != piece.sequence
+        or chunk.kind != piece.kind
+        or chunk.text != piece.text.strip()
+        or chunk.char_start != piece.char_start
+        or chunk.char_end != piece.char_end
+        or not _managed_fragment_metadata_matches(command, document, chunk, piece)
+        for chunk, piece in zip(chunks, pieces, strict=False)
+    ):
+        raise MemoryInvariantError("Managed document chunk projection is incomplete or divergent")
+
+
+def _managed_fragment_metadata_matches(command, document, chunk, piece) -> bool:
+    expected = {
+        **_chunk_metadata_for_fragment(
+            command.chunk_metadata, char_start=piece.char_start, char_end=piece.char_end
+        ),
+        "title": document.title,
+        "node_kind": piece.node_kind,
+        "heading": piece.heading,
+        "ordinal_in_heading": piece.ordinal_in_heading,
+    }
+    owned = (
+        "source_refs",
+        "source_ref_count",
+        "title",
+        "node_kind",
+        "heading",
+        "ordinal_in_heading",
+    )
+    actual = {key: chunk.metadata[key] for key in owned if key in chunk.metadata}
+    expected = {key: expected[key] for key in owned if key in expected}
+    try:
+        return json.dumps(actual, sort_keys=True, allow_nan=False) == json.dumps(
+            expected, sort_keys=True, allow_nan=False
+        )
+    except (TypeError, ValueError):
+        return False
+
+
 def _modern_projection_matches(text: str, chunks: list[MemoryChunk]) -> bool:
     # Keep original chunk/source-ref offsets at write time. Equivalent line
     # endings can produce different long-chunk boundaries, so validate against
@@ -116,8 +182,12 @@ def _modern_projection_matches(text: str, chunks: list[MemoryChunk]) -> bool:
     return False
 
 
-async def replay_document_receipt(uow, command, record: IdempotencyRecord, *, modern_hash: str):
-    if record.fingerprint not in (modern_hash, legacy_document_content_digest(command.text)):
+async def replay_document_receipt(
+    uow, command, record: IdempotencyRecord, *, modern_hash: str, managed: bool = False
+):
+    legacy_hash = legacy_document_content_digest(command.text)
+    fingerprints = (legacy_hash,) if managed else (modern_hash, legacy_hash)
+    if record.fingerprint not in fingerprints:
         raise MemoryConflictError("Idempotency key was used with different document")
     if record.result_type != "document":
         raise MemoryInvariantError("Idempotency result has unexpected type for document")
@@ -129,6 +199,7 @@ async def replay_document_receipt(uow, command, record: IdempotencyRecord, *, mo
         document,
         await uow.documents.list_chunks(str(document.id)),
         modern=document.content_hash == modern_hash,
+        managed=managed,
     )
 
 
@@ -149,6 +220,7 @@ async def find_document_duplicate(uow, command, *, body_hash: str, managed: bool
                 document,
                 await uow.documents.list_chunks(str(document.id)),
                 modern=not managed and document.content_hash == body_hash,
+                managed=managed,
             )
         except MemoryConflictError:
             if managed or candidate_hash == body_hash:
