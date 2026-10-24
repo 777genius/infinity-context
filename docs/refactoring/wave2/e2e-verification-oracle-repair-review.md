@@ -20,3 +20,12 @@ Combined acceptance source before these test repairs: `6fce8875ec8e0c2e13a8560cb
 ## State at this commit
 
 Plan v2 and both review dispositions are recorded before implementation. No production or test source has changed in this commit. Implementation, catalog proof, full-data reruns and two independent code reviews follow on this branch. GitHub publication/integration is root-owned.
+
+## Implementation and acceptance follow-up
+
+Exact implementation `20395a91de23ac151d088c888af8acc71c3d9e15` received independent root and
+architecture code approvals with no findings. The actual PostgreSQL 18 catalog proof passed
+before full-data replay. Both original complete official LoCoMo selectors then passed on
+combined `72b20297` in 348.06 seconds; shared capability-role state was verified restored.
+See `e2e-verification-oracle-repair-acceptance.md` for exact source/tree, retained assertions,
+data digest and evidence. No test or production source changed after either code review.
