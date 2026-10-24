@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import NewType
 
@@ -18,6 +18,13 @@ ExtractionArtifactId = NewType("ExtractionArtifactId", str)
 MAX_EXTRACTION_METADATA_KEYS = 120
 MAX_EXTRACTION_ERROR_CHARS = 500
 MAX_EXTRACTION_METADATA_LIST_ITEMS = 50
+
+
+def extraction_datetime_utc(value: datetime | None) -> datetime | None:
+    """Interpret persisted naive extraction timestamps as UTC."""
+    if value is None:
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 class AssetExtractionStatus(StrEnum):
@@ -176,6 +183,17 @@ class AssetExtractionJob:
             lease_expires_at=lease_expires_at or self.lease_expires_at,
             metadata=_safe_metadata({**dict(self.metadata), **dict(metadata or {})}),
             updated_at=now,
+        )
+
+    def same_running_attempt(self, other: AssetExtractionJob) -> bool:
+        """Match the immutable execution identity, without adopting a newer lease."""
+        return (
+            self.status == other.status == AssetExtractionStatus.RUNNING
+            and self.id == other.id
+            and self.attempt_count == other.attempt_count
+            and self.lease_owner == other.lease_owner
+            and extraction_datetime_utc(self.started_at)
+            == extraction_datetime_utc(other.started_at)
         )
 
     def request_cancellation(self, *, now: datetime) -> AssetExtractionJob:
