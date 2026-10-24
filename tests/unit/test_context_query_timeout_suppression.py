@@ -12,7 +12,10 @@ from infinity_context_core.application.context_collectors import (
     VectorContextCollector,
 )
 from infinity_context_core.application.context_query_execution import collect_query_results
-from infinity_context_core.application.context_query_expansion import QueryExpansion, QueryExpansionPlan
+from infinity_context_core.application.context_query_expansion import (
+    QueryExpansion,
+    QueryExpansionPlan,
+)
 from infinity_context_core.application.dto import BuildContextQuery
 from infinity_context_core.domain.entities import MemoryScopeId, SpaceId
 
