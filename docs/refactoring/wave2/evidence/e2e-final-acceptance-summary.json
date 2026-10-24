@@ -1,0 +1,356 @@
+{
+  "schema": "final-source-qualified-e2e-acceptance.v1",
+  "generated_utc": "2026-10-24T16:49:45.794731+00:00",
+  "outcome": {
+    "logical_cases": 237,
+    "unique_passing_observations": 235,
+    "blocked": 2,
+    "pending": 0,
+    "separate_actual_adapter_passes": 40,
+    "all_e2e_green": false
+  },
+  "scope": "Full original E2E run plus deduplicated focused corrected-source reruns, reviewed impact/dependency reuse and explicit external blockers. Not one fresh full execution on the final candidate.",
+  "final_composed_source": {
+    "local_head": "437796a5785aa39c8c3a04c8d7ff5c991588d63e",
+    "tree": "e5f5e09339af4c1bd9b927460125cf94ba69773d",
+    "published_head": "472ee06add689c5ec9e80ee7245eddabf7f4ff05",
+    "baseline_head": "6fce8875ec8e0c2e13a8560cb312557bd67261ef"
+  },
+  "source_changes_from_frozen_run": {
+    "changed_entries": 26,
+    "production_changed_entries": 8,
+    "unchanged_entries": 3702,
+    "complete_manifest_archive": "e2e-source-reuse-proofs.json.gz"
+  },
+  "selected_passing_execution_sources": {
+    "6fce8875ec8e0c2e13a8560cb312557bd67261ef": 227,
+    "b230f59bc2643605b777cb253d0122c188b12cd8": 3,
+    "437796a5785aa39c8c3a04c8d7ff5c991588d63e": 2,
+    "440c0d537f6f3c0e87e87d81c41d3973ea66a371": 1,
+    "72b20297d41bfb8c74db52be4fb819de1b5bc7b0": 2
+  },
+  "selected_pass_source_categories": {
+    "prior_source_observed_pass_carry_forward_requires_scope_qualification": 227,
+    "verified_b230_success_path_reuse_after_single_raise_amendment": 3,
+    "verified_pure_docling_dependency_reuse": 2,
+    "executed_on_corrected_final_candidate": 2,
+    "verified_hosted_restore_dependency_reuse": 1
+  },
+  "inventory_derivation": {
+    "original_junit_records": 236,
+    "original_individual_cases": 233,
+    "original_individual_statuses": {
+      "passed": 214,
+      "skipped": 3,
+      "failed": 16
+    },
+    "original_module_collection_records": 3,
+    "original_module_record_statuses": {
+      "skipped": 3
+    },
+    "module_collection_records": [
+      {
+        "kind": "module_collection_record",
+        "module": "tests.e2e.test_docling_asset_extraction_api_e2e",
+        "status": "skipped",
+        "reason": "collection skipped"
+      },
+      {
+        "kind": "module_collection_record",
+        "module": "tests.e2e.test_docling_extraction_real_e2e",
+        "status": "skipped",
+        "reason": "collection skipped"
+      },
+      {
+        "kind": "module_collection_record",
+        "module": "tests.e2e.test_multimodal_production_acceptance_e2e",
+        "status": "skipped",
+        "reason": "collection skipped"
+      }
+    ],
+    "hidden_docling_individual_nodes": [
+      "tests/e2e/test_docling_asset_extraction_api_e2e.py::test_docling_asset_extraction_persists_structured_artifacts",
+      "tests/e2e/test_docling_extraction_real_e2e.py::test_sample_pdf_fixture_is_strictly_parseable",
+      "tests/e2e/test_docling_extraction_real_e2e.py::test_real_docling_extracts_document_evidence_and_artifacts",
+      "tests/e2e/test_multimodal_production_acceptance_e2e.py::test_multimodal_asset_memory_acceptance_flow"
+    ],
+    "hidden_docling_individual_count": 4,
+    "logical_unique_nodes": 237
+  },
+  "disjoint_passing_groups": {
+    "initial_individual_passes_retained_or_revalidated": 214,
+    "initial_service_skip_recovered": 1,
+    "hidden_docling_functions": 4,
+    "corrected_fd_capture_failures": 10,
+    "corrected_timezone_failures": 2,
+    "initial_hosted_upgrade_skip_recovered": 1,
+    "reviewed_locomo_oracle_failures": 2,
+    "actual_final_full_longmemeval": 1
+  },
+  "final_http_regression_correction": {
+    "original_failed_ci_run": 40087556960,
+    "original_failed_ci_job": 120854051391,
+    "original_failed_ci_merge": "7ef7e4788ba5d40f49328ed07a7fa55fb06239fc",
+    "actual_local_failed_source": "b230f59bc2643605b777cb253d0122c188b12cd8",
+    "actual_local_failed_junit": {
+      "artifact": "e2e-final-managed-document-identity-b230.xml",
+      "bytes": 5222,
+      "sha256": "75d8e5a3ac048b906629015a282f2c0f6746954728163565421936e7ac933c0b",
+      "counts": {
+        "failed": 1
+      },
+      "testcases": 1
+    },
+    "corrected_code": "ce66157889094faeb577acb8a13e90167b5d26bb",
+    "production_delta": "One managed projection mismatch raises MemoryConflictError instead of MemoryInvariantError; all predicates/messages/common structural guards/HTTP mapper/original PostgreSQL tests unchanged.",
+    "focused_gate": {
+      "artifact": "managed-replay-http-conflict-focused.xml",
+      "bytes": 13384,
+      "sha256": "1193982deeb594cf6a5bafd34749a97f1b10be346792f9216e596d9579f5577b",
+      "counts": {
+        "passed": 80
+      },
+      "testcases": 80
+    },
+    "focused_seconds_reported": 66.2,
+    "focused_source_qualification": "Committed tracked production/test code unchanged; three untracked acceptance Markdown drafts present. No claim of a clean owner worktree.",
+    "original_pg_file_gate": {
+      "artifact": "e2e-final-managed-document-identity-postfix.xml",
+      "bytes": 571,
+      "sha256": "169552a79f640866fbaed1bd63ca4f63d4bf109ff9c8dfc4845cc45427ae5686",
+      "counts": {
+        "passed": 2
+      },
+      "testcases": 2
+    },
+    "original_pg_file_source": "437796a5785aa39c8c3a04c8d7ff5c991588d63e",
+    "original_pg_file_seconds_reported": 8.85,
+    "original_pg_file_worktree_clean_and_unchanged": true,
+    "both_independent_code_reviews": "approved",
+    "earlier_failures_preserved": true
+  },
+  "heavy_gates": [
+    {
+      "name": "Original full official LongMemEval",
+      "source": "b230f59bc2643605b777cb253d0122c188b12cd8",
+      "junit": {
+        "artifact": "e2e-final-lme-final-composed.xml",
+        "bytes": 415,
+        "sha256": "b3b410c11089a15e5c0e4d856e4e19a43e7888078c647e8e34e8847b53853170",
+        "counts": {
+          "passed": 1
+        },
+        "testcases": 1
+      },
+      "seconds_reported": 986.33,
+      "prepared_operations": 124344,
+      "canonical_selected_document_writes": 1,
+      "original_replay_tamper_and_count_assertions": true,
+      "input_bytes": 277383467,
+      "input_sha256": "d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442",
+      "reuse": "Successful exact projection and upstream strict admission do not execute the single changed rejecting raise; retains actual b230 source."
+    },
+    {
+      "name": "Affected real Docling HTTP/multimodal",
+      "source": "b230f59bc2643605b777cb253d0122c188b12cd8",
+      "junit": {
+        "artifact": "e2e-corrected-docling.xml",
+        "bytes": 546,
+        "sha256": "14e814b5bb23062d7b979163f852cc1fc04e4489daa79922f458d9d0de1531d2",
+        "counts": {
+          "passed": 2
+        },
+        "testcases": 2
+      },
+      "seconds_reported": 168.15,
+      "multimodal_jobs_completed": 5,
+      "http_jobs_completed": 1,
+      "original_timeouts_and_assertions_retained": true,
+      "reuse": "Ordinary ingestion does not select managed replay; two pure Docling nodes have separate dependency proofs and retain original source."
+    },
+    {
+      "name": "Two full official LoCoMo verification nodes",
+      "source": "72b20297d41bfb8c74db52be4fb819de1b5bc7b0",
+      "junit": {
+        "artifact": "e2e-final-verification-oracles-combined.xml",
+        "bytes": 599,
+        "sha256": "25ae34b59a30c225c11314b0bedd0df480e874843aa76507babc401e1c7d532f",
+        "counts": {
+          "passed": 2
+        },
+        "testcases": 2
+      },
+      "seconds_reported": 348.06,
+      "ingests": 5882,
+      "replays": 5882
+    },
+    {
+      "name": "Heartbeat affected files",
+      "source": "afde2d95050fac1184b81f5373499c3abeacef9e",
+      "junit": {
+        "artifact": "heartbeat-affected-fixed.xml",
+        "bytes": 8816,
+        "sha256": "27b79f750b3f031281816af2ca667b79e39ac68f6e3aedbd2fab95a46eae1a58",
+        "counts": {
+          "passed": 57
+        },
+        "testcases": 57
+      },
+      "seconds_reported": 78.41
+    },
+    {
+      "name": "Genuine PostgreSQL 16-to-18 Docker restore",
+      "source": "440c0d537f6f3c0e87e87d81c41d3973ea66a371",
+      "ci_run": 40084438767,
+      "ci_job": 120845704649,
+      "passed": 1,
+      "seconds_reported": 6.18,
+      "local_skip_is_not_a_pass": true
+    }
+  ],
+  "other_gates": {
+    "original_units": {
+      "source": "6fce8875ec8e0c2e13a8560cb312557bd67261ef",
+      "unique_nodes": 12301,
+      "files": 696,
+      "passed": 12277,
+      "skipped": 23,
+      "failed": 1,
+      "passing_subtests_separate": 6,
+      "earlier_run_is_not_relabeled_green": true,
+      "failure_repaired_by_source_qualified_heartbeat_57_gate": true
+    },
+    "architecture": {
+      "source": "a5333eb2f719f2fca4a29d046a836861a65daa9c",
+      "passed": 259,
+      "seconds_reported": 117.74,
+      "precedes_final_product_fixes": true
+    },
+    "deterministic_evaluations": {
+      "source": "6fce8875ec8e0c2e13a8560cb312557bd67261ef",
+      "baseline": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+      "suites": 7,
+      "all_metrics_gates_checks_exact_matches": true
+    },
+    "wheel_compatibility": {
+      "source": "6fce8875ec8e0c2e13a8560cb312557bd67261ef",
+      "actual_wheels": 5,
+      "installation_contexts": 3,
+      "core_exports": 298,
+      "instance_pickles": 3,
+      "installed_origins_per_context": 518
+    },
+    "additional_core_wheel": {
+      "ok": true,
+      "source_head": "b230f59bc2643605b777cb253d0122c188b12cd8",
+      "source_tree": "7f77f9be4822e2b147b6b3e24f64f3c1c69c9a07",
+      "source_clean_after": true,
+      "wheel": "/tmp/infinity-context-composed-core-wheel-b230f59b/wheels/infinity_context_core-0.1.0-py3-none-any.whl",
+      "wheel_sha256": "9da810ce61e2414da9614ed32b8d2fe326672ccab95bbe1e684f29780d4de810",
+      "new_helper_bytes_match": true,
+      "exports": {
+        "infinity_context_core": 31,
+        "infinity_context_core.application": 267
+      },
+      "instance_pickles": 3,
+      "installed_module_origins": 519,
+      "commands": [
+        [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+          "-m",
+          "pip",
+          "wheel",
+          "--no-index",
+          "--no-deps",
+          "--no-build-isolation",
+          "--wheel-dir",
+          "/tmp/infinity-context-composed-core-wheel-b230f59b/wheels",
+          "/tmp/infinity-context-composed-core-wheel-b230f59b/source"
+        ],
+        [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+          "-m",
+          "pip",
+          "install",
+          "--no-index",
+          "--no-deps",
+          "--target",
+          "/tmp/infinity-context-composed-core-wheel-b230f59b/installed",
+          "/tmp/infinity-context-composed-core-wheel-b230f59b/wheels/infinity_context_core-0.1.0-py3-none-any.whl"
+        ],
+        [
+          "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python",
+          "-I",
+          "-S",
+          "/workspace/scratch/b6182bae50e9/worktrees/e2e-final-composed/scripts/check_core_export_installation.py",
+          "--target",
+          "/tmp/infinity-context-composed-core-wheel-b230f59b/installed",
+          "--report",
+          "/workspace/scratch/b6182bae50e9/evidence/wave2/e2e-final-core-wheel-exports.json"
+        ]
+      ]
+    }
+  },
+  "blocked_nodes": [
+    {
+      "node_id": "tests/e2e/test_memory_comparison_managed_mem0_v5_custom_loopback_process_recovery_e2e.py::test_managed_mem0_v5_custom_loopback_process_recovery_with_actual_adapter_gate",
+      "reason": "Required authentic pinned Phase-C/custom Mem0 runtime artifact bundle is unavailable. The custom harness fails during Phase-C binding before its embedded adapter gate executes (pinned runtime artifact validation failed). The separate genuine adapter suite passed all 40 tests."
+    },
+    {
+      "node_id": "tests/e2e/test_managed_production_live_app_e2e.py::test_verified_managed_production_runs_through_live_subprocess_and_postgres16",
+      "reason": "After real PostgreSQL 16 provisioning, the retained test command is stale against the current canary CLI (missing --max-extraction-tokens and --managed-v5-config-json) and needs an authentic modern runtime bundle; no successful live scenario has been observed."
+    }
+  ],
+  "required_authentic_runtime": {
+    "source_commit": "e904ec95fda4b04c333e5a7613c7729bf7abb125",
+    "deployed_root": "/mnt/volume_ams3_1784742570542/infinity-context/runtimes/subscription-runtime/e904ec95",
+    "artifact_manifest_sha256": "789018b5b15a1299252895babdc550c3d5322c54a1d9c82656f93d31423a0850",
+    "release_json_sha256": "8854ae10ea450fc615af251cdd5eef8812f928b458f710bb84b0cdbdde92fceb",
+    "node_version": "24.16.0",
+    "node_sha256": "b2959781cc5a74c357ffa02367efa8a0330cbb1c9cb347732fdfaaaca381cbcd",
+    "phase_c_tree_sha256": "911b85ca131cea7f8150456ba122730ec768ddc2c2d6869453071aa5029cef18",
+    "origin_owner_modes_and_referenced_artifact_checks_preserved": true,
+    "pg16_canary_still_needs_bounded_supported_v5_harness_migration_after_assets": true
+  },
+  "archives": [
+    {
+      "file": "e2e-unique-outcome-matrix.json.gz",
+      "bytes": 41788,
+      "sha256": "58de423c9c40fa7f42dc73ac2e0773a8099c949d7b45808405a8734794afedd4",
+      "uncompressed_bytes": 615555,
+      "uncompressed_sha256": "04a8ec813b4c9b5940680d79bfecc22c0e5b09a8b2058e227e1ba841d8a4b165",
+      "lossless_roundtrip_verified": true,
+      "gzip_mtime": 0
+    },
+    {
+      "file": "e2e-source-reuse-proofs.json.gz",
+      "bytes": 151619,
+      "sha256": "09a172d5105770f84115a4439d913448870e12e5d1b1b10c764d69cef79d3be2",
+      "uncompressed_bytes": 628536,
+      "uncompressed_sha256": "15894425701631d273b358c398cfa64b4ec248f7262712fb1c0ba056bf0cb319",
+      "lossless_roundtrip_verified": true,
+      "gzip_mtime": 0
+    },
+    {
+      "file": "e2e-execution-evidence.json.gz",
+      "bytes": 40451,
+      "sha256": "4ecdc6c972bcd6339dd937de54aaa887ab0dafde0801abcb102c46e298ef5751",
+      "uncompressed_bytes": 324609,
+      "uncompressed_sha256": "88f67f403e239ddc37232c037f186a3ae731e4246bf1f68d157edab7c48387aa",
+      "lossless_roundtrip_verified": true,
+      "gzip_mtime": 0
+    }
+  ],
+  "execution_artifacts_with_hash_only_raw_diagnostics": [
+    "e2e-final-managed-document-identity-b230.log",
+    "e2e-final-managed-document-identity-b230.xml",
+    "e2e-final-pg18-full.xml"
+  ],
+  "resource_cleanup": {
+    "completed_lme_reproducible_preparation_bytes_removed": 835026944,
+    "full_hash_manifest_retained": "completed-successful-lme-preparation-cleanup.json",
+    "receipt_and_original_inputs_and_runtime_assets_preserved": true,
+    "no_new_oom_during_successful_lme": true
+  },
+  "integration_gate": "After merge, compare every non-documentation mode/type/blob entry of remote main with final composed437; preserve actual merge identity and report separately."
+}
