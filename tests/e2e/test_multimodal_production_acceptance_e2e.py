@@ -117,24 +117,26 @@ def test_multimodal_asset_memory_acceptance_flow(tmp_path: Path) -> None:
             assert upload.status_code == 201, upload.text
             extraction_ids.append((case, upload.json()["data"]["extraction"]["id"]))
 
-        worker = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "infinity_context_server.worker",
-                "--once",
-                "--limit",
-                "20",
-            ],
-            env=server.env,
-            text=True,
-            capture_output=True,
-            timeout=180,
-            check=False,
-        )
-        assert worker.returncode == 0, worker.stdout + worker.stderr
-
         for case, extraction_id in extraction_ids:
+            # One cycle claims only the first queued job for this scope's fairness
+            # key. Keep all uploads queued and verify each successive fair claim.
+            worker = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "infinity_context_server.worker",
+                    "--once",
+                    "--limit",
+                    "20",
+                ],
+                env=server.env,
+                text=True,
+                capture_output=True,
+                timeout=180,
+                check=False,
+            )
+            assert worker.returncode == 0, worker.stdout + worker.stderr
+
             extracted = client.get(f"/v1/asset-extractions/{extraction_id}")
             assert extracted.status_code == 200, extracted.text
             extraction = extracted.json()["data"]
