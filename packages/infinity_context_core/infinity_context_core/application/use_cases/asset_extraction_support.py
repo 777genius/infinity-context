@@ -271,3 +271,11 @@ def is_permanent_error_code(code: str) -> bool:
         "no_speech",
     )
     return any(marker in normalized for marker in permanent_markers)
+
+
+def datetime_after(value: datetime, reference: datetime) -> bool:
+    if value.tzinfo is None and reference.tzinfo is not None:
+        value = value.replace(tzinfo=reference.tzinfo)
+    elif value.tzinfo is not None and reference.tzinfo is None:
+        value = value.replace(tzinfo=None)
+    return value > reference

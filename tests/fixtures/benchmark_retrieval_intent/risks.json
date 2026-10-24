@@ -1,0 +1,267 @@
+[
+  {
+    "input": {
+      "entity_count": 0,
+      "relation_terms": [],
+      "relation_variant_terms": []
+    },
+    "expected": [
+      "no_entity",
+      "broad_query"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 0,
+      "relation_terms": [],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "no_entity",
+      "broad_query",
+      "wide_relation_expansion"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 0,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": []
+    },
+    "expected": [
+      "no_entity"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 0,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "no_entity",
+      "wide_relation_expansion"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 1,
+      "relation_terms": [],
+      "relation_variant_terms": []
+    },
+    "expected": [
+      "broad_query"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 1,
+      "relation_terms": [],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "broad_query",
+      "wide_relation_expansion"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 1,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": []
+    },
+    "expected": []
+  },
+  {
+    "input": {
+      "entity_count": 1,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "wide_relation_expansion"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 3,
+      "relation_terms": [],
+      "relation_variant_terms": []
+    },
+    "expected": [
+      "ambiguous_entity_scope",
+      "broad_query"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 3,
+      "relation_terms": [],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "ambiguous_entity_scope",
+      "broad_query",
+      "wide_relation_expansion"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 3,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": []
+    },
+    "expected": [
+      "ambiguous_entity_scope"
+    ]
+  },
+  {
+    "input": {
+      "entity_count": 3,
+      "relation_terms": [
+        "activity"
+      ],
+      "relation_variant_terms": [
+        "0",
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19"
+      ]
+    },
+    "expected": [
+      "ambiguous_entity_scope",
+      "wide_relation_expansion"
+    ]
+  }
+]

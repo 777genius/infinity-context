@@ -1,0 +1,350 @@
+[
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "duration"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "duration"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "before"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "before"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "last week"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "last week"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "first trip"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "first trip"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "duration",
+        "after"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "duration",
+        "after"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "today"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "today"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "date"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": false,
+      "temporal_terms": [
+        "date"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "none"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [],
+      "temporal_surface_terms": []
+    },
+    "expected": "temporal_lookup"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "explicit_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "duration"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "duration"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "duration"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "duration"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "before"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "temporal_sequence"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "before"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "temporal_sequence"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "last week"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "last week"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "first trip"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "first trip"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "duration",
+        "after"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "duration"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "duration",
+        "after"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "duration"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "today"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "today"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "relative_time"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "date"
+      ],
+      "temporal_surface_terms": []
+    },
+    "expected": "temporal_lookup"
+  },
+  {
+    "input": {
+      "is_temporal": true,
+      "temporal_terms": [
+        "date"
+      ],
+      "temporal_surface_terms": [
+        "2026-10-23"
+      ]
+    },
+    "expected": "explicit_time"
+  }
+]

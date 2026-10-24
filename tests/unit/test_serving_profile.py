@@ -20,6 +20,7 @@ class Distribution:
         self.root = root
         self.files = (
             Path("infinity_context_adapters/__init__.py"),
+            Path("infinity_context_benchmarks/__init__.py"),
             Path("infinity_context_contracts/__init__.py"),
             Path("infinity_context_core/__init__.py"),
             Path("infinity_context_server/__init__.py"),

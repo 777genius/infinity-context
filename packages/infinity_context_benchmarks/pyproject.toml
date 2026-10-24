@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=80", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infinity-context-benchmarks"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["infinity-context-core==0.1.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["infinity_context_benchmarks*"]

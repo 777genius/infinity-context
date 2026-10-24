@@ -1,0 +1,494 @@
+{
+  "base_revision": "44ac164a8395c5847ae8792dded95d0dfe4526dd",
+  "signatures": {
+    "EvidenceBundleCandidate": "(rank: 'int', retrieval_order: 'int', item_id: 'str', covered_expected_terms: 'tuple[str, ...]', covered_evidence_terms: 'tuple[str, ...]', query_support_terms: 'tuple[str, ...]', query_support_score: 'float', bundle_strength_score: 'float', focused_evidence_score: 'float', primary_signal: 'bool', dedupe_key: 'str', source_refs: 'tuple[str, ...]' = (), source_type: 'str' = 'unknown', source_types: 'tuple[str, ...]' = (), retrieval_sources: 'tuple[str, ...]' = (), direct_speaker_turn: 'bool' = False, broad_summary: 'bool' = False, time_intent_kind: 'str' = '', has_temporal_surface: 'bool' = False, has_sequence_surface: 'bool' = False, has_duration_surface: 'bool' = False, has_relative_time_surface: 'bool' = False, has_explicit_time_surface: 'bool' = False, has_explicit_time_content_surface: 'bool' = False, has_temporal_sequence_surface: 'bool' = False, conflict_or_stale: 'bool' = False, negation_surface: 'bool' = False, currentness_surface: 'bool' = False, stale_surface: 'bool' = False, contrast_surface: 'bool' = False, answerability_score: 'float' = 0.0, answerability_reason_codes: 'tuple[str, ...]' = (), source_locality_score: 'float' = 0.0, relation_hits: 'tuple[str, ...]' = (), relation_categories: 'tuple[str, ...]' = (), relation_category_hits: 'tuple[str, ...]' = (), covered_answer_unit_shapes: 'tuple[str, ...]' = (), exact_count_evidence: 'bool' = False, list_item_count: 'int' = 0, list_items: 'tuple[str, ...]' = (), entity_hits: 'tuple[str, ...]' = (), speaker_hits: 'tuple[str, ...]' = (), query_has_entities: 'bool' = False, has_preference_evidence: 'bool' = False, has_visual_evidence: 'bool' = False, query_roles: 'tuple[str, ...]' = (), bridge_query_hit: 'bool' = False, eligibility_reason_codes: 'tuple[str, ...]' = ()) -> None",
+    "PlannedEvidenceItem": "(candidate: 'EvidenceBundleCandidate', role: 'BundleRole', reason_codes: 'tuple[str, ...]') -> None",
+    "EvidenceBundlePlan": "(items: 'tuple[PlannedEvidenceItem, ...]', candidate_count: 'int', deduplicated_item_count: 'int', dropped_duplicate_keys: 'tuple[str, ...]', dropped_diversity_count: 'int', dropped_source_type_diversity_count: 'int', dropped_retrieval_source_diversity_count: 'int', dropped_source_ref_overlap_count: 'int', dropped_source_ref_overlap_keys: 'tuple[str, ...]', dropped_noisy_source_overlap_count: 'int', dropped_noisy_source_overlap_keys: 'tuple[str, ...]', role_counts: 'Mapping[str, int]', source_type_counts: 'Mapping[str, int]', retrieval_source_counts: 'Mapping[str, int]', required_roles: 'tuple[str, ...]', satisfied_required_roles: 'tuple[str, ...]', missing_required_roles: 'tuple[str, ...]', primary_selection_reason_codes: 'tuple[str, ...]', repaired_required_roles: 'tuple[str, ...]' = ()) -> None",
+    "EvidenceBundlePlanner": "(*, max_items: 'int' = 8, max_items_per_source_type: 'int' = 3, max_items_per_retrieval_source: 'int' = 3) -> 'None'",
+    "_role_for_candidate": "(candidate: 'EvidenceBundleCandidate', *, primary: 'EvidenceBundleCandidate | None', case_group: 'str', required_roles: 'Sequence[str]' = ()) -> 'BundleRole'",
+    "_is_bridge_candidate": "(candidate: 'EvidenceBundleCandidate', *, primary: 'EvidenceBundleCandidate | None', case_group: 'str') -> 'bool'",
+    "_candidate_has_bridge_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_bridge_support_surface": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_bridge_query_provenance": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_complementary_bridge_value": "(candidate: 'EvidenceBundleCandidate', primary: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_bridge_value_terms": "(candidate: 'EvidenceBundleCandidate') -> 'frozenset[str]'",
+    "_candidate_has_local_bridge_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_required_role_values": "(required_roles: 'Sequence[str]') -> 'tuple[str, ...]'",
+    "_satisfied_required_roles": "(selected: 'Sequence[PlannedEvidenceItem]', *, required_roles: 'Sequence[str]') -> 'tuple[str, ...]'",
+    "_repair_required_role_selection": "(selected: 'Sequence[PlannedEvidenceItem]', planned: 'Sequence[PlannedEvidenceItem]', *, required_roles: 'Sequence[str]', max_items: 'int') -> 'tuple[tuple[PlannedEvidenceItem, ...], tuple[str, ...]]'",
+    "_missing_required_roles": "(selected: 'Sequence[PlannedEvidenceItem]', *, required_roles: 'Sequence[str]') -> 'tuple[str, ...]'",
+    "_best_required_role_candidate": "(planned: 'Sequence[PlannedEvidenceItem]', selected: 'Sequence[PlannedEvidenceItem]', *, role: 'str') -> 'PlannedEvidenceItem | None'",
+    "_replaceable_item_index": "(selected: 'Sequence[PlannedEvidenceItem]', *, required_roles: 'Sequence[str]') -> 'int | None'",
+    "_selected_required_roles": "(item: 'PlannedEvidenceItem', *, required_roles: 'Sequence[str]', selected: 'Sequence[PlannedEvidenceItem]' = ()) -> 'tuple[str, ...]'",
+    "_item_can_satisfy_required_role_in_selection": "(item: 'PlannedEvidenceItem', role: 'str', selected: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_item_can_satisfy_required_role": "(item: 'PlannedEvidenceItem', role: 'str') -> 'bool'",
+    "_item_has_requested_participant_grounding": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_selected_primary_person_grounding_terms": "(selected: 'Sequence[PlannedEvidenceItem]') -> 'frozenset[str]'",
+    "_required_role_candidate_sort_key": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]' = ()) -> 'tuple[float, ...]'",
+    "_replacement_sort_key": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]') -> 'tuple[float, ...]'",
+    "_replacement_role_order": "(item: 'PlannedEvidenceItem') -> 'float'",
+    "_candidate_has_temporal_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_typed_temporal_role_for_candidate": "(candidate: 'EvidenceBundleCandidate', *, required_roles: 'Sequence[str]') -> 'str'",
+    "_candidate_has_typed_temporal_support": "(candidate: 'EvidenceBundleCandidate', role: 'str') -> 'bool'",
+    "_candidate_has_temporal_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_relation_or_answer_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_contrast_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_contrast_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_negative_absence_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_location_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_value_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_count_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_list_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_list_items": "(candidate: 'EvidenceBundleCandidate') -> 'frozenset[str]'",
+    "_candidate_has_answer_unit_support_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_preference_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_favorite_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_visual_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_emotion_response_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_symbolic_meaning_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_event_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_communication_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_exchange_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_typed_relation_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_inference_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_causal_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_typed_relation_support": "(candidate: 'EvidenceBundleCandidate', role: 'str') -> 'bool'",
+    "_candidate_has_entityless_support_goal_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_measured_weak_source_locality": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_measured_source_locality_below": "(candidate: 'EvidenceBundleCandidate', threshold: 'float') -> 'bool'",
+    "_candidate_has_measured_answerability_below": "(candidate: 'EvidenceBundleCandidate', threshold: 'float') -> 'bool'",
+    "_is_measured_low_answerability": "(score: 'float') -> 'bool'",
+    "_avg_positive_scores": "(scores: 'Sequence[float]') -> 'float'",
+    "_selection_has_bridge_support": "(selected: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_candidate_has_distinct_multi_hop_support": "(item: 'PlannedEvidenceItem') -> 'bool'",
+    "_candidate_has_complementary_bridge_value_for_primary_items": "(candidate: 'EvidenceBundleCandidate', primary_items: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_selection_has_source_chain_bridge_support": "(non_primary_items: 'Sequence[PlannedEvidenceItem]', *, primary_items: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_candidate_has_source_chain_multi_hop_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_is_distinct_from_primary": "(candidate: 'EvidenceBundleCandidate', primary_items: 'Sequence[PlannedEvidenceItem]') -> 'bool'",
+    "_primary_candidate_eligible": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_obsolete_primary_surface": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_retrieval_source_keys": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_safe_source_labels_for_output": "(values: 'Sequence[object]') -> 'tuple[str, ...]'",
+    "_safe_source_label_counts": "(values: 'Mapping[str, int]') -> 'dict[str, int]'",
+    "_source_type_keys": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_source_ref_overlap_keys": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_reason_codes": "(candidate: 'EvidenceBundleCandidate', *, role: 'BundleRole', case_group: 'str') -> 'tuple[str, ...]'",
+    "_planned_sort_key": "(item: 'PlannedEvidenceItem') -> 'tuple[float, ...]'",
+    "_role_order": "(item: 'PlannedEvidenceItem') -> 'float'",
+    "_planned_coverage_sort_key": "(item: 'PlannedEvidenceItem', *, covered_terms: 'set[str]', covered_support_terms: 'set[str]', covered_list_items: 'set[str] | None' = None, selected: 'Sequence[PlannedEvidenceItem]' = ()) -> 'tuple[float, ...]'",
+    "_source_overlap_selection_sort_key": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]') -> 'tuple[float]'",
+    "_source_proximity_selection_sort_key": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]') -> 'tuple[float, float]'",
+    "_person_grounding_selection_sort_key": "(item: 'PlannedEvidenceItem', selected: 'Sequence[PlannedEvidenceItem]') -> 'tuple[float, float]'",
+    "_candidate_prefers_distinct_person_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_person_grounding_terms": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_source_ref_compactness_selection_sort_key": "(item: 'PlannedEvidenceItem') -> 'tuple[float, float, float]'",
+    "_selection_precision_sort_key": "(item: 'PlannedEvidenceItem') -> 'tuple[float, ...]'",
+    "_explicit_relation_role_sort_key": "(item: 'PlannedEvidenceItem') -> 'tuple[float]'",
+    "_item_has_explicit_relation_or_role_grounding": "(item: 'PlannedEvidenceItem') -> 'bool'",
+    "_closest_turn_ref_distance": "(candidate: 'EvidenceBundleCandidate', *, comparison_turn_refs: 'Sequence[tuple[str, int, int]]') -> 'int | None'",
+    "_turn_refs_same_source": "(left: 'tuple[str, int, int]', right: 'tuple[str, int, int]') -> 'bool'",
+    "_max_item_drop_counts": "(remaining: 'Sequence[PlannedEvidenceItem]', *, source_type_counts: 'Counter[str]', retrieval_source_counts: 'Counter[str]', max_items_per_source_type: 'int', max_items_per_retrieval_source: 'int') -> 'tuple[int, int, int]'",
+    "_bundle_quality_diagnostics": "(items: 'Sequence[PlannedEvidenceItem]', *, missing_required_roles: 'Sequence[str]' = ()) -> 'dict[str, object]'",
+    "_source_proximity_distances": "(items: 'Sequence[PlannedEvidenceItem]', *, missing_required_roles: 'Sequence[str]' = ()) -> 'tuple[int, ...]'",
+    "_source_chain_proximity_distances": "(items: 'Sequence[PlannedEvidenceItem]') -> 'tuple[int, ...]'",
+    "_diffuse_source_ref_samples": "(items: 'Sequence[PlannedEvidenceItem]') -> 'list[dict[str, object]]'",
+    "_weak_source_locality_samples": "(items: 'Sequence[PlannedEvidenceItem]') -> 'list[dict[str, object]]'",
+    "_participant_grounding_blocked_required_role_samples": "(items: 'Sequence[PlannedEvidenceItem]', *, missing_required_roles: 'Sequence[str]') -> 'list[dict[str, object]]'",
+    "_source_turn_ref_strings_sample": "(candidate: 'EvidenceBundleCandidate') -> 'list[str]'",
+    "_candidate_has_focused_source_proximity_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_source_proximity_diagnostic_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_source_identity_quality_support": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_generic_measured_answerability": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_source_identity_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_diffuse_source_refs": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_turn_ref_span": "(turn_refs: 'Sequence[tuple[str, int, int]]') -> 'int'",
+    "_candidate_has_noisy_source_overlap_risk": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_source_identity_refs": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_candidate_turn_refs": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[tuple[str, int, int], ...]'",
+    "_candidate_turn_ref_strings": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[str, ...]'",
+    "_bundle_quality_reason_codes": "(*, primary_count: 'int', supporting_count: 'int', focused_count: 'int', direct_speaker_count: 'int', source_ref_item_count: 'int', source_ref_support_item_count: 'int', source_identity_item_count: 'int', source_identity_support_item_count: 'int', source_type_diversity: 'int', retrieval_source_diversity: 'int', source_type_support_diversity: 'int', retrieval_source_support_diversity: 'int', max_answerability: 'float', low_answerability_count: 'int', generic_measured_answerability_count: 'int', bridge_count: 'int', distinct_person_grounding_count: 'int', causal_support_count: 'int', communication_support_count: 'int', event_support_count: 'int', exchange_support_count: 'int', inference_support_count: 'int', location_support_count: 'int', emotion_response_support_count: 'int', symbolic_meaning_support_count: 'int', preference_support_count: 'int', favorite_support_count: 'int', visual_support_count: 'int', typed_relation_support_counts: 'Mapping[str, int]', partial_required_role_support_counts: 'Mapping[str, int]', participant_grounding_blocked_required_role_count: 'int', location_relation_category_hit_count: 'int', source_proximity_support_count: 'int', source_chain_proximity_support_count: 'int', missing_required_roles: 'Sequence[str]', contrast_count: 'int', negative_absence_support_count: 'int', contrast_surface_count: 'int', negation_surface_count: 'int', currentness_surface_count: 'int', stale_surface_count: 'int', broad_summary_count: 'int', diffuse_source_ref_count: 'int', weak_source_locality_count: 'int', conflict_or_stale_count: 'int', selected_item_count: 'int') -> 'list[str]'",
+    "_item_has_partial_required_role_support": "(item: 'PlannedEvidenceItem', role: 'str', selected: 'Sequence[PlannedEvidenceItem]' = ()) -> 'bool'",
+    "_confidence_band": "(score: 'float') -> 'str'",
+    "_primary_sort_key": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[float, ...]'",
+    "_candidate_sort_key": "(candidate: 'EvidenceBundleCandidate') -> 'tuple[float, ...]'",
+    "_answer_evidence_sort_bucket": "(candidate: 'EvidenceBundleCandidate') -> 'int'",
+    "_candidate_has_answer_evidence": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_direct_or_focused_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_relation_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'",
+    "_candidate_has_person_grounding": "(candidate: 'EvidenceBundleCandidate') -> 'bool'"
+  },
+  "dataclasses": {
+    "EvidenceBundleCandidate": {
+      "module": "infinity_context_server.memory_comparison_bundle_planner",
+      "fields": [
+        {
+          "name": "rank",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "retrieval_order",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "item_id",
+          "type": "str",
+          "default": "<required>"
+        },
+        {
+          "name": "covered_expected_terms",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "covered_evidence_terms",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "query_support_terms",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "query_support_score",
+          "type": "float",
+          "default": "<required>"
+        },
+        {
+          "name": "bundle_strength_score",
+          "type": "float",
+          "default": "<required>"
+        },
+        {
+          "name": "focused_evidence_score",
+          "type": "float",
+          "default": "<required>"
+        },
+        {
+          "name": "primary_signal",
+          "type": "bool",
+          "default": "<required>"
+        },
+        {
+          "name": "dedupe_key",
+          "type": "str",
+          "default": "<required>"
+        },
+        {
+          "name": "source_refs",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "source_type",
+          "type": "str",
+          "default": "'unknown'"
+        },
+        {
+          "name": "source_types",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "retrieval_sources",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "direct_speaker_turn",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "broad_summary",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "time_intent_kind",
+          "type": "str",
+          "default": "''"
+        },
+        {
+          "name": "has_temporal_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_sequence_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_duration_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_relative_time_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_explicit_time_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_explicit_time_content_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_temporal_sequence_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "conflict_or_stale",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "negation_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "currentness_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "stale_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "contrast_surface",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "answerability_score",
+          "type": "float",
+          "default": "0.0"
+        },
+        {
+          "name": "answerability_reason_codes",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "source_locality_score",
+          "type": "float",
+          "default": "0.0"
+        },
+        {
+          "name": "relation_hits",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "relation_categories",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "relation_category_hits",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "covered_answer_unit_shapes",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "exact_count_evidence",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "list_item_count",
+          "type": "int",
+          "default": "0"
+        },
+        {
+          "name": "list_items",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "entity_hits",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "speaker_hits",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "query_has_entities",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_preference_evidence",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "has_visual_evidence",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "query_roles",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        },
+        {
+          "name": "bridge_query_hit",
+          "type": "bool",
+          "default": "False"
+        },
+        {
+          "name": "eligibility_reason_codes",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        }
+      ],
+      "frozen": true
+    },
+    "PlannedEvidenceItem": {
+      "module": "infinity_context_server.memory_comparison_bundle_planner",
+      "fields": [
+        {
+          "name": "candidate",
+          "type": "EvidenceBundleCandidate",
+          "default": "<required>"
+        },
+        {
+          "name": "role",
+          "type": "BundleRole",
+          "default": "<required>"
+        },
+        {
+          "name": "reason_codes",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        }
+      ],
+      "frozen": true
+    },
+    "EvidenceBundlePlan": {
+      "module": "infinity_context_server.memory_comparison_bundle_planner",
+      "fields": [
+        {
+          "name": "items",
+          "type": "tuple[PlannedEvidenceItem, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "candidate_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "deduplicated_item_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_duplicate_keys",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_diversity_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_source_type_diversity_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_retrieval_source_diversity_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_source_ref_overlap_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_source_ref_overlap_keys",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_noisy_source_overlap_count",
+          "type": "int",
+          "default": "<required>"
+        },
+        {
+          "name": "dropped_noisy_source_overlap_keys",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "role_counts",
+          "type": "Mapping[str, int]",
+          "default": "<required>"
+        },
+        {
+          "name": "source_type_counts",
+          "type": "Mapping[str, int]",
+          "default": "<required>"
+        },
+        {
+          "name": "retrieval_source_counts",
+          "type": "Mapping[str, int]",
+          "default": "<required>"
+        },
+        {
+          "name": "required_roles",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "satisfied_required_roles",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "missing_required_roles",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "primary_selection_reason_codes",
+          "type": "tuple[str, ...]",
+          "default": "<required>"
+        },
+        {
+          "name": "repaired_required_roles",
+          "type": "tuple[str, ...]",
+          "default": "()"
+        }
+      ],
+      "frozen": true
+    }
+  },
+  "legacy_pickles": {
+    "EvidenceBundleCandidate": "gASV+wQAAAAAAACMOGluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX2J1bmRsZV9wbGFubmVylIwXRXZpZGVuY2VCdW5kbGVDYW5kaWRhdGWUk5QpgZR9lCiMBHJhbmuUSwGMD3JldHJpZXZhbF9vcmRlcpRLAYwHaXRlbV9pZJSMB3ByaW1hcnmUjBZjb3ZlcmVkX2V4cGVjdGVkX3Rlcm1zlIwGYW5zd2VylIWUjBZjb3ZlcmVkX2V2aWRlbmNlX3Rlcm1zlIwERDE6MZSFlIwTcXVlcnlfc3VwcG9ydF90ZXJtc5SMBnBlcnNvbpRoCoaUjBNxdWVyeV9zdXBwb3J0X3Njb3JllEc/8AAAAAAAAIwVYnVuZGxlX3N0cmVuZ3RoX3Njb3JllEc/8AAAAAAAAIwWZm9jdXNlZF9ldmlkZW5jZV9zY29yZZRHP/AAAAAAAACMDnByaW1hcnlfc2lnbmFslIiMCmRlZHVwZV9rZXmUjBVzb3VyY2VfdHVybl9yZWZzOkQxOjGUjAtzb3VyY2VfcmVmc5RoDowLc291cmNlX3R5cGWUjAhyYXdfdHVybpSMDHNvdXJjZV90eXBlc5QpjBFyZXRyaWV2YWxfc291cmNlc5SMCXJhd190dXJuc5SFlIwTZGlyZWN0X3NwZWFrZXJfdHVybpSIjA1icm9hZF9zdW1tYXJ5lImMEHRpbWVfaW50ZW50X2tpbmSUjACUjBRoYXNfdGVtcG9yYWxfc3VyZmFjZZSJjBRoYXNfc2VxdWVuY2Vfc3VyZmFjZZSJjBRoYXNfZHVyYXRpb25fc3VyZmFjZZSJjBloYXNfcmVsYXRpdmVfdGltZV9zdXJmYWNllImMGWhhc19leHBsaWNpdF90aW1lX3N1cmZhY2WUiYwhaGFzX2V4cGxpY2l0X3RpbWVfY29udGVudF9zdXJmYWNllImMHWhhc190ZW1wb3JhbF9zZXF1ZW5jZV9zdXJmYWNllImMEWNvbmZsaWN0X29yX3N0YWxllImMEG5lZ2F0aW9uX3N1cmZhY2WUiYwTY3VycmVudG5lc3Nfc3VyZmFjZZSJjA1zdGFsZV9zdXJmYWNllImMEGNvbnRyYXN0X3N1cmZhY2WUiYwTYW5zd2VyYWJpbGl0eV9zY29yZZRHP+zMzMzMzM2MGmFuc3dlcmFiaWxpdHlfcmVhc29uX2NvZGVzlCmMFXNvdXJjZV9sb2NhbGl0eV9zY29yZZRHP/AAAAAAAACMDXJlbGF0aW9uX2hpdHOUaAuME3JlbGF0aW9uX2NhdGVnb3JpZXOUKYwWcmVsYXRpb25fY2F0ZWdvcnlfaGl0c5QpjBpjb3ZlcmVkX2Fuc3dlcl91bml0X3NoYXBlc5QpjBRleGFjdF9jb3VudF9ldmlkZW5jZZSJjA9saXN0X2l0ZW1fY291bnSUSwCMCmxpc3RfaXRlbXOUKYwLZW50aXR5X2hpdHOUaBCFlIwMc3BlYWtlcl9oaXRzlCmMEnF1ZXJ5X2hhc19lbnRpdGllc5SIjBdoYXNfcHJlZmVyZW5jZV9ldmlkZW5jZZSJjBNoYXNfdmlzdWFsX2V2aWRlbmNllImMC3F1ZXJ5X3JvbGVzlCmMEGJyaWRnZV9xdWVyeV9oaXSUiYwYZWxpZ2liaWxpdHlfcmVhc29uX2NvZGVzlCl1Yi4=",
+    "PlannedEvidenceItem": "gASVUgUAAAAAAACMOGluZmluaXR5X2NvbnRleHRfc2VydmVyLm1lbW9yeV9jb21wYXJpc29uX2J1bmRsZV9wbGFubmVylIwTUGxhbm5lZEV2aWRlbmNlSXRlbZSTlCmBlH2UKIwJY2FuZGlkYXRllGgAjBdFdmlkZW5jZUJ1bmRsZUNhbmRpZGF0ZZSTlCmBlH2UKIwEcmFua5RLAYwPcmV0cmlldmFsX29yZGVylEsBjAdpdGVtX2lklIwHcHJpbWFyeZSMFmNvdmVyZWRfZXhwZWN0ZWRfdGVybXOUjAZhbnN3ZXKUhZSMFmNvdmVyZWRfZXZpZGVuY2VfdGVybXOUjAREMToxlIWUjBNxdWVyeV9zdXBwb3J0X3Rlcm1zlIwGcGVyc29ulGgPhpSME3F1ZXJ5X3N1cHBvcnRfc2NvcmWURz/wAAAAAAAAjBVidW5kbGVfc3RyZW5ndGhfc2NvcmWURz/wAAAAAAAAjBZmb2N1c2VkX2V2aWRlbmNlX3Njb3JllEc/8AAAAAAAAIwOcHJpbWFyeV9zaWduYWyUiIwKZGVkdXBlX2tleZSMFXNvdXJjZV90dXJuX3JlZnM6RDE6MZSMC3NvdXJjZV9yZWZzlGgTjAtzb3VyY2VfdHlwZZSMCHJhd190dXJulIwMc291cmNlX3R5cGVzlCmMEXJldHJpZXZhbF9zb3VyY2VzlIwJcmF3X3R1cm5zlIWUjBNkaXJlY3Rfc3BlYWtlcl90dXJulIiMDWJyb2FkX3N1bW1hcnmUiYwQdGltZV9pbnRlbnRfa2luZJSMAJSMFGhhc190ZW1wb3JhbF9zdXJmYWNllImMFGhhc19zZXF1ZW5jZV9zdXJmYWNllImMFGhhc19kdXJhdGlvbl9zdXJmYWNllImMGWhhc19yZWxhdGl2ZV90aW1lX3N1cmZhY2WUiYwZaGFzX2V4cGxpY2l0X3RpbWVfc3VyZmFjZZSJjCFoYXNfZXhwbGljaXRfdGltZV9jb250ZW50X3N1cmZhY2WUiYwdaGFzX3RlbXBvcmFsX3NlcXVlbmNlX3N1cmZhY2WUiYwRY29uZmxpY3Rfb3Jfc3RhbGWUiYwQbmVnYXRpb25fc3VyZmFjZZSJjBNjdXJyZW50bmVzc19zdXJmYWNllImMDXN0YWxlX3N1cmZhY2WUiYwQY29udHJhc3Rfc3VyZmFjZZSJjBNhbnN3ZXJhYmlsaXR5X3Njb3JllEc/7MzMzMzMzYwaYW5zd2VyYWJpbGl0eV9yZWFzb25fY29kZXOUKYwVc291cmNlX2xvY2FsaXR5X3Njb3JllEc/8AAAAAAAAIwNcmVsYXRpb25faGl0c5RoEIwTcmVsYXRpb25fY2F0ZWdvcmllc5QpjBZyZWxhdGlvbl9jYXRlZ29yeV9oaXRzlCmMGmNvdmVyZWRfYW5zd2VyX3VuaXRfc2hhcGVzlCmMFGV4YWN0X2NvdW50X2V2aWRlbmNllImMD2xpc3RfaXRlbV9jb3VudJRLAIwKbGlzdF9pdGVtc5QpjAtlbnRpdHlfaGl0c5RoFYWUjAxzcGVha2VyX2hpdHOUKYwScXVlcnlfaGFzX2VudGl0aWVzlIiMF2hhc19wcmVmZXJlbmNlX2V2aWRlbmNllImME2hhc192aXN1YWxfZXZpZGVuY2WUiYwLcXVlcnlfcm9sZXOUKYwQYnJpZGdlX3F1ZXJ5X2hpdJSJjBhlbGlnaWJpbGl0eV9yZWFzb25fY29kZXOUKXVijARyb2xllGgNjAxyZWFzb25fY29kZXOUjAxmb2N1c2VkX3R1cm6UhZR1Yi4="
+  }
+}

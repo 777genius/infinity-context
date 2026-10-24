@@ -1,0 +1,4569 @@
+{
+  "base_sha": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "source_sha256": "094715d4d16d891051d62674a0ed7e082ad41f2c3bf8c7ffdc9a27cb3a0d2ad7",
+  "owners": {
+    "RetrievalRelationIntent": "infinity_context_benchmarks.retrieval_intent.contracts",
+    "RetrievalIntent": "infinity_context_benchmarks.retrieval_intent.contracts",
+    "RetrievalTimeIntent": "infinity_context_benchmarks.retrieval_intent.contracts",
+    "RetrievalEntityIntent": "infinity_context_benchmarks.retrieval_intent.contracts",
+    "infer_time_intent_kind": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_has_ordinal_event_term": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_has_diet_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_pet_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_health_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_activity_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_is_kinship_status_lookup": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_commitment_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_status_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_vehicle_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_education_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_skill_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_contact_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_date_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_employment_profile_intent": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+    "_has_contrast_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_COMMONALITY_INTENT_RE": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_COMPARATIVE_CHOICE_INTENT_RE": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_count_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_negative_absence_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_EXPLICIT_DIFFERENCE_INTENT_RE": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_list_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_commonality_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_explicit_difference_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_has_comparative_choice_intent": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+    "_relation_facet_reason_codes": "infinity_context_benchmarks.retrieval_intent.relations",
+    "_RELATION_FACET_CONFIG": "infinity_context_benchmarks.retrieval_intent.relations",
+    "infer_relation_intents": "infinity_context_benchmarks.retrieval_intent.relations",
+    "_TEMPORAL_SUPPORT_VARIANTS": "infinity_context_benchmarks.retrieval_intent.relations",
+    "_dedupe_relation_intents": "infinity_context_benchmarks.retrieval_intent.relations",
+    "merge_relation_evidence_needs": "infinity_context_benchmarks.retrieval_intent.evidence",
+    "infer_risk_flags": "infinity_context_benchmarks.retrieval_intent.evidence",
+    "infer_bundle_evidence_roles": "infinity_context_benchmarks.retrieval_intent.evidence",
+    "infer_evidence_need": "infinity_context_benchmarks.retrieval_intent.evidence",
+    "_RELATIVE_WEEKDAY_TERMS": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_RELATIVE_ORDINAL_PERIOD_TERMS": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_RELATIVE_SEASON_TERMS": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_SEASON_TERMS": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_ORDINAL_EVENT_TERM_RE": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_RELATIVE_TIME_TERMS": "infinity_context_benchmarks.retrieval_intent.temporal",
+    "_has_causal_support_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_adoption_reaction_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_motivation_artifact_lookup": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_location_transition_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_current_goal_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_support_goal_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_community_membership_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_is_direct_support_relation_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_direct_support_role_question": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_future_home_move_goal_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_inference_support_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_action_event_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_exchange_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_participation_event_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_communication_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+    "_has_direct_emotion_response_intent": "infinity_context_benchmarks.retrieval_intent.event_patterns"
+  },
+  "bindings": {
+    "annotations": {
+      "value": {
+        "future": "_Feature((3, 7, 0, 'beta', 1), None, 16777216)"
+      },
+      "visibility": "imported-compatibility"
+    },
+    "re": {
+      "value": {
+        "module": "re"
+      },
+      "visibility": "imported-compatibility"
+    },
+    "Sequence": {
+      "value": {
+        "object": "collections.abc.Sequence"
+      },
+      "visibility": "imported-compatibility"
+    },
+    "dataclass": {
+      "value": {
+        "object": "dataclasses.dataclass"
+      },
+      "visibility": "imported-compatibility"
+    },
+    "RetrievalEntityIntent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalEntityIntent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.contracts",
+      "visibility": "public",
+      "signature": "(canonical: 'str', surfaces: 'tuple[str, ...]', speaker_surfaces: 'tuple[str, ...]') -> None",
+      "fields": [
+        "canonical",
+        "surfaces",
+        "speaker_surfaces"
+      ],
+      "doc": "Person or named-entity surfaces extracted from a question.",
+      "frozen": true,
+      "hints": {
+        "canonical": "<class 'str'>",
+        "surfaces": "tuple[str, ...]",
+        "speaker_surfaces": "tuple[str, ...]"
+      },
+      "methods": {
+        "to_diagnostics": {
+          "signature": "(self) -> 'dict[str, object]'",
+          "qualname": "RetrievalEntityIntent.to_diagnostics",
+          "doc": null,
+          "hints": {
+            "return": "dict[str, object]"
+          },
+          "globals": {
+            "list": {
+              "object": "builtins.list"
+            }
+          }
+        }
+      },
+      "properties": {}
+    },
+    "RetrievalTimeIntent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.contracts",
+      "visibility": "public",
+      "signature": "(is_temporal: 'bool', terms: 'tuple[str, ...]', surface_terms: 'tuple[str, ...]', kind: 'str') -> None",
+      "fields": [
+        "is_temporal",
+        "terms",
+        "surface_terms",
+        "kind"
+      ],
+      "doc": "Temporal constraints extracted from a question.",
+      "frozen": true,
+      "hints": {
+        "is_temporal": "<class 'bool'>",
+        "terms": "tuple[str, ...]",
+        "surface_terms": "tuple[str, ...]",
+        "kind": "<class 'str'>"
+      },
+      "methods": {
+        "to_diagnostics": {
+          "signature": "(self) -> 'dict[str, object]'",
+          "qualname": "RetrievalTimeIntent.to_diagnostics",
+          "doc": null,
+          "hints": {
+            "return": "dict[str, object]"
+          },
+          "globals": {
+            "list": {
+              "object": "builtins.list"
+            }
+          }
+        }
+      },
+      "properties": {}
+    },
+    "RetrievalRelationIntent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.contracts",
+      "visibility": "public",
+      "signature": "(category: 'str', terms: 'tuple[str, ...]', variant_terms: 'tuple[str, ...]', evidence_need: 'str', reason_codes: 'tuple[str, ...]') -> None",
+      "fields": [
+        "category",
+        "terms",
+        "variant_terms",
+        "evidence_need",
+        "reason_codes"
+      ],
+      "doc": "Typed relation facet inferred from question-only relation terms.",
+      "frozen": true,
+      "hints": {
+        "category": "<class 'str'>",
+        "terms": "tuple[str, ...]",
+        "variant_terms": "tuple[str, ...]",
+        "evidence_need": "<class 'str'>",
+        "reason_codes": "tuple[str, ...]"
+      },
+      "methods": {
+        "to_diagnostics": {
+          "signature": "(self) -> 'dict[str, object]'",
+          "qualname": "RetrievalRelationIntent.to_diagnostics",
+          "doc": null,
+          "hints": {
+            "return": "dict[str, object]"
+          },
+          "globals": {
+            "list": {
+              "object": "builtins.list"
+            }
+          }
+        }
+      },
+      "properties": {}
+    },
+    "RetrievalIntent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalIntent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.contracts",
+      "visibility": "public",
+      "signature": "(question: 'str', lexical_terms: 'tuple[str, ...]', entities: 'tuple[RetrievalEntityIntent, ...]', relation_terms: 'tuple[str, ...]', relation_variant_terms: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent', visual_terms: 'tuple[str, ...]', multi_hop_markers: 'tuple[str, ...]', evidence_need: 'tuple[str, ...]', risk_flags: 'tuple[str, ...]', bundle_evidence_roles: 'tuple[str, ...]' = (), relation_intents: 'tuple[RetrievalRelationIntent, ...]' = (), answer_unit_shapes: 'tuple[str, ...]' = ()) -> None",
+      "fields": [
+        "question",
+        "lexical_terms",
+        "entities",
+        "relation_terms",
+        "relation_variant_terms",
+        "time_intent",
+        "visual_terms",
+        "multi_hop_markers",
+        "evidence_need",
+        "risk_flags",
+        "bundle_evidence_roles",
+        "relation_intents",
+        "answer_unit_shapes"
+      ],
+      "doc": "Question-only retrieval intent used by query planning and rerank.",
+      "frozen": true,
+      "hints": {
+        "question": "<class 'str'>",
+        "lexical_terms": "tuple[str, ...]",
+        "entities": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalEntityIntent, ...]",
+        "relation_terms": "tuple[str, ...]",
+        "relation_variant_terms": "tuple[str, ...]",
+        "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+        "visual_terms": "tuple[str, ...]",
+        "multi_hop_markers": "tuple[str, ...]",
+        "evidence_need": "tuple[str, ...]",
+        "risk_flags": "tuple[str, ...]",
+        "bundle_evidence_roles": "tuple[str, ...]",
+        "relation_intents": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent, ...]",
+        "answer_unit_shapes": "tuple[str, ...]"
+      },
+      "methods": {
+        "to_query_profile": {
+          "signature": "(self) -> 'dict[str, object]'",
+          "qualname": "RetrievalIntent.to_query_profile",
+          "doc": null,
+          "hints": {
+            "return": "dict[str, object]"
+          },
+          "globals": {
+            "dict": {
+              "object": "builtins.dict"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        },
+        "to_diagnostics": {
+          "signature": "(self) -> 'dict[str, object]'",
+          "qualname": "RetrievalIntent.to_diagnostics",
+          "doc": null,
+          "hints": {
+            "return": "dict[str, object]"
+          },
+          "globals": {
+            "len": {
+              "object": "builtins.len"
+            },
+            "list": {
+              "object": "builtins.list"
+            }
+          }
+        }
+      },
+      "properties": {
+        "entity_names": {
+          "signature": "(self) -> 'tuple[str, ...]'",
+          "qualname": "RetrievalIntent.entity_names",
+          "doc": null,
+          "hints": {
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        },
+        "entity_surfaces": {
+          "signature": "(self) -> 'tuple[str, ...]'",
+          "qualname": "RetrievalIntent.entity_surfaces",
+          "doc": null,
+          "hints": {
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "dict": {
+              "object": "builtins.dict"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        },
+        "speaker_surfaces": {
+          "signature": "(self) -> 'tuple[str, ...]'",
+          "qualname": "RetrievalIntent.speaker_surfaces",
+          "doc": null,
+          "hints": {
+            "return": "tuple[str, ...]"
+          },
+          "globals": {
+            "dict": {
+              "object": "builtins.dict"
+            },
+            "tuple": {
+              "object": "builtins.tuple"
+            }
+          }
+        }
+      }
+    },
+    "infer_time_intent_kind": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.temporal.infer_time_intent_kind"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "public",
+      "callable": {
+        "signature": "(*, is_temporal: 'bool', temporal_terms: 'tuple[str, ...]', temporal_surface_terms: 'tuple[str, ...]') -> 'str'",
+        "qualname": "infer_time_intent_kind",
+        "doc": null,
+        "hints": {
+          "is_temporal": "<class 'bool'>",
+          "temporal_terms": "tuple[str, ...]",
+          "temporal_surface_terms": "tuple[str, ...]",
+          "return": "<class 'str'>"
+        },
+        "globals": {
+          "_RELATIVE_TIME_TERMS": {
+            "set": [
+              "again",
+              "ago",
+              "autumn",
+              "currently",
+              "earlier",
+              "earlier today",
+              "earliest event",
+              "early",
+              "end",
+              "fall",
+              "first half",
+              "first month",
+              "first quarter",
+              "first week",
+              "first weekend",
+              "fourth half",
+              "fourth month",
+              "fourth quarter",
+              "fourth week",
+              "fourth weekend",
+              "last autumn",
+              "last fall",
+              "last friday",
+              "last half",
+              "last monday",
+              "last month",
+              "last night",
+              "last quarter",
+              "last saturday",
+              "last spring",
+              "last summer",
+              "last sunday",
+              "last thursday",
+              "last tuesday",
+              "last wednesday",
+              "last week",
+              "last weekend",
+              "last winter",
+              "last year",
+              "late",
+              "later",
+              "latest event",
+              "long ago",
+              "next autumn",
+              "next fall",
+              "next friday",
+              "next monday",
+              "next month",
+              "next quarter",
+              "next saturday",
+              "next spring",
+              "next summer",
+              "next sunday",
+              "next thursday",
+              "next tuesday",
+              "next wednesday",
+              "next week",
+              "next weekend",
+              "next winter",
+              "next year",
+              "previous",
+              "recent",
+              "second half",
+              "second month",
+              "second quarter",
+              "second week",
+              "second weekend",
+              "since",
+              "soon",
+              "spring",
+              "start",
+              "summer",
+              "third half",
+              "third month",
+              "third quarter",
+              "third week",
+              "third weekend",
+              "this afternoon",
+              "this autumn",
+              "this evening",
+              "this fall",
+              "this friday",
+              "this monday",
+              "this month",
+              "this morning",
+              "this quarter",
+              "this saturday",
+              "this spring",
+              "this summer",
+              "this sunday",
+              "this thursday",
+              "this tuesday",
+              "this wednesday",
+              "this week",
+              "this weekend",
+              "this winter",
+              "this year",
+              "today",
+              "tomorrow",
+              "tomorrow afternoon",
+              "tomorrow evening",
+              "tomorrow morning",
+              "tonight",
+              "upcoming",
+              "upcoming event",
+              "winter",
+              "yesterday",
+              "yesterday afternoon",
+              "yesterday evening",
+              "yesterday morning"
+            ]
+          },
+          "_has_ordinal_event_term": {
+            "object": "infinity_context_benchmarks.retrieval_intent.temporal._has_ordinal_event_term"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_RELATIVE_WEEKDAY_TERMS": {
+      "value": {
+        "set": [
+          "last friday",
+          "last monday",
+          "last saturday",
+          "last sunday",
+          "last thursday",
+          "last tuesday",
+          "last wednesday",
+          "next friday",
+          "next monday",
+          "next saturday",
+          "next sunday",
+          "next thursday",
+          "next tuesday",
+          "next wednesday",
+          "this friday",
+          "this monday",
+          "this saturday",
+          "this sunday",
+          "this thursday",
+          "this tuesday",
+          "this wednesday"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_RELATIVE_ORDINAL_PERIOD_TERMS": {
+      "value": {
+        "set": [
+          "first half",
+          "first month",
+          "first quarter",
+          "first week",
+          "first weekend",
+          "fourth half",
+          "fourth month",
+          "fourth quarter",
+          "fourth week",
+          "fourth weekend",
+          "last half",
+          "last month",
+          "last quarter",
+          "last week",
+          "last weekend",
+          "second half",
+          "second month",
+          "second quarter",
+          "second week",
+          "second weekend",
+          "third half",
+          "third month",
+          "third quarter",
+          "third week",
+          "third weekend"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_RELATIVE_SEASON_TERMS": {
+      "value": {
+        "set": [
+          "last autumn",
+          "last fall",
+          "last spring",
+          "last summer",
+          "last winter",
+          "next autumn",
+          "next fall",
+          "next spring",
+          "next summer",
+          "next winter",
+          "this autumn",
+          "this fall",
+          "this spring",
+          "this summer",
+          "this winter"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_SEASON_TERMS": {
+      "value": {
+        "set": [
+          "autumn",
+          "fall",
+          "spring",
+          "summer",
+          "winter"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_ORDINAL_EVENT_TERM_RE": {
+      "value": {
+        "regex": "\\b(?:first|second|third|fourth|fifth|last|latest)\\s+(?:(?!(?:at|for|in|of|on|place|the)\\b)[a-z0-9-]+\\s+){0,3}(?:call-?out|competition|event|game|project|screenplay|script|tournament|tourney|trip)\\b",
+        "flags": 32
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_RELATIVE_TIME_TERMS": {
+      "value": {
+        "set": [
+          "again",
+          "ago",
+          "autumn",
+          "currently",
+          "earlier",
+          "earlier today",
+          "earliest event",
+          "early",
+          "end",
+          "fall",
+          "first half",
+          "first month",
+          "first quarter",
+          "first week",
+          "first weekend",
+          "fourth half",
+          "fourth month",
+          "fourth quarter",
+          "fourth week",
+          "fourth weekend",
+          "last autumn",
+          "last fall",
+          "last friday",
+          "last half",
+          "last monday",
+          "last month",
+          "last night",
+          "last quarter",
+          "last saturday",
+          "last spring",
+          "last summer",
+          "last sunday",
+          "last thursday",
+          "last tuesday",
+          "last wednesday",
+          "last week",
+          "last weekend",
+          "last winter",
+          "last year",
+          "late",
+          "later",
+          "latest event",
+          "long ago",
+          "next autumn",
+          "next fall",
+          "next friday",
+          "next monday",
+          "next month",
+          "next quarter",
+          "next saturday",
+          "next spring",
+          "next summer",
+          "next sunday",
+          "next thursday",
+          "next tuesday",
+          "next wednesday",
+          "next week",
+          "next weekend",
+          "next winter",
+          "next year",
+          "previous",
+          "recent",
+          "second half",
+          "second month",
+          "second quarter",
+          "second week",
+          "second weekend",
+          "since",
+          "soon",
+          "spring",
+          "start",
+          "summer",
+          "third half",
+          "third month",
+          "third quarter",
+          "third week",
+          "third weekend",
+          "this afternoon",
+          "this autumn",
+          "this evening",
+          "this fall",
+          "this friday",
+          "this monday",
+          "this month",
+          "this morning",
+          "this quarter",
+          "this saturday",
+          "this spring",
+          "this summer",
+          "this sunday",
+          "this thursday",
+          "this tuesday",
+          "this wednesday",
+          "this week",
+          "this weekend",
+          "this winter",
+          "this year",
+          "today",
+          "tomorrow",
+          "tomorrow afternoon",
+          "tomorrow evening",
+          "tomorrow morning",
+          "tonight",
+          "upcoming",
+          "upcoming event",
+          "winter",
+          "yesterday",
+          "yesterday afternoon",
+          "yesterday evening",
+          "yesterday morning"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only"
+    },
+    "_has_ordinal_event_term": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.temporal._has_ordinal_event_term"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.temporal",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(temporal_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_ordinal_event_term",
+        "doc": null,
+        "hints": {
+          "temporal_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_ORDINAL_EVENT_TERM_RE": {
+            "regex": "\\b(?:first|second|third|fourth|fifth|last|latest)\\s+(?:(?!(?:at|for|in|of|on|place|the)\\b)[a-z0-9-]+\\s+){0,3}(?:call-?out|competition|event|game|project|screenplay|script|tournament|tourney|trip)\\b",
+            "flags": 32
+          },
+          "any": {
+            "object": "builtins.any"
+          }
+        }
+      }
+    },
+    "infer_relation_intents": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.relations.infer_relation_intents"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.relations",
+      "visibility": "public",
+      "callable": {
+        "signature": "(*, question: 'str' = '', relation_terms: 'tuple[str, ...]', relation_variant_terms: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent', visual_terms: 'tuple[str, ...]', multi_hop_markers: 'tuple[str, ...]') -> 'tuple[RetrievalRelationIntent, ...]'",
+        "qualname": "infer_relation_intents",
+        "doc": "Classify relation terms into stable retrieval facets.",
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "relation_variant_terms": "tuple[str, ...]",
+          "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+          "visual_terms": "tuple[str, ...]",
+          "multi_hop_markers": "tuple[str, ...]",
+          "return": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent, ...]"
+        },
+        "globals": {
+          "RetrievalRelationIntent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent"
+          },
+          "_RELATION_FACET_CONFIG": {
+            "activity": {
+              "terms": {
+                "set": [
+                  "activity",
+                  "book",
+                  "bookshelf",
+                  "camp",
+                  "destress",
+                  "hike",
+                  "music",
+                  "paint",
+                  "park",
+                  "read",
+                  "roadtrip",
+                  "run",
+                  "song"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "activities",
+                  "book",
+                  "books",
+                  "camping",
+                  "class",
+                  "creative",
+                  "express",
+                  "hiking",
+                  "hobby",
+                  "music",
+                  "outdoors",
+                  "photo",
+                  "pic",
+                  "reading",
+                  "running",
+                  "spot",
+                  "stories",
+                  "summer",
+                  "trail",
+                  "trip",
+                  "violin",
+                  "waterfall",
+                  "weekend",
+                  "went"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "activity_support"
+            },
+            "action_event": {
+              "terms": {
+                "set": [
+                  "action"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "book",
+                  "booked",
+                  "bring",
+                  "brought",
+                  "complete",
+                  "completed",
+                  "create",
+                  "created",
+                  "draw",
+                  "drew",
+                  "fix",
+                  "fixed",
+                  "made",
+                  "make",
+                  "paint",
+                  "painted",
+                  "prepare",
+                  "prepared",
+                  "repair",
+                  "repaired",
+                  "schedule",
+                  "scheduled",
+                  "send",
+                  "sent",
+                  "share",
+                  "shared",
+                  "take",
+                  "took"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "action_support"
+            },
+            "favorite_preference": {
+              "terms": {
+                "set": [
+                  "favorite",
+                  "favourite"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "book",
+                  "choice",
+                  "color",
+                  "favorite",
+                  "favourite",
+                  "food",
+                  "go-to",
+                  "movie",
+                  "movies",
+                  "music",
+                  "prefer",
+                  "preferred",
+                  "restaurant",
+                  "song"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "favorite_preference"
+            },
+            "preference": {
+              "terms": {
+                "set": [
+                  "avoid",
+                  "dislike",
+                  "enjoy",
+                  "favorite",
+                  "favourite",
+                  "hate",
+                  "interest",
+                  "like",
+                  "love",
+                  "prefer",
+                  "preference",
+                  "prioritize",
+                  "self-care",
+                  "want"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "avoid",
+                  "avoided",
+                  "avoids",
+                  "balance",
+                  "dislik",
+                  "dislike",
+                  "disliked",
+                  "enjoyed",
+                  "fan",
+                  "favorite",
+                  "favourite",
+                  "hat",
+                  "hate",
+                  "hated",
+                  "hates",
+                  "interested",
+                  "like",
+                  "liked",
+                  "love",
+                  "outdoors",
+                  "prefer",
+                  "refresh",
+                  "relax",
+                  "routine",
+                  "wellness"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "preference"
+            },
+            "activity_profile": {
+              "terms": {
+                "set": [
+                  "activity",
+                  "exercise",
+                  "hobby",
+                  "sport"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "activities",
+                  "camping",
+                  "exercise",
+                  "fun",
+                  "hike",
+                  "hobbies",
+                  "hobby",
+                  "leisure",
+                  "outdoors",
+                  "paint",
+                  "painting",
+                  "pastime",
+                  "run",
+                  "running",
+                  "sport",
+                  "tennis",
+                  "yoga"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "activity_profile"
+            },
+            "current_goal": {
+              "terms": {
+                "set": [
+                  "plan",
+                  "want"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "future",
+                  "goal",
+                  "hop",
+                  "hope",
+                  "plan",
+                  "planned",
+                  "soon"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "current_goal"
+            },
+            "identity_profile": {
+              "terms": {
+                "set": [
+                  "ally",
+                  "identity",
+                  "personality",
+                  "political",
+                  "religious"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "accept",
+                  "accepted",
+                  "activism",
+                  "background",
+                  "belief",
+                  "care",
+                  "church",
+                  "community",
+                  "concern",
+                  "conservative",
+                  "courage",
+                  "faith",
+                  "gender",
+                  "journey",
+                  "lgbtq",
+                  "person",
+                  "pride",
+                  "right",
+                  "rights",
+                  "self",
+                  "story",
+                  "support",
+                  "transition",
+                  "values"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "identity_profile"
+            },
+            "community_membership": {
+              "terms": {
+                "set": [
+                  "belong",
+                  "belongs",
+                  "community",
+                  "identified",
+                  "identifies",
+                  "identify",
+                  "lgbt",
+                  "lgbtq",
+                  "member",
+                  "membership",
+                  "part",
+                  "queer",
+                  "trans",
+                  "transgender"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "belonged",
+                  "belonging",
+                  "came",
+                  "community",
+                  "identify",
+                  "joined",
+                  "lgbt",
+                  "lgbtq",
+                  "member",
+                  "membership",
+                  "part",
+                  "pride",
+                  "queer",
+                  "support",
+                  "trans",
+                  "transgender"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "community_membership"
+            },
+            "status_profile": {
+              "terms": {
+                "set": [
+                  "boss",
+                  "boyfriend",
+                  "brother",
+                  "child",
+                  "children",
+                  "colleague",
+                  "cousin",
+                  "coworker",
+                  "dating",
+                  "daughter",
+                  "engag",
+                  "engaged",
+                  "family",
+                  "father",
+                  "fiance",
+                  "fiancee",
+                  "friend",
+                  "girlfriend",
+                  "grandfather",
+                  "grandmother",
+                  "husband",
+                  "manager",
+                  "marry",
+                  "member",
+                  "mentor",
+                  "mother",
+                  "neighbor",
+                  "parent",
+                  "partner",
+                  "relationship",
+                  "roommate",
+                  "sibling",
+                  "sister",
+                  "son",
+                  "spouse",
+                  "status",
+                  "team",
+                  "teammate",
+                  "wife"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "boss",
+                  "boyfriend",
+                  "breakup",
+                  "brother",
+                  "challenge",
+                  "child",
+                  "children",
+                  "colleague",
+                  "cousin",
+                  "coworker",
+                  "dating",
+                  "daughter",
+                  "engaged",
+                  "family",
+                  "father",
+                  "fiance",
+                  "fiancee",
+                  "friend",
+                  "friends",
+                  "girlfriend",
+                  "grandfather",
+                  "grandmother",
+                  "grandparent",
+                  "husband",
+                  "kids",
+                  "manager",
+                  "marriage",
+                  "married",
+                  "marry",
+                  "member",
+                  "mentor",
+                  "mother",
+                  "neighbor",
+                  "parent",
+                  "partner",
+                  "relative",
+                  "roommate",
+                  "sibling",
+                  "sister",
+                  "son",
+                  "spouse",
+                  "support",
+                  "team",
+                  "teammate",
+                  "wife"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "status_profile"
+            },
+            "causal": {
+              "terms": {
+                "set": [
+                  "because",
+                  "caus",
+                  "cause",
+                  "choose",
+                  "decide",
+                  "decision",
+                  "feel",
+                  "inspir",
+                  "motivat",
+                  "motivate",
+                  "motivation",
+                  "prompt",
+                  "prompted",
+                  "realize",
+                  "reason",
+                  "think"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "because",
+                  "caus",
+                  "cause",
+                  "chose",
+                  "decision",
+                  "explain",
+                  "fit",
+                  "inspir",
+                  "motivat",
+                  "motivation",
+                  "prompt",
+                  "prompted",
+                  "reaction",
+                  "reason",
+                  "response",
+                  "spoke",
+                  "thought",
+                  "understood",
+                  "value"
+                ]
+              },
+              "markers": {
+                "set": [
+                  "how",
+                  "why"
+                ]
+              },
+              "evidence_need": "causal_support"
+            },
+            "emotion_response": {
+              "terms": {
+                "set": [
+                  "excite",
+                  "feel"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "angry",
+                  "anxious",
+                  "concern",
+                  "emotion",
+                  "enthusiastic",
+                  "excite",
+                  "excited",
+                  "feel",
+                  "feeling",
+                  "felt",
+                  "happy",
+                  "nervous",
+                  "overwhelmed",
+                  "proud",
+                  "reaction",
+                  "relieved",
+                  "response",
+                  "sad",
+                  "thrilled",
+                  "upset",
+                  "worried"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "emotion_response"
+            },
+            "support_goal": {
+              "terms": {
+                "set": [
+                  "adopt",
+                  "adoption",
+                  "agency",
+                  "career",
+                  "counsel",
+                  "field",
+                  "grow",
+                  "help",
+                  "path",
+                  "pursue",
+                  "receive",
+                  "support",
+                  "work",
+                  "write"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "agencies",
+                  "career",
+                  "childhood",
+                  "counseling",
+                  "education",
+                  "helped",
+                  "inclusive",
+                  "inclusivity",
+                  "job",
+                  "kids",
+                  "lgbtq",
+                  "option",
+                  "profession",
+                  "similar",
+                  "support",
+                  "working",
+                  "writing"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "support_goal"
+            },
+            "education_profile": {
+              "terms": {
+                "set": [
+                  "class",
+                  "education",
+                  "go"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "campus",
+                  "college",
+                  "course",
+                  "degree",
+                  "graduate",
+                  "graduated",
+                  "graduation",
+                  "major",
+                  "majoring",
+                  "school",
+                  "studies",
+                  "study",
+                  "studying",
+                  "university"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "education_profile"
+            },
+            "employment_profile": {
+              "terms": {
+                "set": [
+                  "employment"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "career",
+                  "company",
+                  "employer",
+                  "job",
+                  "occupation",
+                  "office",
+                  "pay",
+                  "profession",
+                  "rate",
+                  "role",
+                  "salary",
+                  "wage",
+                  "work",
+                  "worked",
+                  "working",
+                  "workplace"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "employment_profile"
+            },
+            "health_profile": {
+              "terms": {
+                "set": [
+                  "health"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "allergic",
+                  "allergy",
+                  "appointment",
+                  "blood",
+                  "clinic",
+                  "condition",
+                  "dental",
+                  "dentist",
+                  "doctor",
+                  "health",
+                  "medication",
+                  "medicine",
+                  "physician",
+                  "prescription",
+                  "take",
+                  "taking",
+                  "therapist",
+                  "type"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "health_profile"
+            },
+            "contact_profile": {
+              "terms": {
+                "set": [
+                  "contact"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "address",
+                  "cell",
+                  "contact",
+                  "e-mail",
+                  "email",
+                  "mobile",
+                  "number",
+                  "phone",
+                  "reach",
+                  "reached",
+                  "telephone"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "contact_profile"
+            },
+            "commitment_profile": {
+              "terms": {
+                "set": [
+                  "cancel",
+                  "deadline",
+                  "promise",
+                  "remember",
+                  "reschedule",
+                  "task"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "bring",
+                  "cancel",
+                  "canceled",
+                  "cancelled",
+                  "commit",
+                  "committed",
+                  "complete",
+                  "date",
+                  "deadline",
+                  "due",
+                  "finish",
+                  "need",
+                  "promise",
+                  "promised",
+                  "remember",
+                  "reminder",
+                  "reschedule",
+                  "rescheduled",
+                  "status",
+                  "task",
+                  "to-do",
+                  "todo"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "commitment_profile"
+            },
+            "diet_profile": {
+              "terms": {
+                "set": [
+                  "diet"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "avoid",
+                  "dairy",
+                  "dietary",
+                  "eat",
+                  "egg",
+                  "eggs",
+                  "food",
+                  "gluten",
+                  "lactose",
+                  "meat",
+                  "pork",
+                  "restriction",
+                  "seafood",
+                  "soy",
+                  "vegan",
+                  "vegetarian"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "diet_profile"
+            },
+            "age_profile": {
+              "terms": {
+                "set": [
+                  "age"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "age",
+                  "birthday",
+                  "born",
+                  "old",
+                  "turn",
+                  "turned",
+                  "turning",
+                  "turns",
+                  "year",
+                  "years"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "age_profile"
+            },
+            "alias_profile": {
+              "terms": {
+                "set": [
+                  "nickname"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "alias",
+                  "call",
+                  "called",
+                  "calls",
+                  "known",
+                  "name",
+                  "named",
+                  "nickname",
+                  "nicknamed",
+                  "referred"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "alias_profile"
+            },
+            "date_profile": {
+              "terms": {
+                "set": [
+                  "anniversary",
+                  "birthday"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "anniversary",
+                  "birthday",
+                  "born",
+                  "date",
+                  "married",
+                  "marry",
+                  "month",
+                  "wed",
+                  "wedding",
+                  "year"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "date_profile"
+            },
+            "pet_profile": {
+              "terms": {
+                "set": [
+                  "pet"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "animal",
+                  "breed",
+                  "cat",
+                  "dog",
+                  "kitten",
+                  "labrador",
+                  "name",
+                  "named",
+                  "pet",
+                  "puppy",
+                  "retriever"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "pet_profile"
+            },
+            "skill_profile": {
+              "terms": {
+                "set": [
+                  "skill"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "bilingual",
+                  "certification",
+                  "certified",
+                  "credential",
+                  "drums",
+                  "fluent",
+                  "guitar",
+                  "instrument",
+                  "know",
+                  "language",
+                  "piano",
+                  "play",
+                  "plays",
+                  "speak",
+                  "speaks",
+                  "spoken",
+                  "violin"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "skill_profile"
+            },
+            "vehicle_profile": {
+              "terms": {
+                "set": [
+                  "vehicle"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "car",
+                  "color",
+                  "drive",
+                  "drives",
+                  "driving",
+                  "licence",
+                  "license",
+                  "own",
+                  "owns",
+                  "plate",
+                  "sedan",
+                  "suv",
+                  "truck",
+                  "van",
+                  "vehicle"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "vehicle_profile"
+            },
+            "exchange": {
+              "terms": {
+                "set": [
+                  "bought",
+                  "bring",
+                  "brought",
+                  "get",
+                  "gift",
+                  "give",
+                  "got",
+                  "offer",
+                  "purchas",
+                  "purchase",
+                  "receive"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "brought",
+                  "buy",
+                  "gave",
+                  "get",
+                  "gift",
+                  "got",
+                  "offer",
+                  "offered",
+                  "purchas",
+                  "purchased",
+                  "receiv",
+                  "receive",
+                  "received"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "exchange"
+            },
+            "symbolic_meaning": {
+              "terms": {
+                "set": [
+                  "necklace",
+                  "symbolize"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "family",
+                  "gift",
+                  "mean",
+                  "message",
+                  "reminder",
+                  "represent",
+                  "special",
+                  "support",
+                  "symbol",
+                  "value"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "symbolic_meaning"
+            },
+            "registration_event": {
+              "terms": {
+                "set": [
+                  "enroll",
+                  "register",
+                  "sign"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "class",
+                  "course",
+                  "enrolled",
+                  "lesson",
+                  "registration",
+                  "signed",
+                  "signup"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "registration_event"
+            },
+            "participation_event": {
+              "terms": {
+                "set": [
+                  "attend",
+                  "join",
+                  "meet",
+                  "participate",
+                  "travel",
+                  "visit"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "attended",
+                  "city",
+                  "class",
+                  "conference",
+                  "country",
+                  "event",
+                  "group",
+                  "joined",
+                  "meeting",
+                  "met",
+                  "participated",
+                  "place",
+                  "studio",
+                  "traveled",
+                  "travelled",
+                  "trip",
+                  "visited",
+                  "went",
+                  "workshop"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "participation_event"
+            },
+            "communication": {
+              "terms": {
+                "set": [
+                  "advise",
+                  "ask",
+                  "call",
+                  "chat",
+                  "discus",
+                  "discuss",
+                  "invit",
+                  "invitation",
+                  "invite",
+                  "mention",
+                  "messag",
+                  "message",
+                  "recommend",
+                  "remind",
+                  "reminded",
+                  "request",
+                  "said",
+                  "say",
+                  "suggest",
+                  "talk",
+                  "tell",
+                  "text",
+                  "told",
+                  "warn",
+                  "warned"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "advise",
+                  "advised",
+                  "called",
+                  "chatted",
+                  "conversation",
+                  "discus",
+                  "discuss",
+                  "discussed",
+                  "discussion",
+                  "invit",
+                  "invitation",
+                  "invite",
+                  "invited",
+                  "inviting",
+                  "mention",
+                  "mentioned",
+                  "messag",
+                  "messaged",
+                  "recommend",
+                  "reminded",
+                  "request",
+                  "requested",
+                  "said",
+                  "say",
+                  "send",
+                  "sent",
+                  "suggest",
+                  "suggested",
+                  "talked",
+                  "texted",
+                  "told",
+                  "warned"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "communication"
+            },
+            "location_transition": {
+              "terms": {
+                "set": [
+                  "attend",
+                  "based",
+                  "camp",
+                  "employment",
+                  "grow",
+                  "live",
+                  "move",
+                  "origin",
+                  "relocate",
+                  "relocated",
+                  "roadtrip",
+                  "stay",
+                  "travel",
+                  "trip",
+                  "venue",
+                  "visit"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "based",
+                  "camped",
+                  "campground",
+                  "camping",
+                  "campsite",
+                  "childhood",
+                  "city",
+                  "company",
+                  "country",
+                  "destination",
+                  "drive",
+                  "employer",
+                  "from",
+                  "gallery",
+                  "grew",
+                  "home",
+                  "hometown",
+                  "hotel",
+                  "museum",
+                  "office",
+                  "origin",
+                  "originally",
+                  "place",
+                  "raised",
+                  "relocated",
+                  "stayed",
+                  "staying",
+                  "theater",
+                  "theatre",
+                  "travel",
+                  "traveled",
+                  "traveling",
+                  "trip",
+                  "venue",
+                  "visited",
+                  "visiting",
+                  "wedding",
+                  "work",
+                  "worked",
+                  "working",
+                  "workplace"
+                ]
+              },
+              "markers": {
+                "set": []
+              },
+              "evidence_need": "location_support"
+            },
+            "contrast": {
+              "terms": {
+                "set": [
+                  "compare",
+                  "difference",
+                  "different",
+                  "former",
+                  "previous"
+                ]
+              },
+              "variants": {
+                "set": [
+                  "alternative",
+                  "before",
+                  "changed",
+                  "currently",
+                  "difference",
+                  "earlier",
+                  "former",
+                  "instead",
+                  "now",
+                  "ongoing",
+                  "previously",
+                  "used to"
+                ]
+              },
+              "markers": {
+                "set": [
+                  "after",
+                  "before",
+                  "between",
+                  "compare"
+                ]
+              },
+              "evidence_need": "contrast"
+            }
+          },
+          "_TEMPORAL_SUPPORT_VARIANTS": {
+            "set": [
+              "age",
+              "ago",
+              "anniversary",
+              "birthday",
+              "born",
+              "current",
+              "date",
+              "duration",
+              "event",
+              "month",
+              "planned",
+              "registered",
+              "session",
+              "signed",
+              "time",
+              "week",
+              "weekend",
+              "year",
+              "years"
+            ]
+          },
+          "_dedupe_relation_intents": {
+            "object": "infinity_context_benchmarks.retrieval_intent.relations._dedupe_relation_intents"
+          },
+          "_has_action_event_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_action_event_intent"
+          },
+          "_has_activity_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_activity_profile_intent"
+          },
+          "_has_adoption_reaction_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_adoption_reaction_intent"
+          },
+          "_has_causal_support_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_causal_support_intent"
+          },
+          "_has_commitment_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_commitment_profile_intent"
+          },
+          "_has_communication_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_communication_intent"
+          },
+          "_has_community_membership_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_community_membership_intent"
+          },
+          "_has_contact_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_contact_profile_intent"
+          },
+          "_has_contrast_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_contrast_intent"
+          },
+          "_has_current_goal_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_current_goal_intent"
+          },
+          "_has_date_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_date_profile_intent"
+          },
+          "_has_diet_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_diet_profile_intent"
+          },
+          "_has_education_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_education_profile_intent"
+          },
+          "_has_employment_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_employment_profile_intent"
+          },
+          "_has_exchange_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_exchange_intent"
+          },
+          "_has_health_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_health_profile_intent"
+          },
+          "_has_location_transition_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_location_transition_intent"
+          },
+          "_has_participation_event_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_participation_event_intent"
+          },
+          "_has_pet_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_pet_profile_intent"
+          },
+          "_has_skill_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_skill_profile_intent"
+          },
+          "_has_status_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_status_profile_intent"
+          },
+          "_has_support_goal_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_support_goal_intent"
+          },
+          "_has_vehicle_profile_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_vehicle_profile_intent"
+          },
+          "_relation_facet_reason_codes": {
+            "object": "infinity_context_benchmarks.retrieval_intent.relations._relation_facet_reason_codes"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "infer_evidence_need": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.evidence.infer_evidence_need"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.evidence",
+      "visibility": "public",
+      "callable": {
+        "signature": "(*, question: 'str' = '', relation_terms: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent', visual_terms: 'tuple[str, ...]', multi_hop_markers: 'tuple[str, ...]', benchmark_category: 'int | None' = None, answer_unit_shapes: 'tuple[str, ...]' = ()) -> 'tuple[str, ...]'",
+        "qualname": "infer_evidence_need",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+          "visual_terms": "tuple[str, ...]",
+          "multi_hop_markers": "tuple[str, ...]",
+          "benchmark_category": "int | None",
+          "answer_unit_shapes": "tuple[str, ...]",
+          "return": "tuple[str, ...]"
+        },
+        "globals": {
+          "_has_causal_support_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_causal_support_intent"
+          },
+          "_has_contrast_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_contrast_intent"
+          },
+          "_has_count_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_count_intent"
+          },
+          "_has_direct_emotion_response_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_emotion_response_intent"
+          },
+          "_has_inference_support_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_inference_support_intent"
+          },
+          "_has_list_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_list_intent"
+          },
+          "_has_location_transition_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_location_transition_intent"
+          },
+          "_has_negative_absence_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_negative_absence_intent"
+          },
+          "_is_kinship_status_lookup": {
+            "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._is_kinship_status_lookup"
+          },
+          "dict": {
+            "object": "builtins.dict"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "infer_bundle_evidence_roles": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.evidence.infer_bundle_evidence_roles"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.evidence",
+      "visibility": "public",
+      "callable": {
+        "signature": "(*, evidence_need: 'tuple[str, ...]', benchmark_category: 'int | None' = None) -> 'tuple[str, ...]'",
+        "qualname": "infer_bundle_evidence_roles",
+        "doc": null,
+        "hints": {
+          "evidence_need": "tuple[str, ...]",
+          "benchmark_category": "int | None",
+          "return": "tuple[str, ...]"
+        },
+        "globals": {
+          "dict": {
+            "object": "builtins.dict"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "_has_negative_absence_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_negative_absence_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(question: 'str') -> 'bool'",
+        "qualname": "_has_negative_absence_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          }
+        }
+      }
+    },
+    "merge_relation_evidence_needs": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.evidence.merge_relation_evidence_needs"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.evidence",
+      "visibility": "public",
+      "callable": {
+        "signature": "(evidence_need: 'tuple[str, ...]', relation_intents: 'tuple[RetrievalRelationIntent, ...]') -> 'tuple[str, ...]'",
+        "qualname": "merge_relation_evidence_needs",
+        "doc": "Promote selected typed relation-facet needs into bundle planning.",
+        "hints": {
+          "evidence_need": "tuple[str, ...]",
+          "relation_intents": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent, ...]",
+          "return": "tuple[str, ...]"
+        },
+        "globals": {
+          "_is_direct_support_relation_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._is_direct_support_relation_intent"
+          },
+          "any": {
+            "object": "builtins.any"
+          },
+          "dict": {
+            "object": "builtins.dict"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "_has_contrast_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_contrast_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str' = '', relation_terms: 'tuple[str, ...]', multi_hop_markers: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_contrast_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "multi_hop_markers": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_has_commonality_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_commonality_intent"
+          },
+          "_has_comparative_choice_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_comparative_choice_intent"
+          },
+          "_has_explicit_difference_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_explicit_difference_intent"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_COMMONALITY_INTENT_RE": {
+      "value": {
+        "regex": "\\b(?:both|common|connects?|mutual|overlap|same|shared|similar)\\b|\\bin\\s+common\\b",
+        "flags": 32
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only"
+    },
+    "_EXPLICIT_DIFFERENCE_INTENT_RE": {
+      "value": {
+        "regex": "\\b(?:compare|compared|contrast|different|difference)\\b",
+        "flags": 32
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only"
+    },
+    "_COMPARATIVE_CHOICE_INTENT_RE": {
+      "value": {
+        "regex": "\\b(?:which\\s+(?:one|person)|who)\\b.{0,100}\\b(?:chang(?:e|ed|es|ing)?|prefer(?:s|red|ring)?|lik(?:e|es|ed|ing)?|enjoy(?:s|ed|ing)?|lov(?:e|es|ed|ing)?)\\b.{0,60}\\b(?:more|less|most|least)\\b",
+        "flags": 32
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only"
+    },
+    "_has_commonality_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_commonality_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_commonality_intent",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_COMMONALITY_INTENT_RE": {
+            "regex": "\\b(?:both|common|connects?|mutual|overlap|same|shared|similar)\\b|\\bin\\s+common\\b",
+            "flags": 32
+          },
+          "bool": {
+            "object": "builtins.bool"
+          }
+        }
+      }
+    },
+    "_has_explicit_difference_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_explicit_difference_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_explicit_difference_intent",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_EXPLICIT_DIFFERENCE_INTENT_RE": {
+            "regex": "\\b(?:compare|compared|contrast|different|difference)\\b",
+            "flags": 32
+          },
+          "bool": {
+            "object": "builtins.bool"
+          }
+        }
+      }
+    },
+    "_has_comparative_choice_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_comparative_choice_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_comparative_choice_intent",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_COMPARATIVE_CHOICE_INTENT_RE": {
+            "regex": "\\b(?:which\\s+(?:one|person)|who)\\b.{0,100}\\b(?:chang(?:e|ed|es|ing)?|prefer(?:s|red|ring)?|lik(?:e|es|ed|ing)?|enjoy(?:s|ed|ing)?|lov(?:e|es|ed|ing)?)\\b.{0,60}\\b(?:more|less|most|least)\\b",
+            "flags": 32
+          },
+          "bool": {
+            "object": "builtins.bool"
+          }
+        }
+      }
+    },
+    "_has_count_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_count_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(question: 'str') -> 'bool'",
+        "qualname": "_has_count_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_list_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.comparison_patterns._has_list_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.comparison_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(question: 'str') -> 'bool'",
+        "qualname": "_has_list_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_is_kinship_status_lookup": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._is_kinship_status_lookup"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(question: 'str', relation_terms: 'Sequence[str]') -> 'bool'",
+        "qualname": "_is_kinship_status_lookup",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "collections.abc.Sequence[str]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_causal_support_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_causal_support_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]', multi_hop_markers: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent') -> 'bool'",
+        "qualname": "_has_causal_support_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "multi_hop_markers": "tuple[str, ...]",
+          "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_has_direct_emotion_response_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_emotion_response_intent"
+          },
+          "_has_motivation_artifact_lookup": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_motivation_artifact_lookup"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_adoption_reaction_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_adoption_reaction_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_adoption_reaction_intent",
+        "doc": null,
+        "hints": {
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_motivation_artifact_lookup": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_motivation_artifact_lookup"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_motivation_artifact_lookup",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          }
+        }
+      }
+    },
+    "_has_location_transition_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_location_transition_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_location_transition_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_has_future_home_move_goal_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_future_home_move_goal_intent"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_current_goal_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_current_goal_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_current_goal_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_has_future_home_move_goal_intent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_future_home_move_goal_intent"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_support_goal_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_support_goal_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_support_goal_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "_has_direct_support_role_question": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_support_role_question"
+          },
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_community_membership_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_community_membership_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_community_membership_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_is_direct_support_relation_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._is_direct_support_relation_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(intent: 'RetrievalRelationIntent') -> 'bool'",
+        "qualname": "_is_direct_support_relation_intent",
+        "doc": null,
+        "hints": {
+          "intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_direct_support_role_question": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_support_role_question"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_direct_support_role_question",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          }
+        }
+      }
+    },
+    "_has_future_home_move_goal_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_future_home_move_goal_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(normalized_question: 'str') -> 'bool'",
+        "qualname": "_has_future_home_move_goal_intent",
+        "doc": null,
+        "hints": {
+          "normalized_question": "<class 'str'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          }
+        }
+      }
+    },
+    "_has_inference_support_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_inference_support_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]', benchmark_category: 'int | None') -> 'bool'",
+        "qualname": "_has_inference_support_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "benchmark_category": "int | None",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          },
+          "str": {
+            "object": "builtins.str"
+          }
+        }
+      }
+    },
+    "_has_action_event_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_action_event_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_action_event_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_exchange_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_exchange_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_exchange_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_participation_event_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_participation_event_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_participation_event_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_activity_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_activity_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_activity_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_communication_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_communication_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_communication_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_direct_emotion_response_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_emotion_response_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.event_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_direct_emotion_response_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_status_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_status_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent') -> 'bool'",
+        "qualname": "_has_status_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_commitment_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_commitment_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_commitment_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_education_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_education_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_education_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_employment_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_employment_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_employment_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_health_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_health_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_health_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_contact_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_contact_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_contact_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_diet_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_diet_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_diet_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_pet_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_pet_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_pet_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_skill_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_skill_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_skill_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_vehicle_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_vehicle_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_vehicle_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "_has_date_profile_intent": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.profile_patterns._has_date_profile_intent"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.profile_patterns",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, question: 'str', relation_terms: 'tuple[str, ...]') -> 'bool'",
+        "qualname": "_has_date_profile_intent",
+        "doc": null,
+        "hints": {
+          "question": "<class 'str'>",
+          "relation_terms": "tuple[str, ...]",
+          "return": "<class 'bool'>"
+        },
+        "globals": {
+          "bool": {
+            "object": "builtins.bool"
+          },
+          "re": {
+            "module": "re"
+          },
+          "set": {
+            "object": "builtins.set"
+          }
+        }
+      }
+    },
+    "infer_risk_flags": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.evidence.infer_risk_flags"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.evidence",
+      "visibility": "public",
+      "callable": {
+        "signature": "(*, entity_count: 'int', relation_terms: 'tuple[str, ...]', relation_variant_terms: 'tuple[str, ...]', time_intent: 'RetrievalTimeIntent') -> 'tuple[str, ...]'",
+        "qualname": "infer_risk_flags",
+        "doc": null,
+        "hints": {
+          "entity_count": "<class 'int'>",
+          "relation_terms": "tuple[str, ...]",
+          "relation_variant_terms": "tuple[str, ...]",
+          "time_intent": "<class 'infinity_context_benchmarks.retrieval_intent.contracts.RetrievalTimeIntent'>",
+          "return": "tuple[str, ...]"
+        },
+        "globals": {
+          "len": {
+            "object": "builtins.len"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "_TEMPORAL_SUPPORT_VARIANTS": {
+      "value": {
+        "set": [
+          "age",
+          "ago",
+          "anniversary",
+          "birthday",
+          "born",
+          "current",
+          "date",
+          "duration",
+          "event",
+          "month",
+          "planned",
+          "registered",
+          "session",
+          "signed",
+          "time",
+          "week",
+          "weekend",
+          "year",
+          "years"
+        ]
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.relations",
+      "visibility": "compatibility-only"
+    },
+    "_RELATION_FACET_CONFIG": {
+      "value": {
+        "activity": {
+          "terms": {
+            "set": [
+              "activity",
+              "book",
+              "bookshelf",
+              "camp",
+              "destress",
+              "hike",
+              "music",
+              "paint",
+              "park",
+              "read",
+              "roadtrip",
+              "run",
+              "song"
+            ]
+          },
+          "variants": {
+            "set": [
+              "activities",
+              "book",
+              "books",
+              "camping",
+              "class",
+              "creative",
+              "express",
+              "hiking",
+              "hobby",
+              "music",
+              "outdoors",
+              "photo",
+              "pic",
+              "reading",
+              "running",
+              "spot",
+              "stories",
+              "summer",
+              "trail",
+              "trip",
+              "violin",
+              "waterfall",
+              "weekend",
+              "went"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "activity_support"
+        },
+        "action_event": {
+          "terms": {
+            "set": [
+              "action"
+            ]
+          },
+          "variants": {
+            "set": [
+              "book",
+              "booked",
+              "bring",
+              "brought",
+              "complete",
+              "completed",
+              "create",
+              "created",
+              "draw",
+              "drew",
+              "fix",
+              "fixed",
+              "made",
+              "make",
+              "paint",
+              "painted",
+              "prepare",
+              "prepared",
+              "repair",
+              "repaired",
+              "schedule",
+              "scheduled",
+              "send",
+              "sent",
+              "share",
+              "shared",
+              "take",
+              "took"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "action_support"
+        },
+        "favorite_preference": {
+          "terms": {
+            "set": [
+              "favorite",
+              "favourite"
+            ]
+          },
+          "variants": {
+            "set": [
+              "book",
+              "choice",
+              "color",
+              "favorite",
+              "favourite",
+              "food",
+              "go-to",
+              "movie",
+              "movies",
+              "music",
+              "prefer",
+              "preferred",
+              "restaurant",
+              "song"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "favorite_preference"
+        },
+        "preference": {
+          "terms": {
+            "set": [
+              "avoid",
+              "dislike",
+              "enjoy",
+              "favorite",
+              "favourite",
+              "hate",
+              "interest",
+              "like",
+              "love",
+              "prefer",
+              "preference",
+              "prioritize",
+              "self-care",
+              "want"
+            ]
+          },
+          "variants": {
+            "set": [
+              "avoid",
+              "avoided",
+              "avoids",
+              "balance",
+              "dislik",
+              "dislike",
+              "disliked",
+              "enjoyed",
+              "fan",
+              "favorite",
+              "favourite",
+              "hat",
+              "hate",
+              "hated",
+              "hates",
+              "interested",
+              "like",
+              "liked",
+              "love",
+              "outdoors",
+              "prefer",
+              "refresh",
+              "relax",
+              "routine",
+              "wellness"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "preference"
+        },
+        "activity_profile": {
+          "terms": {
+            "set": [
+              "activity",
+              "exercise",
+              "hobby",
+              "sport"
+            ]
+          },
+          "variants": {
+            "set": [
+              "activities",
+              "camping",
+              "exercise",
+              "fun",
+              "hike",
+              "hobbies",
+              "hobby",
+              "leisure",
+              "outdoors",
+              "paint",
+              "painting",
+              "pastime",
+              "run",
+              "running",
+              "sport",
+              "tennis",
+              "yoga"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "activity_profile"
+        },
+        "current_goal": {
+          "terms": {
+            "set": [
+              "plan",
+              "want"
+            ]
+          },
+          "variants": {
+            "set": [
+              "future",
+              "goal",
+              "hop",
+              "hope",
+              "plan",
+              "planned",
+              "soon"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "current_goal"
+        },
+        "identity_profile": {
+          "terms": {
+            "set": [
+              "ally",
+              "identity",
+              "personality",
+              "political",
+              "religious"
+            ]
+          },
+          "variants": {
+            "set": [
+              "accept",
+              "accepted",
+              "activism",
+              "background",
+              "belief",
+              "care",
+              "church",
+              "community",
+              "concern",
+              "conservative",
+              "courage",
+              "faith",
+              "gender",
+              "journey",
+              "lgbtq",
+              "person",
+              "pride",
+              "right",
+              "rights",
+              "self",
+              "story",
+              "support",
+              "transition",
+              "values"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "identity_profile"
+        },
+        "community_membership": {
+          "terms": {
+            "set": [
+              "belong",
+              "belongs",
+              "community",
+              "identified",
+              "identifies",
+              "identify",
+              "lgbt",
+              "lgbtq",
+              "member",
+              "membership",
+              "part",
+              "queer",
+              "trans",
+              "transgender"
+            ]
+          },
+          "variants": {
+            "set": [
+              "belonged",
+              "belonging",
+              "came",
+              "community",
+              "identify",
+              "joined",
+              "lgbt",
+              "lgbtq",
+              "member",
+              "membership",
+              "part",
+              "pride",
+              "queer",
+              "support",
+              "trans",
+              "transgender"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "community_membership"
+        },
+        "status_profile": {
+          "terms": {
+            "set": [
+              "boss",
+              "boyfriend",
+              "brother",
+              "child",
+              "children",
+              "colleague",
+              "cousin",
+              "coworker",
+              "dating",
+              "daughter",
+              "engag",
+              "engaged",
+              "family",
+              "father",
+              "fiance",
+              "fiancee",
+              "friend",
+              "girlfriend",
+              "grandfather",
+              "grandmother",
+              "husband",
+              "manager",
+              "marry",
+              "member",
+              "mentor",
+              "mother",
+              "neighbor",
+              "parent",
+              "partner",
+              "relationship",
+              "roommate",
+              "sibling",
+              "sister",
+              "son",
+              "spouse",
+              "status",
+              "team",
+              "teammate",
+              "wife"
+            ]
+          },
+          "variants": {
+            "set": [
+              "boss",
+              "boyfriend",
+              "breakup",
+              "brother",
+              "challenge",
+              "child",
+              "children",
+              "colleague",
+              "cousin",
+              "coworker",
+              "dating",
+              "daughter",
+              "engaged",
+              "family",
+              "father",
+              "fiance",
+              "fiancee",
+              "friend",
+              "friends",
+              "girlfriend",
+              "grandfather",
+              "grandmother",
+              "grandparent",
+              "husband",
+              "kids",
+              "manager",
+              "marriage",
+              "married",
+              "marry",
+              "member",
+              "mentor",
+              "mother",
+              "neighbor",
+              "parent",
+              "partner",
+              "relative",
+              "roommate",
+              "sibling",
+              "sister",
+              "son",
+              "spouse",
+              "support",
+              "team",
+              "teammate",
+              "wife"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "status_profile"
+        },
+        "causal": {
+          "terms": {
+            "set": [
+              "because",
+              "caus",
+              "cause",
+              "choose",
+              "decide",
+              "decision",
+              "feel",
+              "inspir",
+              "motivat",
+              "motivate",
+              "motivation",
+              "prompt",
+              "prompted",
+              "realize",
+              "reason",
+              "think"
+            ]
+          },
+          "variants": {
+            "set": [
+              "because",
+              "caus",
+              "cause",
+              "chose",
+              "decision",
+              "explain",
+              "fit",
+              "inspir",
+              "motivat",
+              "motivation",
+              "prompt",
+              "prompted",
+              "reaction",
+              "reason",
+              "response",
+              "spoke",
+              "thought",
+              "understood",
+              "value"
+            ]
+          },
+          "markers": {
+            "set": [
+              "how",
+              "why"
+            ]
+          },
+          "evidence_need": "causal_support"
+        },
+        "emotion_response": {
+          "terms": {
+            "set": [
+              "excite",
+              "feel"
+            ]
+          },
+          "variants": {
+            "set": [
+              "angry",
+              "anxious",
+              "concern",
+              "emotion",
+              "enthusiastic",
+              "excite",
+              "excited",
+              "feel",
+              "feeling",
+              "felt",
+              "happy",
+              "nervous",
+              "overwhelmed",
+              "proud",
+              "reaction",
+              "relieved",
+              "response",
+              "sad",
+              "thrilled",
+              "upset",
+              "worried"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "emotion_response"
+        },
+        "support_goal": {
+          "terms": {
+            "set": [
+              "adopt",
+              "adoption",
+              "agency",
+              "career",
+              "counsel",
+              "field",
+              "grow",
+              "help",
+              "path",
+              "pursue",
+              "receive",
+              "support",
+              "work",
+              "write"
+            ]
+          },
+          "variants": {
+            "set": [
+              "agencies",
+              "career",
+              "childhood",
+              "counseling",
+              "education",
+              "helped",
+              "inclusive",
+              "inclusivity",
+              "job",
+              "kids",
+              "lgbtq",
+              "option",
+              "profession",
+              "similar",
+              "support",
+              "working",
+              "writing"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "support_goal"
+        },
+        "education_profile": {
+          "terms": {
+            "set": [
+              "class",
+              "education",
+              "go"
+            ]
+          },
+          "variants": {
+            "set": [
+              "campus",
+              "college",
+              "course",
+              "degree",
+              "graduate",
+              "graduated",
+              "graduation",
+              "major",
+              "majoring",
+              "school",
+              "studies",
+              "study",
+              "studying",
+              "university"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "education_profile"
+        },
+        "employment_profile": {
+          "terms": {
+            "set": [
+              "employment"
+            ]
+          },
+          "variants": {
+            "set": [
+              "career",
+              "company",
+              "employer",
+              "job",
+              "occupation",
+              "office",
+              "pay",
+              "profession",
+              "rate",
+              "role",
+              "salary",
+              "wage",
+              "work",
+              "worked",
+              "working",
+              "workplace"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "employment_profile"
+        },
+        "health_profile": {
+          "terms": {
+            "set": [
+              "health"
+            ]
+          },
+          "variants": {
+            "set": [
+              "allergic",
+              "allergy",
+              "appointment",
+              "blood",
+              "clinic",
+              "condition",
+              "dental",
+              "dentist",
+              "doctor",
+              "health",
+              "medication",
+              "medicine",
+              "physician",
+              "prescription",
+              "take",
+              "taking",
+              "therapist",
+              "type"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "health_profile"
+        },
+        "contact_profile": {
+          "terms": {
+            "set": [
+              "contact"
+            ]
+          },
+          "variants": {
+            "set": [
+              "address",
+              "cell",
+              "contact",
+              "e-mail",
+              "email",
+              "mobile",
+              "number",
+              "phone",
+              "reach",
+              "reached",
+              "telephone"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "contact_profile"
+        },
+        "commitment_profile": {
+          "terms": {
+            "set": [
+              "cancel",
+              "deadline",
+              "promise",
+              "remember",
+              "reschedule",
+              "task"
+            ]
+          },
+          "variants": {
+            "set": [
+              "bring",
+              "cancel",
+              "canceled",
+              "cancelled",
+              "commit",
+              "committed",
+              "complete",
+              "date",
+              "deadline",
+              "due",
+              "finish",
+              "need",
+              "promise",
+              "promised",
+              "remember",
+              "reminder",
+              "reschedule",
+              "rescheduled",
+              "status",
+              "task",
+              "to-do",
+              "todo"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "commitment_profile"
+        },
+        "diet_profile": {
+          "terms": {
+            "set": [
+              "diet"
+            ]
+          },
+          "variants": {
+            "set": [
+              "avoid",
+              "dairy",
+              "dietary",
+              "eat",
+              "egg",
+              "eggs",
+              "food",
+              "gluten",
+              "lactose",
+              "meat",
+              "pork",
+              "restriction",
+              "seafood",
+              "soy",
+              "vegan",
+              "vegetarian"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "diet_profile"
+        },
+        "age_profile": {
+          "terms": {
+            "set": [
+              "age"
+            ]
+          },
+          "variants": {
+            "set": [
+              "age",
+              "birthday",
+              "born",
+              "old",
+              "turn",
+              "turned",
+              "turning",
+              "turns",
+              "year",
+              "years"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "age_profile"
+        },
+        "alias_profile": {
+          "terms": {
+            "set": [
+              "nickname"
+            ]
+          },
+          "variants": {
+            "set": [
+              "alias",
+              "call",
+              "called",
+              "calls",
+              "known",
+              "name",
+              "named",
+              "nickname",
+              "nicknamed",
+              "referred"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "alias_profile"
+        },
+        "date_profile": {
+          "terms": {
+            "set": [
+              "anniversary",
+              "birthday"
+            ]
+          },
+          "variants": {
+            "set": [
+              "anniversary",
+              "birthday",
+              "born",
+              "date",
+              "married",
+              "marry",
+              "month",
+              "wed",
+              "wedding",
+              "year"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "date_profile"
+        },
+        "pet_profile": {
+          "terms": {
+            "set": [
+              "pet"
+            ]
+          },
+          "variants": {
+            "set": [
+              "animal",
+              "breed",
+              "cat",
+              "dog",
+              "kitten",
+              "labrador",
+              "name",
+              "named",
+              "pet",
+              "puppy",
+              "retriever"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "pet_profile"
+        },
+        "skill_profile": {
+          "terms": {
+            "set": [
+              "skill"
+            ]
+          },
+          "variants": {
+            "set": [
+              "bilingual",
+              "certification",
+              "certified",
+              "credential",
+              "drums",
+              "fluent",
+              "guitar",
+              "instrument",
+              "know",
+              "language",
+              "piano",
+              "play",
+              "plays",
+              "speak",
+              "speaks",
+              "spoken",
+              "violin"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "skill_profile"
+        },
+        "vehicle_profile": {
+          "terms": {
+            "set": [
+              "vehicle"
+            ]
+          },
+          "variants": {
+            "set": [
+              "car",
+              "color",
+              "drive",
+              "drives",
+              "driving",
+              "licence",
+              "license",
+              "own",
+              "owns",
+              "plate",
+              "sedan",
+              "suv",
+              "truck",
+              "van",
+              "vehicle"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "vehicle_profile"
+        },
+        "exchange": {
+          "terms": {
+            "set": [
+              "bought",
+              "bring",
+              "brought",
+              "get",
+              "gift",
+              "give",
+              "got",
+              "offer",
+              "purchas",
+              "purchase",
+              "receive"
+            ]
+          },
+          "variants": {
+            "set": [
+              "brought",
+              "buy",
+              "gave",
+              "get",
+              "gift",
+              "got",
+              "offer",
+              "offered",
+              "purchas",
+              "purchased",
+              "receiv",
+              "receive",
+              "received"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "exchange"
+        },
+        "symbolic_meaning": {
+          "terms": {
+            "set": [
+              "necklace",
+              "symbolize"
+            ]
+          },
+          "variants": {
+            "set": [
+              "family",
+              "gift",
+              "mean",
+              "message",
+              "reminder",
+              "represent",
+              "special",
+              "support",
+              "symbol",
+              "value"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "symbolic_meaning"
+        },
+        "registration_event": {
+          "terms": {
+            "set": [
+              "enroll",
+              "register",
+              "sign"
+            ]
+          },
+          "variants": {
+            "set": [
+              "class",
+              "course",
+              "enrolled",
+              "lesson",
+              "registration",
+              "signed",
+              "signup"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "registration_event"
+        },
+        "participation_event": {
+          "terms": {
+            "set": [
+              "attend",
+              "join",
+              "meet",
+              "participate",
+              "travel",
+              "visit"
+            ]
+          },
+          "variants": {
+            "set": [
+              "attended",
+              "city",
+              "class",
+              "conference",
+              "country",
+              "event",
+              "group",
+              "joined",
+              "meeting",
+              "met",
+              "participated",
+              "place",
+              "studio",
+              "traveled",
+              "travelled",
+              "trip",
+              "visited",
+              "went",
+              "workshop"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "participation_event"
+        },
+        "communication": {
+          "terms": {
+            "set": [
+              "advise",
+              "ask",
+              "call",
+              "chat",
+              "discus",
+              "discuss",
+              "invit",
+              "invitation",
+              "invite",
+              "mention",
+              "messag",
+              "message",
+              "recommend",
+              "remind",
+              "reminded",
+              "request",
+              "said",
+              "say",
+              "suggest",
+              "talk",
+              "tell",
+              "text",
+              "told",
+              "warn",
+              "warned"
+            ]
+          },
+          "variants": {
+            "set": [
+              "advise",
+              "advised",
+              "called",
+              "chatted",
+              "conversation",
+              "discus",
+              "discuss",
+              "discussed",
+              "discussion",
+              "invit",
+              "invitation",
+              "invite",
+              "invited",
+              "inviting",
+              "mention",
+              "mentioned",
+              "messag",
+              "messaged",
+              "recommend",
+              "reminded",
+              "request",
+              "requested",
+              "said",
+              "say",
+              "send",
+              "sent",
+              "suggest",
+              "suggested",
+              "talked",
+              "texted",
+              "told",
+              "warned"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "communication"
+        },
+        "location_transition": {
+          "terms": {
+            "set": [
+              "attend",
+              "based",
+              "camp",
+              "employment",
+              "grow",
+              "live",
+              "move",
+              "origin",
+              "relocate",
+              "relocated",
+              "roadtrip",
+              "stay",
+              "travel",
+              "trip",
+              "venue",
+              "visit"
+            ]
+          },
+          "variants": {
+            "set": [
+              "based",
+              "camped",
+              "campground",
+              "camping",
+              "campsite",
+              "childhood",
+              "city",
+              "company",
+              "country",
+              "destination",
+              "drive",
+              "employer",
+              "from",
+              "gallery",
+              "grew",
+              "home",
+              "hometown",
+              "hotel",
+              "museum",
+              "office",
+              "origin",
+              "originally",
+              "place",
+              "raised",
+              "relocated",
+              "stayed",
+              "staying",
+              "theater",
+              "theatre",
+              "travel",
+              "traveled",
+              "traveling",
+              "trip",
+              "venue",
+              "visited",
+              "visiting",
+              "wedding",
+              "work",
+              "worked",
+              "working",
+              "workplace"
+            ]
+          },
+          "markers": {
+            "set": []
+          },
+          "evidence_need": "location_support"
+        },
+        "contrast": {
+          "terms": {
+            "set": [
+              "compare",
+              "difference",
+              "different",
+              "former",
+              "previous"
+            ]
+          },
+          "variants": {
+            "set": [
+              "alternative",
+              "before",
+              "changed",
+              "currently",
+              "difference",
+              "earlier",
+              "former",
+              "instead",
+              "now",
+              "ongoing",
+              "previously",
+              "used to"
+            ]
+          },
+          "markers": {
+            "set": [
+              "after",
+              "before",
+              "between",
+              "compare"
+            ]
+          },
+          "evidence_need": "contrast"
+        }
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.relations",
+      "visibility": "compatibility-only"
+    },
+    "_relation_facet_reason_codes": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.relations._relation_facet_reason_codes"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.relations",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(*, category: 'str', question: 'str', terms: 'tuple[str, ...]', variants: 'tuple[str, ...]', marker_hit: 'bool') -> 'tuple[str, ...]'",
+        "qualname": "_relation_facet_reason_codes",
+        "doc": null,
+        "hints": {
+          "category": "<class 'str'>",
+          "question": "<class 'str'>",
+          "terms": "tuple[str, ...]",
+          "variants": "tuple[str, ...]",
+          "marker_hit": "<class 'bool'>",
+          "return": "tuple[str, ...]"
+        },
+        "globals": {
+          "_has_direct_support_role_question": {
+            "object": "infinity_context_benchmarks.retrieval_intent.event_patterns._has_direct_support_role_question"
+          },
+          "str": {
+            "object": "builtins.str"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    },
+    "_dedupe_relation_intents": {
+      "value": {
+        "object": "infinity_context_benchmarks.retrieval_intent.relations._dedupe_relation_intents"
+      },
+      "owner": "infinity_context_benchmarks.retrieval_intent.relations",
+      "visibility": "compatibility-only",
+      "callable": {
+        "signature": "(facets: 'tuple[RetrievalRelationIntent, ...] | list[RetrievalRelationIntent]') -> 'tuple[RetrievalRelationIntent, ...]'",
+        "qualname": "_dedupe_relation_intents",
+        "doc": null,
+        "hints": {
+          "facets": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent, ...] | list[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent]",
+          "return": "tuple[infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent, ...]"
+        },
+        "globals": {
+          "RetrievalRelationIntent": {
+            "object": "infinity_context_benchmarks.retrieval_intent.contracts.RetrievalRelationIntent"
+          },
+          "dict": {
+            "object": "builtins.dict"
+          },
+          "tuple": {
+            "object": "builtins.tuple"
+          }
+        }
+      }
+    }
+  }
+}

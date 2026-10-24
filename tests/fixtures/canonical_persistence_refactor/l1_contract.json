@@ -1,0 +1,1860 @@
+{
+  "base": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "original": "infinity_context_adapters.postgres.unit_of_work",
+  "owners": {
+    "_ADDITIVE_SCHEMA_COLUMNS": "infinity_context_adapters.postgres.schema_compatibility",
+    "_LEGACY_PROFILE_ID_TABLES": "infinity_context_adapters.postgres.schema_compatibility",
+    "_column_names": "infinity_context_adapters.postgres.schema_compatibility",
+    "_ensure_legacy_profile_schema": "infinity_context_adapters.postgres.schema_compatibility",
+    "_copy_legacy_profiles_to_memory_scopes": "infinity_context_adapters.postgres.schema_compatibility",
+    "_repoint_legacy_profile_references": "infinity_context_adapters.postgres.schema_compatibility",
+    "_repoint_scalar_scope_column": "infinity_context_adapters.postgres.schema_compatibility",
+    "_repoint_token_scope_json": "infinity_context_adapters.postgres.schema_compatibility",
+    "_decode_json_string_list": "infinity_context_adapters.postgres.schema_compatibility",
+    "_rename_or_backfill_legacy_column": "infinity_context_adapters.postgres.schema_compatibility",
+    "_ensure_additive_schema_columns": "infinity_context_adapters.postgres.schema_compatibility",
+    "_ensure_document_thread_unique_indexes": "infinity_context_adapters.postgres.schema_compatibility",
+    "_rebuild_sqlite_memory_documents_without_legacy_unique": "infinity_context_adapters.postgres.schema_compatibility",
+    "_sqlite_memory_documents_table_sql_has_legacy_unique": "infinity_context_adapters.postgres.schema_compatibility",
+    "create_schema": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_runtime_schema": "infinity_context_adapters.postgres.schema_runtime",
+    "_backfill_memory_fact_temporal_columns": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_memory_fact_temporal_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_memory_fact_supersession_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_memory_fact_code_scope_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_managed_benchmark_writer_fence": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_outbox_lifecycle_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_capture_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_ensure_suggestion_metadata_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_expire_duplicate_pending_suggestions_before_unique_indexes": "infinity_context_adapters.postgres.schema_runtime",
+    "_BENCHMARK_WRITER_FENCE_MESSAGE": "infinity_context_adapters.postgres.unit_of_work",
+    "_is_benchmark_writer_fence_error": "infinity_context_adapters.postgres.unit_of_work",
+    "build_async_engine": "infinity_context_adapters.postgres.unit_of_work",
+    "build_session_factory": "infinity_context_adapters.postgres.unit_of_work",
+    "PostgresUnitOfWork": "infinity_context_adapters.postgres.unit_of_work",
+    "PostgresUnitOfWorkFactory": "infinity_context_adapters.postgres.unit_of_work"
+  },
+  "source_sha256": "1c36166e0b9c43885a3e8176d8aecc53f0c628e041224e92fd850a8065961052",
+  "definitions": {
+    "_ADDITIVE_SCHEMA_COLUMNS": "408e9ec81133ca2adc99a7bd6b0241649dbee549c964bce828b6f22544ce76ae",
+    "_LEGACY_PROFILE_ID_TABLES": "08ee570531d3ed9f41907b19834f5b8127d995b45f481abe038e31436cb12e0f",
+    "_column_names": "be8c5787aafcd09854d4b8b0e00db2946a74469b0b0a4613276344728554e09d",
+    "_ensure_legacy_profile_schema": "9a50c459e85c4ddcf943b69f3b11302d4395375f926c794d2e732e6cf4dc4029",
+    "_copy_legacy_profiles_to_memory_scopes": "4e0f0b78b56c3d6cf5bae2965bb0b24ee287cbeb2d2000df7c6057d21cf33160",
+    "_repoint_legacy_profile_references": "5acd20dbbe1d2e01795840219fc61f5c4a00733a7d0ea21d2b89cab26a19439b",
+    "_repoint_scalar_scope_column": "d9ea867b0ee6e56a0b817dc91f61a96d79361de8c03e123c692515886ab1d7b6",
+    "_repoint_token_scope_json": "479f323d3ccb72c7f1bd3aa0c013af2cb252b068da563fe3c42ac931cb6acb3a",
+    "_decode_json_string_list": "347b84b5e960362f9f589506b41e1ab2b5c06873ae0e093d93ef1c8640a3cc2d",
+    "_rename_or_backfill_legacy_column": "3158a0d37b1eb7244d8b15ed0a47d3e9f2394737ee6630b80a8404bf6468f06c",
+    "_ensure_additive_schema_columns": "03ee1d0f6f67de4d4428b4a15c6262e4035e83fc878c276329432ebe3bf31431",
+    "_ensure_document_thread_unique_indexes": "51e6c895a3cc172a84ff9816903b3d29c3176b1f9f19149c87cd0d6aa1ce4782",
+    "_rebuild_sqlite_memory_documents_without_legacy_unique": "8781e0c169d2abf6013fa86dc378beca320858b74cb62e536ea84f5240454c12",
+    "_sqlite_memory_documents_table_sql_has_legacy_unique": "1b726cc297437b753a425ea4bd4a53ee1dcdad4e2c86a7f48e47f33eadebd7ff",
+    "create_schema": "6e9e9e4f0b782ec50556c9b512b15b99dfbbbaa4a6082245f0695aa1ccd15e18",
+    "_ensure_runtime_schema": "726a59c719c6b9ded209f39a9e58aacc7ebc5789d969c6533311523fc78d5195",
+    "_backfill_memory_fact_temporal_columns": "bf3d445c942b8d4728070d30d805c88f6ada96a9f930a04a5e90a254e0a78e5f",
+    "_ensure_memory_fact_temporal_indexes": "3a9067ae26151179e5e3b28a1913d3d77d637ebe0af3e3ce7689c49e6207ae3e",
+    "_ensure_memory_fact_supersession_indexes": "030c759d5ae73ac06d3911d82c1c3b2a4d3a5cd16609e4d8c527e68f125ce66d",
+    "_ensure_memory_fact_code_scope_indexes": "6bf9b2af8bbde4716b7c20a9f160d1075f1e38150ba420c5cc269f18e009fed2",
+    "_ensure_managed_benchmark_writer_fence": "eca1089fc6d4ea677b7b4d2426bd84835bf7e673eb3f610efe1135db448a1dc4",
+    "_ensure_outbox_lifecycle_indexes": "9ca0e3004566c04a5292efbbf03ed09be757859b946a4b16ad0bbb87ea963e67",
+    "_ensure_capture_indexes": "239f25ba0399caf31200d96c2bc04d39bce97299cc3395438af5d8e8bc77f5a2",
+    "_ensure_suggestion_metadata_indexes": "41d2ca61a78c2012cd57df0a9be26af548c6d187a5927bdf210b4cc002ca10dd",
+    "_expire_duplicate_pending_suggestions_before_unique_indexes": "c83253c0a99b50ad57ce4eb160008e9bbb9e1cc42ebcd9f9917c2a151d77d91d",
+    "_BENCHMARK_WRITER_FENCE_MESSAGE": "7778bda03582287ebd21b4a4279f5b1526df560923896aa385d3842dd30e7198",
+    "_is_benchmark_writer_fence_error": "d9e8f9eb574756ab38cf6a55ac7924d9a50d8329718bb572a404350063bf18d2",
+    "build_async_engine": "e59ddd29b9467b07b8f5a25ce3db82a1df8ffba928eb8fbeadf7255038b35b48",
+    "build_session_factory": "bd8d66224c4d0d1fa76ccc5089dfdfe7a571a15d0b72744e3b76fd81169f5a09",
+    "PostgresUnitOfWork": "804019a43ba2bc329eb220c81f6544bcdd850e40b7166e8fd9047bcc0cfa2df8",
+    "PostgresUnitOfWorkFactory": "aaef0f884011df3b9ee04a53e3aa9f26f88f8f74841a7cd9a4e11cc2ad32ea47"
+  },
+  "contracts": {
+    "_ADDITIVE_SCHEMA_COLUMNS": {
+      "value": {
+        "memory_service_tokens": [
+          [
+            "memory_scope_ids_json",
+            "JSON"
+          ],
+          [
+            "repository_id",
+            "VARCHAR(80)"
+          ],
+          [
+            "code_scope_id",
+            "VARCHAR(96)"
+          ],
+          [
+            "permissions_json",
+            "JSON"
+          ],
+          [
+            "last_used_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "expires_at",
+            "TIMESTAMPTZ"
+          ]
+        ],
+        "memory_facts": [
+          [
+            "classification",
+            "VARCHAR(40) NOT NULL DEFAULT 'internal'"
+          ],
+          [
+            "category",
+            "VARCHAR(80)"
+          ],
+          [
+            "tags_json",
+            "JSON NOT NULL DEFAULT '[]'"
+          ],
+          [
+            "ttl_policy",
+            "VARCHAR(80)"
+          ],
+          [
+            "expires_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "temporal_kind",
+            "VARCHAR(20) NOT NULL DEFAULT 'state'"
+          ],
+          [
+            "observed_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_from",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_to",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "occurred_from",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "occurred_to",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "temporal_basis",
+            "VARCHAR(80) NOT NULL DEFAULT 'migrated_legacy'"
+          ],
+          [
+            "temporal_precision",
+            "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+          ],
+          [
+            "last_confirmed_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "confirmation_basis",
+            "VARCHAR(120)"
+          ],
+          [
+            "purge_after",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "epistemic_mode",
+            "VARCHAR(40) NOT NULL DEFAULT 'world_claim'"
+          ],
+          [
+            "asserted_by",
+            "VARCHAR(160)"
+          ],
+          [
+            "perspective_subject",
+            "VARCHAR(160)"
+          ],
+          [
+            "repository_id",
+            "VARCHAR(80)"
+          ],
+          [
+            "code_scope_id",
+            "VARCHAR(96)"
+          ]
+        ],
+        "memory_fact_versions": [
+          [
+            "snapshot_json",
+            "JSON NOT NULL DEFAULT '{}'"
+          ]
+        ],
+        "memory_documents": [
+          [
+            "classification",
+            "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+          ]
+        ],
+        "memory_chunks": [
+          [
+            "classification",
+            "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+          ]
+        ],
+        "memory_outbox": [
+          [
+            "message_key",
+            "VARCHAR(160)"
+          ],
+          [
+            "claim_token",
+            "VARCHAR(32)"
+          ],
+          [
+            "workload_class",
+            "VARCHAR(80) NOT NULL DEFAULT 'projection'"
+          ],
+          [
+            "fairness_key",
+            "VARCHAR(160)"
+          ],
+          [
+            "last_safe_diagnostic_code",
+            "VARCHAR(120)"
+          ]
+        ],
+        "memory_suggestions": [
+          [
+            "operation",
+            "VARCHAR(40) NOT NULL DEFAULT 'add'"
+          ],
+          [
+            "category",
+            "VARCHAR(80)"
+          ],
+          [
+            "tags_json",
+            "JSON NOT NULL DEFAULT '[]'"
+          ],
+          [
+            "ttl_policy",
+            "VARCHAR(80)"
+          ],
+          [
+            "expires_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "expiry_reason",
+            "VARCHAR(160)"
+          ],
+          [
+            "created_from_capture_id",
+            "VARCHAR(80)"
+          ],
+          [
+            "candidate_fingerprint",
+            "VARCHAR(80)"
+          ],
+          [
+            "review_payload_json",
+            "JSON NOT NULL DEFAULT '{}'"
+          ],
+          [
+            "review_reason",
+            "VARCHAR(320)"
+          ],
+          [
+            "reviewed_at",
+            "TIMESTAMPTZ"
+          ]
+        ],
+        "memory_asset_extraction_jobs": [
+          [
+            "lease_owner",
+            "VARCHAR(120)"
+          ],
+          [
+            "lease_expires_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "heartbeat_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "retry_after_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "cancellation_requested_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "retry_disposition",
+            "VARCHAR(40)"
+          ]
+        ],
+        "memory_fact_relations": [
+          [
+            "thread_id",
+            "VARCHAR(80)"
+          ],
+          [
+            "observed_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_from",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_to",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "source_fact_version",
+            "INTEGER"
+          ],
+          [
+            "target_fact_version",
+            "INTEGER"
+          ],
+          [
+            "temporal_decision_id",
+            "VARCHAR(80)"
+          ]
+        ],
+        "memory_anchors": [
+          [
+            "confidence",
+            "VARCHAR(40) NOT NULL DEFAULT 'medium'"
+          ],
+          [
+            "evidence_refs_json",
+            "JSON NOT NULL DEFAULT '[]'"
+          ],
+          [
+            "observed_at",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_from",
+            "TIMESTAMPTZ"
+          ],
+          [
+            "valid_to",
+            "TIMESTAMPTZ"
+          ]
+        ],
+        "memory_source_refs": [
+          [
+            "page_number",
+            "INTEGER"
+          ],
+          [
+            "time_start_ms",
+            "INTEGER"
+          ],
+          [
+            "time_end_ms",
+            "INTEGER"
+          ],
+          [
+            "bbox_json",
+            "JSON"
+          ]
+        ]
+      }
+    },
+    "_LEGACY_PROFILE_ID_TABLES": {
+      "value": [
+        "memory_facts",
+        "memory_threads",
+        "memory_episodes",
+        "memory_documents",
+        "memory_chunks",
+        "memory_fact_relations",
+        "memory_suggestions",
+        "memory_captures"
+      ]
+    },
+    "_column_names": {
+      "name": "_column_names",
+      "qualname": "_column_names",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', table_name: 'str') -> 'set[str]'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "table_name": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "set[str]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_legacy_profile_schema": {
+      "name": "_ensure_legacy_profile_schema",
+      "qualname": "_ensure_legacy_profile_schema",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": "Upgrade pre-MemoryScope schemas in-place before SQLAlchemy creates tables.",
+          "globals": {
+            "_LEGACY_PROFILE_ID_TABLES": [
+              "memory_facts",
+              "memory_threads",
+              "memory_episodes",
+              "memory_documents",
+              "memory_chunks",
+              "memory_fact_relations",
+              "memory_suggestions",
+              "memory_captures"
+            ],
+            "_copy_legacy_profiles_to_memory_scopes": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._copy_legacy_profiles_to_memory_scopes"
+            },
+            "_rename_or_backfill_legacy_column": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._rename_or_backfill_legacy_column"
+            },
+            "_repoint_legacy_profile_references": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._repoint_legacy_profile_references"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_copy_legacy_profiles_to_memory_scopes": {
+      "name": "_copy_legacy_profiles_to_memory_scopes",
+      "qualname": "_copy_legacy_profiles_to_memory_scopes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'dict[str, str]'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "repr": "dict[str, str]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "dict": {
+              "reference": "builtins.dict"
+            },
+            "list": {
+              "reference": "builtins.list"
+            },
+            "str": {
+              "reference": "builtins.str"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_repoint_legacy_profile_references": {
+      "name": "_repoint_legacy_profile_references",
+      "qualname": "_repoint_legacy_profile_references",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', legacy_to_current: 'dict[str, str]') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "legacy_to_current": {
+              "repr": "dict[str, str]"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_LEGACY_PROFILE_ID_TABLES": [
+              "memory_facts",
+              "memory_threads",
+              "memory_episodes",
+              "memory_documents",
+              "memory_chunks",
+              "memory_fact_relations",
+              "memory_suggestions",
+              "memory_captures"
+            ],
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "_repoint_scalar_scope_column": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._repoint_scalar_scope_column"
+            },
+            "_repoint_token_scope_json": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._repoint_token_scope_json"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            }
+          }
+        }
+      }
+    },
+    "_repoint_scalar_scope_column": {
+      "name": "_repoint_scalar_scope_column",
+      "qualname": "_repoint_scalar_scope_column",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', table_name: 'str', column_name: 'str', remapped_ids: 'dict[str, str]') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "table_name": {
+              "reference": "builtins.str"
+            },
+            "column_name": {
+              "reference": "builtins.str"
+            },
+            "remapped_ids": {
+              "repr": "dict[str, str]"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_repoint_token_scope_json": {
+      "name": "_repoint_token_scope_json",
+      "qualname": "_repoint_token_scope_json",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', column_name: 'str', remapped_ids: 'dict[str, str]') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "column_name": {
+              "reference": "builtins.str"
+            },
+            "remapped_ids": {
+              "repr": "dict[str, str]"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "JSON": {
+              "reference": "sqlalchemy.sql.sqltypes.JSON"
+            },
+            "_decode_json_string_list": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._decode_json_string_list"
+            },
+            "bindparam": {
+              "reference": "sqlalchemy.sql._elements_constructors.bindparam"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_decode_json_string_list": {
+      "name": "_decode_json_string_list",
+      "qualname": "_decode_json_string_list",
+      "methods": {
+        "": {
+          "signature": "(value: 'object') -> 'list[str]'",
+          "annotations": {
+            "value": {
+              "reference": "builtins.object"
+            },
+            "return": {
+              "repr": "list[str]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "isinstance": {
+              "repr": "<built-in function isinstance>"
+            },
+            "json": {
+              "module": "json"
+            },
+            "list": {
+              "reference": "builtins.list"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        }
+      }
+    },
+    "_rename_or_backfill_legacy_column": {
+      "name": "_rename_or_backfill_legacy_column",
+      "qualname": "_rename_or_backfill_legacy_column",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', *, table_name: 'str', legacy_column: 'str', current_column: 'str') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "table_name": {
+              "reference": "builtins.str"
+            },
+            "legacy_column": {
+              "reference": "builtins.str"
+            },
+            "current_column": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_additive_schema_columns": {
+      "name": "_ensure_additive_schema_columns",
+      "qualname": "_ensure_additive_schema_columns",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_ADDITIVE_SCHEMA_COLUMNS": {
+              "memory_service_tokens": [
+                [
+                  "memory_scope_ids_json",
+                  "JSON"
+                ],
+                [
+                  "repository_id",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "code_scope_id",
+                  "VARCHAR(96)"
+                ],
+                [
+                  "permissions_json",
+                  "JSON"
+                ],
+                [
+                  "last_used_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "expires_at",
+                  "TIMESTAMPTZ"
+                ]
+              ],
+              "memory_facts": [
+                [
+                  "classification",
+                  "VARCHAR(40) NOT NULL DEFAULT 'internal'"
+                ],
+                [
+                  "category",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "tags_json",
+                  "JSON NOT NULL DEFAULT '[]'"
+                ],
+                [
+                  "ttl_policy",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "expires_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "temporal_kind",
+                  "VARCHAR(20) NOT NULL DEFAULT 'state'"
+                ],
+                [
+                  "observed_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_from",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_to",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "occurred_from",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "occurred_to",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "temporal_basis",
+                  "VARCHAR(80) NOT NULL DEFAULT 'migrated_legacy'"
+                ],
+                [
+                  "temporal_precision",
+                  "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+                ],
+                [
+                  "last_confirmed_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "confirmation_basis",
+                  "VARCHAR(120)"
+                ],
+                [
+                  "purge_after",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "epistemic_mode",
+                  "VARCHAR(40) NOT NULL DEFAULT 'world_claim'"
+                ],
+                [
+                  "asserted_by",
+                  "VARCHAR(160)"
+                ],
+                [
+                  "perspective_subject",
+                  "VARCHAR(160)"
+                ],
+                [
+                  "repository_id",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "code_scope_id",
+                  "VARCHAR(96)"
+                ]
+              ],
+              "memory_fact_versions": [
+                [
+                  "snapshot_json",
+                  "JSON NOT NULL DEFAULT '{}'"
+                ]
+              ],
+              "memory_documents": [
+                [
+                  "classification",
+                  "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+                ]
+              ],
+              "memory_chunks": [
+                [
+                  "classification",
+                  "VARCHAR(40) NOT NULL DEFAULT 'unknown'"
+                ]
+              ],
+              "memory_outbox": [
+                [
+                  "message_key",
+                  "VARCHAR(160)"
+                ],
+                [
+                  "claim_token",
+                  "VARCHAR(32)"
+                ],
+                [
+                  "workload_class",
+                  "VARCHAR(80) NOT NULL DEFAULT 'projection'"
+                ],
+                [
+                  "fairness_key",
+                  "VARCHAR(160)"
+                ],
+                [
+                  "last_safe_diagnostic_code",
+                  "VARCHAR(120)"
+                ]
+              ],
+              "memory_suggestions": [
+                [
+                  "operation",
+                  "VARCHAR(40) NOT NULL DEFAULT 'add'"
+                ],
+                [
+                  "category",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "tags_json",
+                  "JSON NOT NULL DEFAULT '[]'"
+                ],
+                [
+                  "ttl_policy",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "expires_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "expiry_reason",
+                  "VARCHAR(160)"
+                ],
+                [
+                  "created_from_capture_id",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "candidate_fingerprint",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "review_payload_json",
+                  "JSON NOT NULL DEFAULT '{}'"
+                ],
+                [
+                  "review_reason",
+                  "VARCHAR(320)"
+                ],
+                [
+                  "reviewed_at",
+                  "TIMESTAMPTZ"
+                ]
+              ],
+              "memory_asset_extraction_jobs": [
+                [
+                  "lease_owner",
+                  "VARCHAR(120)"
+                ],
+                [
+                  "lease_expires_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "heartbeat_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "retry_after_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "cancellation_requested_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "retry_disposition",
+                  "VARCHAR(40)"
+                ]
+              ],
+              "memory_fact_relations": [
+                [
+                  "thread_id",
+                  "VARCHAR(80)"
+                ],
+                [
+                  "observed_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_from",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_to",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "source_fact_version",
+                  "INTEGER"
+                ],
+                [
+                  "target_fact_version",
+                  "INTEGER"
+                ],
+                [
+                  "temporal_decision_id",
+                  "VARCHAR(80)"
+                ]
+              ],
+              "memory_anchors": [
+                [
+                  "confidence",
+                  "VARCHAR(40) NOT NULL DEFAULT 'medium'"
+                ],
+                [
+                  "evidence_refs_json",
+                  "JSON NOT NULL DEFAULT '[]'"
+                ],
+                [
+                  "observed_at",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_from",
+                  "TIMESTAMPTZ"
+                ],
+                [
+                  "valid_to",
+                  "TIMESTAMPTZ"
+                ]
+              ],
+              "memory_source_refs": [
+                [
+                  "page_number",
+                  "INTEGER"
+                ],
+                [
+                  "time_start_ms",
+                  "INTEGER"
+                ],
+                [
+                  "time_end_ms",
+                  "INTEGER"
+                ],
+                [
+                  "bbox_json",
+                  "JSON"
+                ]
+              ]
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_document_thread_unique_indexes": {
+      "name": "_ensure_document_thread_unique_indexes",
+      "qualname": "_ensure_document_thread_unique_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_rebuild_sqlite_memory_documents_without_legacy_unique": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._rebuild_sqlite_memory_documents_without_legacy_unique"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_rebuild_sqlite_memory_documents_without_legacy_unique": {
+      "name": "_rebuild_sqlite_memory_documents_without_legacy_unique",
+      "qualname": "_rebuild_sqlite_memory_documents_without_legacy_unique",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection', inspector) -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_sqlite_memory_documents_table_sql_has_legacy_unique": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._sqlite_memory_documents_table_sql_has_legacy_unique"
+            },
+            "any": {
+              "repr": "<built-in function any>"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            },
+            "tuple": {
+              "reference": "builtins.tuple"
+            }
+          }
+        }
+      }
+    },
+    "_sqlite_memory_documents_table_sql_has_legacy_unique": {
+      "name": "_sqlite_memory_documents_table_sql_has_legacy_unique",
+      "qualname": "_sqlite_memory_documents_table_sql_has_legacy_unique",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'bool'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.bool"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "str": {
+              "reference": "builtins.str"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "create_schema": {
+      "name": "create_schema",
+      "qualname": "create_schema",
+      "methods": {
+        "": {
+          "signature": "(engine: 'AsyncEngine') -> 'None'",
+          "annotations": {
+            "engine": {
+              "reference": "sqlalchemy.ext.asyncio.engine.AsyncEngine"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_ensure_runtime_schema": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_runtime_schema"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_runtime_schema": {
+      "name": "_ensure_runtime_schema",
+      "qualname": "_ensure_runtime_schema",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": "Bring an unversioned legacy schema to the forward-migration baseline.",
+          "globals": {
+            "_backfill_memory_fact_temporal_columns": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._backfill_memory_fact_temporal_columns"
+            },
+            "_ensure_additive_schema_columns": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._ensure_additive_schema_columns"
+            },
+            "_ensure_capture_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_capture_indexes"
+            },
+            "_ensure_document_thread_unique_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._ensure_document_thread_unique_indexes"
+            },
+            "_ensure_legacy_profile_schema": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._ensure_legacy_profile_schema"
+            },
+            "_ensure_managed_benchmark_writer_fence": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_managed_benchmark_writer_fence"
+            },
+            "_ensure_memory_fact_code_scope_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_memory_fact_code_scope_indexes"
+            },
+            "_ensure_memory_fact_supersession_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_memory_fact_supersession_indexes"
+            },
+            "_ensure_memory_fact_temporal_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_memory_fact_temporal_indexes"
+            },
+            "_ensure_outbox_lifecycle_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_outbox_lifecycle_indexes"
+            },
+            "_ensure_suggestion_metadata_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._ensure_suggestion_metadata_indexes"
+            },
+            "ensure_benchmark_projection_manifest_schema": {
+              "reference": "infinity_context_adapters.postgres.benchmark_projection_schema.ensure_benchmark_projection_manifest_schema"
+            },
+            "ensure_canonical_keyword_trigram_access_path": {
+              "reference": "infinity_context_adapters.postgres.canonical_keyword_trigram.ensure_canonical_keyword_trigram_access_path"
+            },
+            "load_schema_metadata": {
+              "reference": "infinity_context_adapters.postgres.schema_registry.load_schema_metadata"
+            },
+            "seed_retrieval_schema_singletons": {
+              "reference": "infinity_context_adapters.postgres.retrieval_schema_singletons.seed_retrieval_schema_singletons"
+            }
+          }
+        }
+      }
+    },
+    "_backfill_memory_fact_temporal_columns": {
+      "name": "_backfill_memory_fact_temporal_columns",
+      "qualname": "_backfill_memory_fact_temporal_columns",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_memory_fact_temporal_indexes": {
+      "name": "_ensure_memory_fact_temporal_indexes",
+      "qualname": "_ensure_memory_fact_temporal_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_memory_fact_supersession_indexes": {
+      "name": "_ensure_memory_fact_supersession_indexes",
+      "qualname": "_ensure_memory_fact_supersession_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_memory_fact_code_scope_indexes": {
+      "name": "_ensure_memory_fact_code_scope_indexes",
+      "qualname": "_ensure_memory_fact_code_scope_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_column_names": {
+              "reference": "infinity_context_adapters.postgres.schema_compatibility._column_names"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_managed_benchmark_writer_fence": {
+      "name": "_ensure_managed_benchmark_writer_fence",
+      "qualname": "_ensure_managed_benchmark_writer_fence",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "BENCHMARK_WRITER_FENCE_STATEMENTS": [
+              "CREATE OR REPLACE FUNCTION public.memory_comparison_is_strict_v4_canonical_writer()\nRETURNS BOOLEAN\nLANGUAGE sql\nSTABLE\nSECURITY INVOKER\nSET search_path = pg_catalog, public, pg_temp\nAS $$\nWITH inventory AS (\n    SELECT ARRAY[\n        'memory_comparison_benchmark_runs',\n        'memory_cleanup_v3_context_authorities',\n        'memory_comparison_strict_v4_preparations',\n        'memory_spaces', 'memory_scopes', 'memory_threads', 'memory_facts',\n        'memory_episodes', 'memory_documents', 'memory_chunks',\n        'memory_fact_operation_receipts', 'memory_idempotency_records',\n        'memory_anchors', 'memory_assets', 'memory_asset_extraction_jobs',\n        'memory_fact_relations', 'memory_fact_temporal_decisions',\n        'memory_suggestions', 'memory_captures', 'memory_context_links',\n        'memory_context_link_suggestions', 'memory_projection_result_receipts',\n        'memory_projection_receipt_claims', 'memory_projection_target_identities',\n        'memory_projection_receipt_identity_links',\n        'memory_cleanup_inventory_materializations', 'memory_cleanup_inventory_keys',\n        'memory_source_refs', 'memory_fact_versions', 'memory_outbox',\n        'memory_source_refs_id_seq', 'memory_fact_versions_id_seq',\n        'memory_outbox_id_seq', 'memory_idempotency_records_id_seq'\n    ]::pg_catalog.text[] AS relation_names,\n    ARRAY[\n        'memory_comparison_is_strict_v4_canonical_writer',\n        'memory_comparison_enforce_benchmark_writer_fence',\n        'memory_cleanup_enforce_v3_context_authority_immutable',\n        'memory_comparison_lock_strict_v4_registration_targets',\n        'memory_comparison_lock_strict_v4_seal_targets',\n        'memory_comparison_enforce_strict_v4_preparation_immutable',\n        'memory_comparison_lock_benchmark_writer_target',\n        'memory_comparison_lock_benchmark_fact_child_target',\n        'memory_comparison_enforce_benchmark_fact_child_fence',\n        'memory_comparison_enforce_benchmark_fact_receipt',\n        'memory_comparison_verify_benchmark_fact_outbox_receipt',\n        'memory_comparison_is_strict_v4_document_writer',\n        'memory_comparison_lock_benchmark_document_child_target',\n        'memory_comparison_enforce_benchmark_document_child_fence',\n        'memory_comparison_enforce_benchmark_document_idempotency',\n        'memory_comparison_verify_benchmark_document_receipt'\n    ]::pg_catalog.text[] AS function_names\n)\nSELECT COALESCE((\n    SELECT current_user = session_user\n       AND role.rolcanlogin\n       AND NOT role.rolsuper\n       AND NOT role.rolbypassrls\n       AND NOT role.rolcreatedb\n       AND NOT role.rolcreaterole\n       AND NOT role.rolreplication\n       AND NOT capability.rolcanlogin AND NOT capability.rolsuper\n       AND NOT capability.rolbypassrls AND NOT capability.rolcreatedb\n       AND NOT capability.rolcreaterole AND NOT capability.rolreplication\n       AND pg_catalog.has_schema_privilege(role.oid, 'public', 'USAGE')\n       AND NOT pg_catalog.has_schema_privilege(role.oid, 'public', 'CREATE')\n       AND pg_catalog.pg_has_role(\n           role.oid, capability.oid, 'MEMBER'\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_roles AS granted_role\n           WHERE granted_role.oid <> role.oid\n             AND granted_role.rolname <> 'infinity_context_canonical_writer'\n             AND pg_catalog.pg_has_role(role.oid, granted_role.oid, 'MEMBER')\n       )\n       AND NOT EXISTS (\n           SELECT 1 FROM pg_catalog.pg_auth_members AS membership\n           WHERE membership.member = role.oid AND membership.admin_option\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_class AS relation\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND pg_catalog.pg_has_role(role.oid, relation.relowner, 'MEMBER')\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_namespace AS namespace\n           WHERE namespace.nspname = 'public'\n             AND pg_catalog.pg_has_role(role.oid, namespace.nspowner, 'MEMBER')\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_proc AS procedure\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = procedure.pronamespace\n           WHERE namespace.nspname = 'public'\n             AND procedure.proname = ANY(inventory.function_names)\n             AND pg_catalog.pg_has_role(role.oid, procedure.proowner, 'MEMBER')\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_class AS relation\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND (\n                 acl.grantee = role.oid\n                 OR (acl.grantee = capability.oid AND acl.is_grantable)\n             )\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_class AS relation\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(relation.relacl) AS acl\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND acl.grantee = 0\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_attribute AS attribute\n           JOIN pg_catalog.pg_class AS relation ON relation.oid = attribute.attrelid\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) AS acl\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND attribute.attnum > 0 AND NOT attribute.attisdropped\n             AND acl.grantee IN (0, role.oid, capability.oid)\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_class AS relation\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           CROSS JOIN LATERAL pg_catalog.unnest(ARRAY[\n               'SELECT', 'INSERT', 'UPDATE', 'DELETE',\n               'TRUNCATE', 'REFERENCES', 'TRIGGER', 'MAINTAIN'\n           ]::pg_catalog.text[]) AS privilege(name)\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND relation.relkind <> 'S'\n             AND pg_catalog.has_table_privilege(\n                 role.oid,\n                 relation.oid,\n                 privilege.name\n             ) IS DISTINCT FROM CASE\n                 WHEN privilege.name = 'SELECT' THEN\n                     relation.relname IN (\n                         'memory_comparison_benchmark_runs',\n                         'memory_cleanup_v3_context_authorities',\n                         'memory_comparison_strict_v4_preparations',\n                         'memory_idempotency_records'\n                     )\n                 WHEN privilege.name = 'INSERT' THEN\n                     relation.relname = 'memory_idempotency_records'\n                 ELSE FALSE\n             END\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_class AS relation\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = relation.relnamespace\n           CROSS JOIN LATERAL pg_catalog.unnest(\n               ARRAY['SELECT', 'USAGE', 'UPDATE']::pg_catalog.text[]\n           ) AS privilege(name)\n           WHERE namespace.nspname = 'public'\n             AND relation.relname = ANY(inventory.relation_names)\n             AND relation.relkind = 'S'\n             AND pg_catalog.has_sequence_privilege(\n                 role.oid,\n                 relation.oid,\n                 privilege.name\n             ) IS DISTINCT FROM (\n                 relation.relname = 'memory_idempotency_records_id_seq'\n                 AND privilege.name = 'USAGE'\n             )\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_namespace AS namespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl\n           WHERE namespace.nspname = 'public'\n             AND (\n                 acl.grantee = role.oid\n                 OR (acl.grantee = capability.oid AND (\n                     acl.privilege_type <> 'USAGE' OR acl.is_grantable\n                 ))\n             )\n       )\n       AND (\n           SELECT pg_catalog.count(*)\n           FROM pg_catalog.pg_namespace AS namespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) AS acl\n           WHERE namespace.nspname = 'public' AND acl.grantee = capability.oid\n             AND acl.privilege_type = 'USAGE' AND NOT acl.is_grantable\n       ) = 1\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_proc AS procedure\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = procedure.pronamespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) AS acl\n           WHERE namespace.nspname = 'public'\n             AND procedure.proname = ANY(inventory.function_names)\n             AND (\n                 acl.grantee = role.oid\n                 OR (acl.grantee = capability.oid AND acl.is_grantable)\n             )\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_proc AS procedure\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = procedure.pronamespace\n           CROSS JOIN LATERAL pg_catalog.aclexplode(\n               COALESCE(\n                   procedure.proacl,\n                   pg_catalog.acldefault('f', procedure.proowner)\n               )\n           ) AS acl\n           WHERE namespace.nspname = 'public'\n             AND procedure.proname = ANY(inventory.function_names)\n             AND acl.grantee = 0\n       )\n       AND NOT EXISTS (\n           SELECT 1\n           FROM pg_catalog.pg_proc AS procedure\n           JOIN pg_catalog.pg_namespace AS namespace\n             ON namespace.oid = procedure.pronamespace\n           WHERE namespace.nspname = 'public'\n             AND procedure.proname = ANY(inventory.function_names)\n             AND pg_catalog.has_function_privilege(\n                 role.oid, procedure.oid, 'EXECUTE'\n             ) IS DISTINCT FROM (\n                 procedure.oid = pg_catalog.to_regprocedure(\n                     'public.memory_comparison_is_strict_v4_canonical_writer()'\n                 )\n             )\n       )\n    FROM pg_catalog.pg_roles AS role\n    CROSS JOIN pg_catalog.pg_roles AS capability\n    CROSS JOIN inventory\n    WHERE role.rolname = current_user\n      AND capability.rolname = 'infinity_context_canonical_writer'\n), FALSE)\n$$;\n\nREVOKE ALL PRIVILEGES ON FUNCTION\n    public.memory_comparison_is_strict_v4_canonical_writer()\n    FROM PUBLIC,\n         infinity_context_canonical_writer,\n         infinity_context_strict_v4_registrar,\n         infinity_context_strict_v4_sealer;\nGRANT EXECUTE ON FUNCTION public.memory_comparison_is_strict_v4_canonical_writer()\n    TO infinity_context_canonical_writer;\n\nCREATE OR REPLACE FUNCTION public.memory_comparison_lock_benchmark_writer_target()\nRETURNS TRIGGER\nLANGUAGE plpgsql\nSECURITY DEFINER\nSET search_path = pg_catalog, public, pg_temp\nAS $$\nDECLARE\n    target_space_id VARCHAR(80);\nBEGIN\n    IF TG_OP = 'DELETE' THEN\n        IF TG_TABLE_NAME = 'memory_spaces' THEN\n            target_space_id := OLD.id;\n        ELSE\n            target_space_id := OLD.space_id;\n        END IF;\n    ELSE\n        IF TG_TABLE_NAME = 'memory_spaces' THEN\n            target_space_id := NEW.id;\n        ELSE\n            target_space_id := NEW.space_id;\n        END IF;\n    END IF;\n    BEGIN\n        PERFORM 1\n        FROM public.memory_comparison_benchmark_runs AS benchmark_run\n        WHERE benchmark_run.space_id = target_space_id\n        FOR SHARE NOWAIT;\n    EXCEPTION\n        WHEN lock_not_available THEN\n            RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'\n                USING\n                    ERRCODE = '23514',\n                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';\n    END;\n    IF TG_OP = 'DELETE' THEN\n        RETURN OLD;\n    END IF;\n    RETURN NEW;\nEND;\n$$;\n\nREVOKE ALL PRIVILEGES ON FUNCTION public.memory_comparison_lock_benchmark_writer_target()\n    FROM PUBLIC,\n         infinity_context_canonical_writer,\n         infinity_context_strict_v4_registrar,\n         infinity_context_strict_v4_sealer;\n\nCREATE OR REPLACE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()\nRETURNS TRIGGER\nLANGUAGE plpgsql\nSECURITY INVOKER\nSET search_path = pg_catalog, public, pg_temp\nAS $$\nDECLARE\n    registry_state VARCHAR(40);\n    registry_projection_cleanup_state VARCHAR(40);\n    registry_cleanup_plan_state VARCHAR(40);\n    registry_run_id_sha256 CHAR(64);\n    strict_v4_writer_credential BOOLEAN := pg_catalog.pg_has_role(\n        session_user, 'infinity_context_canonical_writer', 'MEMBER'\n    );\n    strict_v4_authority_credential BOOLEAN := pg_catalog.pg_has_role(\n        session_user, 'infinity_context_strict_v4_registrar', 'MEMBER'\n    ) OR pg_catalog.pg_has_role(\n        session_user, 'infinity_context_strict_v4_sealer', 'MEMBER'\n    );\n    strict_v4_writer_login BOOLEAN := FALSE;\n    strict_v4_authority_exists BOOLEAN := FALSE;\n    strict_v4_write_authorized BOOLEAN := FALSE;\n    legacy_write_authorized BOOLEAN := FALSE;\n    old_space_id VARCHAR(80);\n    new_space_id VARCHAR(80);\n    target_space_id VARCHAR(80);\nBEGIN\n    IF strict_v4_writer_credential THEN\n        strict_v4_writer_login :=\n            public.memory_comparison_is_strict_v4_canonical_writer();\n    END IF;\n    IF TG_OP <> 'DELETE' THEN\n        IF TG_TABLE_NAME = 'memory_spaces' THEN\n            new_space_id := NEW.id;\n        ELSE\n            new_space_id := NEW.space_id;\n        END IF;\n    END IF;\n\n    IF TG_OP <> 'INSERT' THEN\n        IF TG_TABLE_NAME = 'memory_spaces' THEN\n            old_space_id := OLD.id;\n        ELSE\n            old_space_id := OLD.space_id;\n        END IF;\n    END IF;\n\n    IF TG_OP = 'UPDATE' AND old_space_id IS DISTINCT FROM new_space_id THEN\n        IF EXISTS (\n            SELECT 1\n            FROM public.memory_comparison_benchmark_runs AS benchmark_run\n            WHERE benchmark_run.space_id IN (old_space_id, new_space_id)\n        ) THEN\n            RAISE EXCEPTION 'benchmark canonical space identity is immutable'\n                USING\n                    ERRCODE = '23514',\n                    CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';\n        END IF;\n    END IF;\n\n    target_space_id := COALESCE(new_space_id, old_space_id);\n    SELECT benchmark_run.state, benchmark_run.projection_cleanup_state,\n           benchmark_run.cleanup_plan_state, benchmark_run.run_id_sha256\n    INTO registry_state, registry_projection_cleanup_state,\n         registry_cleanup_plan_state, registry_run_id_sha256\n    FROM public.memory_comparison_benchmark_runs AS benchmark_run\n    WHERE benchmark_run.space_id = target_space_id;\n\n    IF registry_state IS NOT NULL THEN\n        legacy_write_authorized := registry_cleanup_plan_state = 'sealed';\n        SELECT EXISTS (\n            SELECT 1\n            FROM public.memory_comparison_strict_v4_preparations AS preparation\n            JOIN public.memory_cleanup_v3_context_authorities AS context_authority\n              ON context_authority.run_id_sha256 = preparation.run_id_sha256\n             AND context_authority.context_sha256 = preparation.context_sha256\n             AND context_authority.authority_terminal_sha256\n                 = preparation.authority_terminal_sha256\n            WHERE preparation.run_id_sha256 = registry_run_id_sha256\n              AND preparation.state = 'sealed'\n              AND preparation.provider_calls = 0\n              AND preparation.paid_go_ready = FALSE\n              AND preparation.registration_sha256\n                  = context_authority.registration_sha256\n              AND preparation.registration_mac_sha256\n                  = context_authority.registration_mac_sha256\n        ) INTO strict_v4_authority_exists;\n        strict_v4_write_authorized :=\n            strict_v4_writer_login AND strict_v4_authority_exists;\n    END IF;\n\n    IF registry_state IS NULL AND NOT strict_v4_writer_credential\n        AND NOT strict_v4_authority_credential THEN\n        IF TG_OP = 'DELETE' THEN\n            RETURN OLD;\n        END IF;\n        RETURN NEW;\n    END IF;\n\n    IF registry_state = 'active'\n        AND registry_projection_cleanup_state = 'unsealed'\n        AND TG_OP = 'INSERT'\n        AND (\n            (legacy_write_authorized AND NOT strict_v4_writer_credential\n                AND NOT strict_v4_authority_credential\n                AND NOT strict_v4_authority_exists\n                AND TG_TABLE_NAME IN (\n                'memory_scopes', 'memory_threads', 'memory_facts',\n                'memory_documents', 'memory_chunks',\n                'memory_fact_operation_receipts', 'memory_idempotency_records'\n            ))\n            OR (NOT legacy_write_authorized AND strict_v4_write_authorized\n                AND TG_TABLE_NAME = 'memory_idempotency_records')\n        )\n    THEN\n        RETURN NEW;\n    END IF;\n\n    IF TG_OP = 'UPDATE' AND NOT strict_v4_writer_credential\n        AND NOT strict_v4_authority_credential\n        AND TG_TABLE_NAME IN (\n            'memory_spaces', 'memory_scopes', 'memory_threads', 'memory_facts',\n            'memory_episodes', 'memory_documents', 'memory_chunks'\n        )\n    THEN\n        IF registry_state = 'cleanup_pending'\n            AND registry_projection_cleanup_state IN ('pending', 'blocked')\n            AND OLD.status = 'active'\n            AND NEW.status = 'deleted'\n            AND (pg_catalog.to_jsonb(OLD) - 'status' - 'updated_at' - 'thread_scope_key')\n                = (pg_catalog.to_jsonb(NEW) - 'status' - 'updated_at' - 'thread_scope_key')\n        THEN\n            RETURN NEW;\n        END IF;\n    END IF;\n\n    RAISE EXCEPTION 'benchmark canonical writer fence rejected data mutation'\n        USING\n            ERRCODE = '23514',\n            CONSTRAINT = 'ck_memory_comparison_benchmark_run_writer_fence';\nEND;\n$$;\n\nREVOKE ALL PRIVILEGES ON FUNCTION\n    public.memory_comparison_enforce_benchmark_writer_fence()\n    FROM PUBLIC,\n         infinity_context_canonical_writer,\n         infinity_context_strict_v4_registrar,\n         infinity_context_strict_v4_sealer",
+              "DROP TRIGGER IF EXISTS trg_00_memory_spaces_benchmark_writer_lock ON public.memory_spaces",
+              "CREATE TRIGGER trg_00_memory_spaces_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_spaces\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_spaces_benchmark_writer_fence ON public.memory_spaces",
+              "CREATE TRIGGER trg_memory_spaces_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_spaces\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_scopes_benchmark_writer_lock ON public.memory_scopes",
+              "CREATE TRIGGER trg_00_memory_scopes_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_scopes\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_scopes_benchmark_writer_fence ON public.memory_scopes",
+              "CREATE TRIGGER trg_memory_scopes_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_scopes\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_threads_benchmark_writer_lock ON public.memory_threads",
+              "CREATE TRIGGER trg_00_memory_threads_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_threads\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_threads_benchmark_writer_fence ON public.memory_threads",
+              "CREATE TRIGGER trg_memory_threads_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_threads\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_facts_benchmark_writer_lock ON public.memory_facts",
+              "CREATE TRIGGER trg_00_memory_facts_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_facts\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_facts_benchmark_writer_fence ON public.memory_facts",
+              "CREATE TRIGGER trg_memory_facts_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_facts\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_episodes_benchmark_writer_lock ON public.memory_episodes",
+              "CREATE TRIGGER trg_00_memory_episodes_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_episodes\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_episodes_benchmark_writer_fence ON public.memory_episodes",
+              "CREATE TRIGGER trg_memory_episodes_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_episodes\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_documents_benchmark_writer_lock ON public.memory_documents",
+              "CREATE TRIGGER trg_00_memory_documents_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_documents\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_documents_benchmark_writer_fence ON public.memory_documents",
+              "CREATE TRIGGER trg_memory_documents_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_documents\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_chunks_benchmark_writer_lock ON public.memory_chunks",
+              "CREATE TRIGGER trg_00_memory_chunks_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_chunks\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_chunks_benchmark_writer_fence ON public.memory_chunks",
+              "CREATE TRIGGER trg_memory_chunks_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_chunks\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_fact_operation_receipts_benchmark_writer_lock ON public.memory_fact_operation_receipts",
+              "CREATE TRIGGER trg_00_memory_fact_operation_receipts_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_operation_receipts\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_fact_operation_receipts_benchmark_writer_fence ON public.memory_fact_operation_receipts",
+              "CREATE TRIGGER trg_memory_fact_operation_receipts_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_operation_receipts\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_idempotency_records_benchmark_writer_lock ON public.memory_idempotency_records",
+              "CREATE TRIGGER trg_00_memory_idempotency_records_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_idempotency_records\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_idempotency_records_benchmark_writer_fence ON public.memory_idempotency_records",
+              "CREATE TRIGGER trg_memory_idempotency_records_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_idempotency_records\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_anchors_benchmark_writer_lock ON public.memory_anchors",
+              "CREATE TRIGGER trg_00_memory_anchors_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_anchors\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_anchors_benchmark_writer_fence ON public.memory_anchors",
+              "CREATE TRIGGER trg_memory_anchors_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_anchors\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_assets_benchmark_writer_lock ON public.memory_assets",
+              "CREATE TRIGGER trg_00_memory_assets_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_assets\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_assets_benchmark_writer_fence ON public.memory_assets",
+              "CREATE TRIGGER trg_memory_assets_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_assets\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_asset_extraction_jobs_benchmark_writer_lock ON public.memory_asset_extraction_jobs",
+              "CREATE TRIGGER trg_00_memory_asset_extraction_jobs_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_asset_extraction_jobs\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_asset_extraction_jobs_benchmark_writer_fence ON public.memory_asset_extraction_jobs",
+              "CREATE TRIGGER trg_memory_asset_extraction_jobs_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_asset_extraction_jobs\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_fact_relations_benchmark_writer_lock ON public.memory_fact_relations",
+              "CREATE TRIGGER trg_00_memory_fact_relations_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_relations\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_fact_relations_benchmark_writer_fence ON public.memory_fact_relations",
+              "CREATE TRIGGER trg_memory_fact_relations_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_relations\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_fact_temporal_decisions_benchmark_writer_lock ON public.memory_fact_temporal_decisions",
+              "CREATE TRIGGER trg_00_memory_fact_temporal_decisions_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_temporal_decisions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_fact_temporal_decisions_benchmark_writer_fence ON public.memory_fact_temporal_decisions",
+              "CREATE TRIGGER trg_memory_fact_temporal_decisions_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_fact_temporal_decisions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_suggestions_benchmark_writer_lock ON public.memory_suggestions",
+              "CREATE TRIGGER trg_00_memory_suggestions_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_suggestions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_suggestions_benchmark_writer_fence ON public.memory_suggestions",
+              "CREATE TRIGGER trg_memory_suggestions_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_suggestions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_captures_benchmark_writer_lock ON public.memory_captures",
+              "CREATE TRIGGER trg_00_memory_captures_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_captures\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_captures_benchmark_writer_fence ON public.memory_captures",
+              "CREATE TRIGGER trg_memory_captures_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_captures\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_context_links_benchmark_writer_lock ON public.memory_context_links",
+              "CREATE TRIGGER trg_00_memory_context_links_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_context_links\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_context_links_benchmark_writer_fence ON public.memory_context_links",
+              "CREATE TRIGGER trg_memory_context_links_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_context_links\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()",
+              "DROP TRIGGER IF EXISTS trg_00_memory_context_link_suggestions_benchmark_writer_lock ON public.memory_context_link_suggestions",
+              "CREATE TRIGGER trg_00_memory_context_link_suggestions_benchmark_writer_lock\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_context_link_suggestions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_lock_benchmark_writer_target()",
+              "DROP TRIGGER IF EXISTS trg_memory_context_link_suggestions_benchmark_writer_fence ON public.memory_context_link_suggestions",
+              "CREATE TRIGGER trg_memory_context_link_suggestions_benchmark_writer_fence\n        BEFORE INSERT OR UPDATE OR DELETE ON public.memory_context_link_suggestions\n        FOR EACH ROW\n        EXECUTE FUNCTION public.memory_comparison_enforce_benchmark_writer_fence()"
+            ],
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_outbox_lifecycle_indexes": {
+      "name": "_ensure_outbox_lifecycle_indexes",
+      "qualname": "_ensure_outbox_lifecycle_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_capture_indexes": {
+      "name": "_ensure_capture_indexes",
+      "qualname": "_ensure_capture_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_ensure_suggestion_metadata_indexes": {
+      "name": "_ensure_suggestion_metadata_indexes",
+      "qualname": "_ensure_suggestion_metadata_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_expire_duplicate_pending_suggestions_before_unique_indexes": {
+              "reference": "infinity_context_adapters.postgres.schema_runtime._expire_duplicate_pending_suggestions_before_unique_indexes"
+            },
+            "inspect": {
+              "reference": "sqlalchemy.inspection.inspect"
+            },
+            "set": {
+              "reference": "builtins.set"
+            },
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_expire_duplicate_pending_suggestions_before_unique_indexes": {
+      "name": "_expire_duplicate_pending_suggestions_before_unique_indexes",
+      "qualname": "_expire_duplicate_pending_suggestions_before_unique_indexes",
+      "methods": {
+        "": {
+          "signature": "(connection: 'Connection') -> 'None'",
+          "annotations": {
+            "connection": {
+              "reference": "sqlalchemy.engine.base.Connection"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "text": {
+              "reference": "sqlalchemy.sql._elements_constructors.text"
+            }
+          }
+        }
+      }
+    },
+    "_BENCHMARK_WRITER_FENCE_MESSAGE": {
+      "value": "Benchmark canonical write conflicted with cleanup in progress"
+    },
+    "_is_benchmark_writer_fence_error": {
+      "name": "_is_benchmark_writer_fence_error",
+      "qualname": "_is_benchmark_writer_fence_error",
+      "methods": {
+        "": {
+          "signature": "(exc: 'IntegrityError') -> 'bool'",
+          "annotations": {
+            "exc": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "return": {
+              "reference": "builtins.bool"
+            }
+          },
+          "doc": "Match only the stable Postgres trigger identity, including wrapped drivers.",
+          "globals": {
+            "BaseException": {
+              "reference": "builtins.BaseException"
+            },
+            "_BENCHMARK_WRITER_FENCE_CONSTRAINT": "ck_memory_comparison_benchmark_run_writer_fence",
+            "_BENCHMARK_WRITER_FENCE_SQLSTATE": "23514",
+            "getattr": {
+              "repr": "<built-in function getattr>"
+            },
+            "id": {
+              "repr": "<built-in function id>"
+            },
+            "isinstance": {
+              "repr": "<built-in function isinstance>"
+            },
+            "set": {
+              "reference": "builtins.set"
+            }
+          }
+        }
+      }
+    },
+    "build_async_engine": {
+      "name": "build_async_engine",
+      "qualname": "build_async_engine",
+      "methods": {
+        "": {
+          "signature": "(database_url: 'str') -> 'AsyncEngine'",
+          "annotations": {
+            "database_url": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "reference": "sqlalchemy.ext.asyncio.engine.AsyncEngine"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "create_async_engine": {
+              "reference": "sqlalchemy.ext.asyncio.engine.create_async_engine"
+            }
+          }
+        }
+      }
+    },
+    "build_session_factory": {
+      "name": "build_session_factory",
+      "qualname": "build_session_factory",
+      "methods": {
+        "": {
+          "signature": "(engine: 'AsyncEngine') -> 'async_sessionmaker[AsyncSession]'",
+          "annotations": {
+            "engine": {
+              "reference": "sqlalchemy.ext.asyncio.engine.AsyncEngine"
+            },
+            "return": {
+              "repr": "sqlalchemy.ext.asyncio.session.async_sessionmaker[sqlalchemy.ext.asyncio.session.AsyncSession]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "async_sessionmaker": {
+              "reference": "sqlalchemy.ext.asyncio.session.async_sessionmaker"
+            }
+          }
+        }
+      }
+    },
+    "PostgresUnitOfWork": {
+      "name": "PostgresUnitOfWork",
+      "qualname": "PostgresUnitOfWork",
+      "methods": {
+        "__init__": {
+          "signature": "(self, *, session_factory: 'async_sessionmaker[AsyncSession]', clock: 'ClockPort', memory_fact_ids: 'MemoryFactIdPort | None' = None) -> 'None'",
+          "annotations": {
+            "session_factory": {
+              "repr": "sqlalchemy.ext.asyncio.session.async_sessionmaker[sqlalchemy.ext.asyncio.session.AsyncSession]"
+            },
+            "clock": {
+              "reference": "infinity_context_core.ports.clock.ClockPort"
+            },
+            "memory_fact_ids": {
+              "repr": "infinity_context_core.features.memory_facts.ports.ids.MemoryFactIdPort | None"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "__aenter__": {
+          "signature": "(self) -> 'PostgresUnitOfWork'",
+          "annotations": {
+            "return": {
+              "reference": "infinity_context_adapters.postgres.unit_of_work.PostgresUnitOfWork"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "PostgresAnchorRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresAnchorRepository"
+            },
+            "PostgresAssetExtractionRepository": {
+              "reference": "infinity_context_adapters.postgres.asset_repositories.PostgresAssetExtractionRepository"
+            },
+            "PostgresAssetRepository": {
+              "reference": "infinity_context_adapters.postgres.asset_repositories.PostgresAssetRepository"
+            },
+            "PostgresBenchmarkRunRepository": {
+              "reference": "infinity_context_adapters.postgres.benchmark_run_repositories.PostgresBenchmarkRunRepository"
+            },
+            "PostgresCaptureRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresCaptureRepository"
+            },
+            "PostgresChunkRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresChunkRepository"
+            },
+            "PostgresContextLinkRepository": {
+              "reference": "infinity_context_adapters.postgres.asset_repositories.PostgresContextLinkRepository"
+            },
+            "PostgresContextLinkSuggestionRepository": {
+              "reference": "infinity_context_adapters.postgres.asset_repositories.PostgresContextLinkSuggestionRepository"
+            },
+            "PostgresDocumentRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresDocumentRepository"
+            },
+            "PostgresEpisodeRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresEpisodeRepository"
+            },
+            "PostgresFactRelationRepository": {
+              "reference": "infinity_context_adapters.postgres.fact_repositories.PostgresFactRelationRepository"
+            },
+            "PostgresFactRepository": {
+              "reference": "infinity_context_adapters.postgres.fact_repositories.PostgresFactRepository"
+            },
+            "PostgresIdempotencyRepository": {
+              "reference": "infinity_context_adapters.postgres.record_repositories.PostgresIdempotencyRepository"
+            },
+            "PostgresMemoryFactTransaction": {
+              "reference": "infinity_context_adapters.features.memory_facts.postgres_fact_store.PostgresMemoryFactTransaction"
+            },
+            "PostgresOutbox": {
+              "reference": "infinity_context_adapters.postgres.record_repositories.PostgresOutbox"
+            },
+            "PostgresScopeRepository": {
+              "reference": "infinity_context_adapters.postgres.scope_repositories.PostgresScopeRepository"
+            },
+            "PostgresSuggestionRepository": {
+              "reference": "infinity_context_adapters.postgres.repositories.PostgresSuggestionRepository"
+            },
+            "PostgresSuggestionResolutionReceiptRepository": {
+              "reference": "infinity_context_adapters.postgres.suggestion_resolution_receipts.PostgresSuggestionResolutionReceiptRepository"
+            },
+            "PostgresUsageRepository": {
+              "reference": "infinity_context_adapters.postgres.usage_repositories.PostgresUsageRepository"
+            },
+            "PostgresUserRepository": {
+              "reference": "infinity_context_adapters.postgres.user_repositories.PostgresUserRepository"
+            },
+            "ReviewedFactMutationExecutor": {
+              "reference": "infinity_context_core.features.memory_facts.application.reviewed_mutations.ReviewedFactMutationExecutor"
+            }
+          }
+        },
+        "__aexit__": {
+          "signature": "(self, exc_type: 'type[BaseException] | None', exc: 'BaseException | None', tb: 'TracebackType | None') -> 'None'",
+          "annotations": {
+            "exc_type": {
+              "repr": "type[BaseException] | None"
+            },
+            "exc": {
+              "repr": "BaseException | None"
+            },
+            "tb": {
+              "repr": "traceback | None"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IntegrityError": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "_BENCHMARK_WRITER_FENCE_MESSAGE": "Benchmark canonical write conflicted with cleanup in progress",
+            "_is_benchmark_writer_fence_error": {
+              "reference": "infinity_context_adapters.postgres.unit_of_work._is_benchmark_writer_fence_error"
+            },
+            "isinstance": {
+              "repr": "<built-in function isinstance>"
+            }
+          }
+        },
+        "commit": {
+          "signature": "(self) -> 'None'",
+          "annotations": {
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IntegrityError": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "RuntimeError": {
+              "reference": "builtins.RuntimeError"
+            },
+            "_BENCHMARK_WRITER_FENCE_MESSAGE": "Benchmark canonical write conflicted with cleanup in progress",
+            "_is_benchmark_writer_fence_error": {
+              "reference": "infinity_context_adapters.postgres.unit_of_work._is_benchmark_writer_fence_error"
+            }
+          }
+        },
+        "coordinate_fact_source_refs": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', source_refs: 'tuple[SourceRef, ...]') -> 'None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "source_refs": {
+              "repr": "tuple[infinity_context_core.domain.source_refs.SourceRef, ...]"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "RuntimeError": {
+              "reference": "builtins.RuntimeError"
+            },
+            "coordinate_document_source_ref_write": {
+              "reference": "infinity_context_adapters.postgres.document_source_ref_coordination.coordinate_document_source_ref_write"
+            }
+          }
+        },
+        "rollback": {
+          "signature": "(self) -> 'None'",
+          "annotations": {
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        }
+      }
+    },
+    "PostgresUnitOfWorkFactory": {
+      "name": "PostgresUnitOfWorkFactory",
+      "qualname": "PostgresUnitOfWorkFactory",
+      "methods": {
+        "__init__": {
+          "signature": "(self, *, session_factory: 'async_sessionmaker[AsyncSession]', clock: 'ClockPort', memory_fact_ids: 'MemoryFactIdPort | None' = None) -> 'None'",
+          "annotations": {
+            "session_factory": {
+              "repr": "sqlalchemy.ext.asyncio.session.async_sessionmaker[sqlalchemy.ext.asyncio.session.AsyncSession]"
+            },
+            "clock": {
+              "reference": "infinity_context_core.ports.clock.ClockPort"
+            },
+            "memory_fact_ids": {
+              "repr": "infinity_context_core.features.memory_facts.ports.ids.MemoryFactIdPort | None"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "__call__": {
+          "signature": "(self) -> 'PostgresUnitOfWork'",
+          "annotations": {
+            "return": {
+              "reference": "infinity_context_adapters.postgres.unit_of_work.PostgresUnitOfWork"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "PostgresUnitOfWork": {
+              "reference": "infinity_context_adapters.postgres.unit_of_work.PostgresUnitOfWork"
+            }
+          }
+        }
+      }
+    }
+  },
+  "operation_trace": [
+    "_ensure_legacy_profile_schema",
+    "metadata.create_all",
+    "seed_retrieval_schema_singletons",
+    "ensure_benchmark_projection_manifest_schema",
+    "_ensure_additive_schema_columns",
+    "_backfill_memory_fact_temporal_columns",
+    "_ensure_memory_fact_temporal_indexes",
+    "_ensure_memory_fact_code_scope_indexes",
+    "_ensure_memory_fact_supersession_indexes",
+    "_ensure_document_thread_unique_indexes",
+    "_ensure_outbox_lifecycle_indexes",
+    "_ensure_capture_indexes",
+    "_ensure_suggestion_metadata_indexes",
+    "ensure_canonical_keyword_trigram_access_path",
+    "_ensure_managed_benchmark_writer_fence"
+  ],
+  "legacy_pickles": {
+    "PostgresUnitOfWork": "gASVSgAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMudW5pdF9vZl93b3JrlIwSUG9zdGdyZXNVbml0T2ZXb3JrlJOULg==",
+    "PostgresUnitOfWorkFactory": "gASVUQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMudW5pdF9vZl93b3JrlIwZUG9zdGdyZXNVbml0T2ZXb3JrRmFjdG9yeZSTlC4=",
+    "create_schema": "gASVRQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMudW5pdF9vZl93b3JrlIwNY3JlYXRlX3NjaGVtYZSTlC4=",
+    "_ensure_runtime_schema": "gASVTgAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMudW5pdF9vZl93b3JrlIwWX2Vuc3VyZV9ydW50aW1lX3NjaGVtYZSTlC4=",
+    "_column_names": "gASVRQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMudW5pdF9vZl93b3JrlIwNX2NvbHVtbl9uYW1lc5STlC4="
+  }
+}

@@ -5,12 +5,16 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
-from functools import lru_cache
 
 from infinity_context_core.application.context_diagnostics import (
     normalize_context_diagnostics,
     safe_diagnostic_mapping,
     safe_score_signals,
+)
+
+# Preserve current internal provenance reads without public-payload normalization.
+from infinity_context_core.application.context_internal_diagnostics import (
+    provenance_flag_is_true as _provenance_flag_is_true,
 )
 from infinity_context_core.application.context_lexical import (
     LexicalQueryTerm,
@@ -136,11 +140,12 @@ def apply_query_plan_bm25_lexical_boosts(
     )
 
 
-@lru_cache(maxsize=512)
 def _query_expansion_terms_for_signature(
     signature: tuple[tuple[str, str], ...],
+    *,
+    query_terms_fn: _QueryTermsFn = query_terms,
 ) -> _QueryExpansionTerms:
-    return tuple((query, reason, query_terms(query)) for query, reason in signature)
+    return tuple((query, reason, query_terms_fn(query)) for query, reason in signature)
 
 
 def _query_expansion_terms(plan: QueryExpansionPlan) -> _QueryExpansionTerms:
@@ -160,8 +165,7 @@ def _best_bm25_query_matches(
     query_term_frequency_fn: _QueryTermFrequencyFn = query_term_frequency,
 ) -> tuple[_Bm25QueryMatch, ...]:
     prepared_items = tuple(
-        _bm25_prepared_item(item, text_stats_cache=bm25_text_stats_cache)
-        for item in items
+        _bm25_prepared_item(item, text_stats_cache=bm25_text_stats_cache) for item in items
     )
     term_frequency_cache: _Bm25TermFrequencyCache = {}
     best_matches = tuple(
@@ -442,9 +446,3 @@ def _with_bm25_lexical_boost(
 
 def _bm25_lexical_already_applied(item: ContextItem) -> bool:
     return _provenance_flag_is_true(item.diagnostics, "bm25_lexical_applied")
-
-
-def _provenance_flag_is_true(diagnostics: object, flag: str) -> bool:
-    normalized = normalize_context_diagnostics(diagnostics)
-    provenance = safe_diagnostic_mapping(normalized.get("provenance"))
-    return provenance.get(flag) is True

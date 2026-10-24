@@ -492,6 +492,7 @@ function pythonpath(): string {
     "packages/infinity_context_core",
     "packages/infinity_context_adapters",
     "packages/infinity_context_server",
+    "packages/infinity_context_benchmarks",
     "packages/infinity_context_sdk",
     "packages/infinity_context_obsidian",
   ]

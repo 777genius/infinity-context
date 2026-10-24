@@ -23,7 +23,13 @@ from infinity_context_core.application.context_query_expansion import (
 )
 from infinity_context_core.ports.adapters import PortStatus, VectorUpsertItem
 
-from tests.context_retrieval_test_support import DeterministicBatchEmbeddings
+from tests.context_retrieval_test_support import (
+    CONTEXT_CHAR_BUDGET,
+    DeterministicBatchEmbeddings,
+)
+from tests.context_retrieval_test_support import (
+    retrieval_context_payload as payload,
+)
 from tests.e2e.test_context_derived_collection_postgres import postgres_context_runtime
 
 
@@ -81,19 +87,6 @@ def vector_item(chunk_id, document, vector):
     )
 
 
-def payload():
-    return {
-        "space_slug": "recall-reserve",
-        "memory_scope_external_ref": "default",
-        "query": "deployment coordinator",
-        "max_chunks": 1,
-        "max_facts": 0,
-        "max_evidence_items": 1,
-        "token_budget": 512,
-        "max_rendered_chars": 1024,
-    }
-
-
 def mount_builder(client, container, provider):
     builder = BuildContextUseCase(
         uow_factory=container.uow_factory,
@@ -103,7 +96,11 @@ def mount_builder(client, container, provider):
         embedder=DeterministicBatchEmbeddings(),
         clock=container.clock,
     )
-    client._transport.app.state.container = replace(container, build_context=builder)
+    client._transport.app.state.container = replace(
+        container,
+        build_context=builder,
+        settings=container.settings.model_copy(update={"max_context_chars": CONTEXT_CHAR_BUDGET}),
+    )
 
 
 @pytest.mark.parametrize("head_kind", ["missing", "deleted", "foreign"])
@@ -155,7 +152,8 @@ def test_real_qdrant_reserve_recovers_evidence_without_widening_healthy_context(
             assert [item["item_id"] for item in current["items"]] == [good_id]
             assert "ELIGIBLE_RELEASE_EVIDENCE" in current["rendered_text"]
             assert "DO_NOT_RENDER_HEAD" not in current["rendered_text"]
-            assert len(current["rendered_text"]) <= payload()["max_rendered_chars"]
+            assert current["diagnostics"]["max_rendered_chars"] == CONTEXT_CHAR_BUDGET
+            assert len(current["rendered_text"]) <= CONTEXT_CHAR_BUDGET
             assert all(
                 item["source_refs"] and not item["is_instruction"] for item in current["items"]
             )

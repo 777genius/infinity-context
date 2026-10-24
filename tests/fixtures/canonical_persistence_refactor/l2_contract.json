@@ -1,0 +1,1627 @@
+{
+  "base": "b0b87bd774f93c2bca9bec14c0efc072a2ba2de8",
+  "checkout_base": "72df6f13587f33613158403201412a2a76326798",
+  "original": "infinity_context_adapters.postgres.repositories",
+  "owners": {
+    "_keyword_search_statement": "infinity_context_adapters.postgres.document_repositories",
+    "PostgresDocumentRepository": "infinity_context_adapters.postgres.document_repositories",
+    "PostgresChunkRepository": "infinity_context_adapters.postgres.document_repositories",
+    "PostgresAnchorRepository": "infinity_context_adapters.postgres.anchor_repositories",
+    "PostgresEpisodeRepository": "infinity_context_adapters.postgres.episode_repositories",
+    "PostgresCaptureRepository": "infinity_context_adapters.postgres.capture_repositories",
+    "PostgresSuggestionRepository": "infinity_context_adapters.postgres.suggestion_repositories",
+    "PostgresIdempotencyRepository": "infinity_context_adapters.postgres.record_repositories",
+    "PostgresOutbox": "infinity_context_adapters.postgres.record_repositories"
+  },
+  "source_sha256": "8809b74b3df9f1d64cf28bae64fc47b580942d56b8c82448f2d5ae00d89c3a65",
+  "definitions": {
+    "_keyword_search_statement": "31ee77437e581145adcb20c3487567f670428abaaa2107f8b7d95a2e0eed4fb5",
+    "PostgresDocumentRepository": "d3b40157d9351c7fec439e0bcb714e00edfb02cf6c0b4fefde73e9d693cfb436",
+    "PostgresChunkRepository": "093bcddb11487e5e3384d959052216d7c0f21a0ff191114243e9fb4e721ae687",
+    "PostgresAnchorRepository": "62d310b463d116aa792fe6264ec554c5594b7d916e1f0b19a2d8ccdb17d8e840",
+    "PostgresEpisodeRepository": "1ea68c9a618ebab7cc3e6d2966767a7cb6dde71ff31416cd5b5afdf766652a8e",
+    "PostgresCaptureRepository": "35bac1bfe8846ff501f036a28e50565c86708adcde5f82d3a5d4890b43db0bc5",
+    "PostgresSuggestionRepository": "5dfc2a9aaa6e5d0857eba6b0245e1fb66eac402698bcd3053b5f8c059752538b",
+    "PostgresIdempotencyRepository": "ab2982f4bdf7d001ecd6325b30efd568277858010b72b8bc90e35b2e9a98e8ef",
+    "PostgresOutbox": "8b6a0ba1aa630a0dfac5db2f202cb96defe25f3b875fbac63b4ae3d928822ea8"
+  },
+  "contracts": {
+    "_keyword_search_statement": {
+      "name": "_keyword_search_statement",
+      "qualname": "_keyword_search_statement",
+      "methods": {
+        "": {
+          "signature": "(*, space_id: 'str', memory_scope_ids: 'tuple[str, ...]', thread_id: 'str | None', query: 'str', limit: 'int')",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "query": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "_canonical_chunk_visibility_conditions": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._canonical_chunk_visibility_conditions"
+            },
+            "_grouped_sql_matches": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._grouped_sql_matches"
+            },
+            "_grouped_sql_score": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._grouped_sql_score"
+            },
+            "_retrieval_candidate_limit": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._retrieval_candidate_limit"
+            },
+            "_terms": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._terms"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        }
+      }
+    },
+    "PostgresDocumentRepository": {
+      "name": "PostgresDocumentRepository",
+      "qualname": "PostgresDocumentRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "create": {
+          "signature": "(self, document: 'MemoryDocument') -> 'MemoryDocument'",
+          "annotations": {
+            "document": {
+              "reference": "infinity_context_core.domain.memory_item_entities.MemoryDocument"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.memory_item_entities.MemoryDocument"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IntegrityError": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "document_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_to_row"
+            },
+            "fence_exact_thread_writer": {
+              "reference": "infinity_context_adapters.postgres.document_source_ref_coordination.fence_exact_thread_writer"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        },
+        "get_by_id": {
+          "signature": "(self, document_id: 'str') -> 'MemoryDocument | None'",
+          "annotations": {
+            "document_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.memory_item_entities.MemoryDocument | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryDocumentRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryDocumentRow"
+            },
+            "document_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_row_to_domain"
+            }
+          }
+        },
+        "find_active_by_content_hash": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', content_hash: 'str') -> 'MemoryDocument | None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "content_hash": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.memory_item_entities.MemoryDocument | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryDocumentRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryDocumentRow"
+            },
+            "case": {
+              "reference": "sqlalchemy.sql._elements_constructors.case"
+            },
+            "document_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_chunks": {
+          "signature": "(self, document_id: 'str', *, limit: 'int | None' = None, cursor_sequence: 'int | None' = None, cursor_id: 'str | None' = None) -> 'list[MemoryChunk]'",
+          "annotations": {
+            "document_id": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "repr": "int | None"
+            },
+            "cursor_sequence": {
+              "repr": "int | None"
+            },
+            "cursor_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_chunks_by_document_ids": {
+          "signature": "(self, document_ids: 'tuple[str, ...]', *, limit_per_document: 'int') -> 'list[MemoryChunk]'",
+          "annotations": {
+            "document_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "limit_per_document": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "func": {
+              "singleton": "sqlalchemy.func"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', status: 'str | None', limit: 'int') -> 'list[MemoryDocument]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryDocument]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryDocumentRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryDocumentRow"
+            },
+            "document_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_exact_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', status: 'str', limit: 'int', source_external_id: 'str | None', cursor_updated_at: 'datetime | None', cursor_id: 'str | None') -> 'list[MemoryDocument]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "status": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "source_external_id": {
+              "repr": "str | None"
+            },
+            "cursor_updated_at": {
+              "repr": "datetime.datetime | None"
+            },
+            "cursor_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryDocument]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryDocumentRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryDocumentRow"
+            },
+            "document_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "soft_delete_with_chunks": {
+          "signature": "(self, *, document_id: 'str', now: 'datetime') -> 'tuple[MemoryDocument, tuple[CanonicalChunkVersion, ...]] | None'",
+          "annotations": {
+            "document_id": {
+              "reference": "builtins.str"
+            },
+            "now": {
+              "reference": "datetime.datetime"
+            },
+            "return": {
+              "repr": "tuple[infinity_context_core.domain.memory_item_entities.MemoryDocument, tuple[infinity_context_core.ports.repositories.CanonicalChunkVersion, ...]] | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "CanonicalChunkVersion": {
+              "reference": "infinity_context_core.ports.repositories.CanonicalChunkVersion"
+            },
+            "document_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.document_row_to_domain"
+            },
+            "list": {
+              "reference": "builtins.list"
+            },
+            "lock_document_deletion_evidence": {
+              "reference": "infinity_context_adapters.postgres.document_source_ref_coordination.lock_document_deletion_evidence"
+            },
+            "tuple": {
+              "reference": "builtins.tuple"
+            }
+          }
+        }
+      }
+    },
+    "PostgresChunkRepository": {
+      "name": "PostgresChunkRepository",
+      "qualname": "PostgresChunkRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "get_by_id": {
+          "signature": "(self, chunk_id: 'str') -> 'MemoryChunk | None'",
+          "annotations": {
+            "chunk_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.memory_item_entities.MemoryChunk | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            }
+          }
+        },
+        "get_for_update": {
+          "signature": "(self, chunk_id: 'str') -> 'MemoryChunk | None'",
+          "annotations": {
+            "chunk_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.memory_item_entities.MemoryChunk | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "upsert": {
+          "signature": "(self, chunk: 'MemoryChunk') -> 'UpsertChunkResult'",
+          "annotations": {
+            "chunk": {
+              "reference": "infinity_context_core.domain.memory_item_entities.MemoryChunk"
+            },
+            "return": {
+              "reference": "infinity_context_core.ports.repositories.UpsertChunkResult"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "UpsertChunkResult": {
+              "reference": "infinity_context_core.ports.repositories.UpsertChunkResult"
+            },
+            "chunk_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_to_row"
+            },
+            "fence_exact_thread_writer": {
+              "reference": "infinity_context_adapters.postgres.document_source_ref_coordination.fence_exact_thread_writer"
+            },
+            "lock_chunk_parent_for_write": {
+              "reference": "infinity_context_adapters.postgres.document_source_ref_coordination.lock_chunk_parent_for_write"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        },
+        "list_for_episode": {
+          "signature": "(self, episode_id: 'str', *, limit: 'int | None' = None, cursor_sequence: 'int | None' = None, cursor_id: 'str | None' = None) -> 'list[MemoryChunk]'",
+          "annotations": {
+            "episode_id": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "repr": "int | None"
+            },
+            "cursor_sequence": {
+              "repr": "int | None"
+            },
+            "cursor_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', status: 'str | None', limit: 'int') -> 'list[MemoryChunk]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "hydrate_visible_chunks": {
+          "signature": "(self, *, chunk_ids: 'tuple[str, ...]', space_id: 'str', memory_scope_ids: 'tuple[str, ...]', thread_id: 'str | None') -> 'list[MemoryChunk]'",
+          "annotations": {
+            "chunk_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_by_source_external_id_groups": {
+          "signature": "(self, *, space_id: 'str', memory_scope_ids: 'tuple[str, ...]', thread_id: 'str | None', source_external_id_groups: 'tuple[str, ...]', exclude_chunk_ids: 'tuple[str, ...]', limit: 'int', limit_per_group: 'int | None' = None) -> 'list[MemoryChunk]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "source_external_id_groups": {
+              "repr": "tuple[str, ...]"
+            },
+            "exclude_chunk_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "limit_per_group": {
+              "repr": "int | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryChunkRow": {
+              "reference": "infinity_context_adapters.postgres.locator_models.MemoryChunkRow"
+            },
+            "_escape_like": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._escape_like"
+            },
+            "case": {
+              "reference": "sqlalchemy.sql._elements_constructors.case"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "dict": {
+              "reference": "builtins.dict"
+            },
+            "enumerate": {
+              "reference": "builtins.enumerate"
+            },
+            "func": {
+              "singleton": "sqlalchemy.func"
+            },
+            "int": {
+              "reference": "builtins.int"
+            },
+            "len": {
+              "repr": "<built-in function len>"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "str": {
+              "reference": "builtins.str"
+            },
+            "tuple": {
+              "reference": "builtins.tuple"
+            }
+          }
+        },
+        "keyword_search": {
+          "signature": "(self, *, space_id: 'str', memory_scope_ids: 'tuple[str, ...]', thread_id: 'str | None', query: 'str', limit: 'int') -> 'list[MemoryChunk]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "query": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryChunk]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "_keyword_search_statement": {
+              "reference": "infinity_context_adapters.postgres.document_repositories._keyword_search_statement"
+            },
+            "_score": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._score"
+            },
+            "chunk_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.chunk_row_to_domain"
+            },
+            "enumerate": {
+              "reference": "builtins.enumerate"
+            },
+            "list": {
+              "reference": "builtins.list"
+            }
+          }
+        },
+        "keyword_search_many": {
+          "signature": "(self, requests: 'tuple[ChunkKeywordSearch, ...]') -> 'list[list[MemoryChunk]]'",
+          "annotations": {
+            "requests": {
+              "repr": "tuple[infinity_context_core.ports.repositories.ChunkKeywordSearch, ...]"
+            },
+            "return": {
+              "repr": "list[list[infinity_context_core.domain.memory_item_entities.MemoryChunk]]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "keyword_search_many": {
+              "reference": "infinity_context_adapters.postgres.canonical_retrieval_batching.keyword_search_many"
+            }
+          }
+        }
+      }
+    },
+    "PostgresAnchorRepository": {
+      "name": "PostgresAnchorRepository",
+      "qualname": "PostgresAnchorRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "create": {
+          "signature": "(self, anchor: 'MemoryAnchor') -> 'MemoryAnchor'",
+          "annotations": {
+            "anchor": {
+              "reference": "infinity_context_core.domain.anchor_entities.MemoryAnchor"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.anchor_entities.MemoryAnchor"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IntegrityError": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "anchor_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.anchor_to_row"
+            }
+          }
+        },
+        "get_by_id": {
+          "signature": "(self, anchor_id: 'str') -> 'MemoryAnchor | None'",
+          "annotations": {
+            "anchor_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.anchor_entities.MemoryAnchor | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryAnchorRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryAnchorRow"
+            },
+            "anchor_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.anchor_row_to_domain"
+            }
+          }
+        },
+        "get_by_ids": {
+          "signature": "(self, anchor_ids: 'tuple[str, ...]') -> 'list[MemoryAnchor]'",
+          "annotations": {
+            "anchor_ids": {
+              "repr": "tuple[str, ...]"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.anchor_entities.MemoryAnchor]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "get_anchor_ids": {
+              "reference": "infinity_context_adapters.postgres.canonical_retrieval_batching.get_anchor_ids"
+            }
+          }
+        },
+        "find_active_by_key": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', kind: 'str', normalized_key: 'str') -> 'MemoryAnchor | None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "kind": {
+              "reference": "builtins.str"
+            },
+            "normalized_key": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.anchor_entities.MemoryAnchor | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryAnchorRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryAnchorRow"
+            },
+            "anchor_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.anchor_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "find_active_by_keys": {
+          "signature": "(self, requests: 'tuple[ActiveAnchorKey, ...]') -> 'list[MemoryAnchor | None]'",
+          "annotations": {
+            "requests": {
+              "repr": "tuple[infinity_context_core.ports.repositories.ActiveAnchorKey, ...]"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.anchor_entities.MemoryAnchor | None]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "find_active_anchor_keys": {
+              "reference": "infinity_context_adapters.postgres.canonical_retrieval_batching.find_active_anchor_keys"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', kind: 'str | None', status: 'str | None', limit: 'int') -> 'list[MemoryAnchor]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "kind": {
+              "repr": "str | None"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.anchor_entities.MemoryAnchor]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryAnchorRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryAnchorRow"
+            },
+            "anchor_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.anchor_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "list_for_scopes": {
+          "signature": "(self, requests: 'tuple[AnchorScopeQuery, ...]') -> 'list[list[MemoryAnchor]]'",
+          "annotations": {
+            "requests": {
+              "repr": "tuple[infinity_context_core.ports.repositories.AnchorScopeQuery, ...]"
+            },
+            "return": {
+              "repr": "list[list[infinity_context_core.domain.anchor_entities.MemoryAnchor]]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "list_anchor_scopes": {
+              "reference": "infinity_context_adapters.postgres.canonical_retrieval_batching.list_anchor_scopes"
+            }
+          }
+        },
+        "save": {
+          "signature": "(self, anchor: 'MemoryAnchor') -> 'MemoryAnchor'",
+          "annotations": {
+            "anchor": {
+              "reference": "infinity_context_core.domain.anchor_entities.MemoryAnchor"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.anchor_entities.MemoryAnchor"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryAnchorRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryAnchorRow"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "apply_anchor_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.apply_anchor_to_row"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        }
+      }
+    },
+    "PostgresEpisodeRepository": {
+      "name": "PostgresEpisodeRepository",
+      "qualname": "PostgresEpisodeRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "create": {
+          "signature": "(self, episode: 'MemoryEpisode') -> 'MemoryEpisode'",
+          "annotations": {
+            "episode": {
+              "reference": "infinity_context_core.domain.memory_item_entities.MemoryEpisode"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.memory_item_entities.MemoryEpisode"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "episode_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.episode_to_row"
+            }
+          }
+        },
+        "get_by_id": {
+          "signature": "(self, episode_id: 'str') -> 'MemoryEpisode | None'",
+          "annotations": {
+            "episode_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.memory_item_entities.MemoryEpisode | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryEpisodeRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryEpisodeRow"
+            },
+            "episode_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.episode_row_to_domain"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', status: 'str | None', limit: 'int') -> 'list[MemoryEpisode]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.memory_item_entities.MemoryEpisode]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryEpisodeRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryEpisodeRow"
+            },
+            "episode_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.episode_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        }
+      }
+    },
+    "PostgresCaptureRepository": {
+      "name": "PostgresCaptureRepository",
+      "qualname": "PostgresCaptureRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "create": {
+          "signature": "(self, capture: 'CanonicalCapture') -> 'CanonicalCapture'",
+          "annotations": {
+            "capture": {
+              "reference": "infinity_context_core.domain.capture.CanonicalCapture"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.capture.CanonicalCapture"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IntegrityError": {
+              "reference": "sqlalchemy.exc.IntegrityError"
+            },
+            "MemoryConflictError": {
+              "reference": "infinity_context_core.domain.errors.MemoryConflictError"
+            },
+            "capture_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.capture_to_row"
+            }
+          }
+        },
+        "get_by_id": {
+          "signature": "(self, capture_id: 'str') -> 'CanonicalCapture | None'",
+          "annotations": {
+            "capture_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.capture.CanonicalCapture | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "capture_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.capture_row_to_domain"
+            }
+          }
+        },
+        "get_by_idempotency_key": {
+          "signature": "(self, *, space_id: 'str', idempotency_key: 'str') -> 'CanonicalCapture | None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "idempotency_key": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.capture.CanonicalCapture | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "capture_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.capture_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "get_for_update": {
+          "signature": "(self, capture_id: 'str') -> 'CanonicalCapture | None'",
+          "annotations": {
+            "capture_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.capture.CanonicalCapture | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "capture_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.capture_row_to_domain"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "save": {
+          "signature": "(self, capture: 'CanonicalCapture') -> 'CanonicalCapture'",
+          "annotations": {
+            "capture": {
+              "reference": "infinity_context_core.domain.capture.CanonicalCapture"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.capture.CanonicalCapture"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "RuntimeError": {
+              "reference": "builtins.RuntimeError"
+            },
+            "apply_capture_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.apply_capture_to_row"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', status: 'str | None', consolidation_status: 'str | None', limit: 'int', cursor_created_at: 'datetime | None' = None, cursor_id: 'str | None' = None) -> 'list[CanonicalCapture]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "consolidation_status": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "cursor_created_at": {
+              "repr": "datetime.datetime | None"
+            },
+            "cursor_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.capture.CanonicalCapture]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "capture_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.capture_row_to_domain"
+            },
+            "or_": {
+              "reference": "sqlalchemy.sql._elements_constructors.or_"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "count_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', status: 'str | None', consolidation_statuses: 'tuple[str, ...]') -> 'int'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "consolidation_statuses": {
+              "repr": "tuple[str, ...]"
+            },
+            "return": {
+              "reference": "builtins.int"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryCaptureRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryCaptureRow"
+            },
+            "func": {
+              "singleton": "sqlalchemy.func"
+            },
+            "int": {
+              "reference": "builtins.int"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        }
+      }
+    },
+    "PostgresSuggestionRepository": {
+      "name": "PostgresSuggestionRepository",
+      "qualname": "PostgresSuggestionRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "create": {
+          "signature": "(self, suggestion: 'MemorySuggestion') -> 'MemorySuggestion'",
+          "annotations": {
+            "suggestion": {
+              "reference": "infinity_context_core.domain.suggestion_entities.MemorySuggestion"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.suggestion_entities.MemorySuggestion"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "suggestion_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_to_row"
+            }
+          }
+        },
+        "get_by_id": {
+          "signature": "(self, suggestion_id: 'str') -> 'MemorySuggestion | None'",
+          "annotations": {
+            "suggestion_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.suggestion_entities.MemorySuggestion | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "get_for_update": {
+          "signature": "(self, suggestion_id: 'str') -> 'MemorySuggestion | None'",
+          "annotations": {
+            "suggestion_id": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.suggestion_entities.MemorySuggestion | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "save": {
+          "signature": "(self, suggestion: 'MemorySuggestion') -> 'MemorySuggestion'",
+          "annotations": {
+            "suggestion": {
+              "reference": "infinity_context_core.domain.suggestion_entities.MemorySuggestion"
+            },
+            "return": {
+              "reference": "infinity_context_core.domain.suggestion_entities.MemorySuggestion"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "RuntimeError": {
+              "reference": "builtins.RuntimeError"
+            },
+            "apply_suggestion_to_row": {
+              "reference": "infinity_context_adapters.postgres.mappers.apply_suggestion_to_row"
+            },
+            "str": {
+              "reference": "builtins.str"
+            }
+          }
+        },
+        "list_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', status: 'str | None', operation: 'str | None', category: 'str | None', tag: 'str | None', limit: 'int') -> 'list[MemorySuggestion]'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "operation": {
+              "repr": "str | None"
+            },
+            "category": {
+              "repr": "str | None"
+            },
+            "tag": {
+              "repr": "str | None"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.suggestion_entities.MemorySuggestion]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "_retrieval_candidate_limit": {
+              "reference": "infinity_context_adapters.postgres.repository_helpers._retrieval_candidate_limit"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "find_pending_duplicate": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', thread_id: 'str | None', candidate_fingerprint: 'str', operation: 'str', target_fact_id: 'str | None') -> 'MemorySuggestion | None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "thread_id": {
+              "repr": "str | None"
+            },
+            "candidate_fingerprint": {
+              "reference": "builtins.str"
+            },
+            "operation": {
+              "reference": "builtins.str"
+            },
+            "target_fact_id": {
+              "repr": "str | None"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.suggestion_entities.MemorySuggestion | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "list_expired_pending": {
+          "signature": "(self, *, now: 'datetime', limit: 'int') -> 'list[MemorySuggestion]'",
+          "annotations": {
+            "now": {
+              "reference": "datetime.datetime"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.suggestion_entities.MemorySuggestion]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "list_pending_for_capture": {
+          "signature": "(self, *, capture_id: 'str', limit: 'int') -> 'list[MemorySuggestion]'",
+          "annotations": {
+            "capture_id": {
+              "reference": "builtins.str"
+            },
+            "limit": {
+              "reference": "builtins.int"
+            },
+            "return": {
+              "repr": "list[infinity_context_core.domain.suggestion_entities.MemorySuggestion]"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            },
+            "suggestion_row_to_domain": {
+              "reference": "infinity_context_adapters.postgres.mappers.suggestion_row_to_domain"
+            }
+          }
+        },
+        "count_for_scope": {
+          "signature": "(self, *, space_id: 'str', memory_scope_id: 'str', status: 'str | None') -> 'int'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "memory_scope_id": {
+              "reference": "builtins.str"
+            },
+            "status": {
+              "repr": "str | None"
+            },
+            "return": {
+              "reference": "builtins.int"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemorySuggestionRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemorySuggestionRow"
+            },
+            "func": {
+              "singleton": "sqlalchemy.func"
+            },
+            "int": {
+              "reference": "builtins.int"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        }
+      }
+    },
+    "PostgresIdempotencyRepository": {
+      "name": "PostgresIdempotencyRepository",
+      "qualname": "PostgresIdempotencyRepository",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession', now: 'datetime') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "now": {
+              "reference": "datetime.datetime"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "find": {
+          "signature": "(self, *, space_id: 'str', key: 'str') -> 'IdempotencyRecord | None'",
+          "annotations": {
+            "space_id": {
+              "reference": "builtins.str"
+            },
+            "key": {
+              "reference": "builtins.str"
+            },
+            "return": {
+              "repr": "infinity_context_core.domain.idempotency.IdempotencyRecord | None"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "IdempotencyRecord": {
+              "reference": "infinity_context_core.domain.idempotency.IdempotencyRecord"
+            },
+            "MemoryIdempotencyRecordRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryIdempotencyRecordRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        },
+        "save": {
+          "signature": "(self, record: 'IdempotencyRecord') -> 'None'",
+          "annotations": {
+            "record": {
+              "reference": "infinity_context_core.domain.idempotency.IdempotencyRecord"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryIdempotencyRecordRow": {
+              "reference": "infinity_context_adapters.postgres.models.MemoryIdempotencyRecordRow"
+            }
+          }
+        }
+      }
+    },
+    "PostgresOutbox": {
+      "name": "PostgresOutbox",
+      "qualname": "PostgresOutbox",
+      "methods": {
+        "__init__": {
+          "signature": "(self, session: 'AsyncSession', now: 'datetime') -> 'None'",
+          "annotations": {
+            "session": {
+              "reference": "sqlalchemy.ext.asyncio.session.AsyncSession"
+            },
+            "now": {
+              "reference": "datetime.datetime"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {}
+        },
+        "enqueue": {
+          "signature": "(self, event: 'OutboxEvent') -> 'None'",
+          "annotations": {
+            "event": {
+              "reference": "infinity_context_core.domain.events.OutboxEvent"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryOutboxRow": {
+              "reference": "infinity_context_adapters.postgres.outbox_models.MemoryOutboxRow"
+            }
+          }
+        },
+        "enqueue_or_reschedule": {
+          "signature": "(self, event: 'OutboxEvent') -> 'None'",
+          "annotations": {
+            "event": {
+              "reference": "infinity_context_core.domain.events.OutboxEvent"
+            },
+            "return": {
+              "reference": "builtins.NoneType"
+            }
+          },
+          "doc": null,
+          "globals": {
+            "MemoryOutboxRow": {
+              "reference": "infinity_context_adapters.postgres.outbox_models.MemoryOutboxRow"
+            },
+            "select": {
+              "reference": "sqlalchemy.sql._selectable_constructors.select"
+            }
+          }
+        }
+      }
+    }
+  },
+  "operation_trace": [],
+  "legacy_pickles": {
+    "_keyword_search_statement": "gASVUQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwZX2tleXdvcmRfc2VhcmNoX3N0YXRlbWVudJSTlC4=",
+    "PostgresDocumentRepository": "gASVUgAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwaUG9zdGdyZXNEb2N1bWVudFJlcG9zaXRvcnmUk5Qu",
+    "PostgresChunkRepository": "gASVTwAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwXUG9zdGdyZXNDaHVua1JlcG9zaXRvcnmUk5Qu",
+    "PostgresAnchorRepository": "gASVUAAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwYUG9zdGdyZXNBbmNob3JSZXBvc2l0b3J5lJOULg==",
+    "PostgresEpisodeRepository": "gASVUQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwZUG9zdGdyZXNFcGlzb2RlUmVwb3NpdG9yeZSTlC4=",
+    "PostgresCaptureRepository": "gASVUQAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwZUG9zdGdyZXNDYXB0dXJlUmVwb3NpdG9yeZSTlC4=",
+    "PostgresSuggestionRepository": "gASVVAAAAAAAAACML2luZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVwb3NpdG9yaWVzlIwcUG9zdGdyZXNTdWdnZXN0aW9uUmVwb3NpdG9yeZSTlC4=",
+    "PostgresIdempotencyRepository": "gASVXAAAAAAAAACMNmluZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVjb3JkX3JlcG9zaXRvcmllc5SMHVBvc3RncmVzSWRlbXBvdGVuY3lSZXBvc2l0b3J5lJOULg==",
+    "PostgresOutbox": "gASVTQAAAAAAAACMNmluZmluaXR5X2NvbnRleHRfYWRhcHRlcnMucG9zdGdyZXMucmVjb3JkX3JlcG9zaXRvcmllc5SMDlBvc3RncmVzT3V0Ym94lJOULg=="
+  },
+  "capture_corrections": [
+    "Only SQLAlchemy func provenance: replace process-address repr with exact sqlalchemy.func singleton; independently verified in unchanged arch-lifecycle repositories at 72df6f13. No AST, method/global inventory, hint, pickle or behavior output changed."
+  ]
+}

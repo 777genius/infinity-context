@@ -1,29 +1,56 @@
-"""Keyword chunk scoring and source boost policy."""
+"""Keyword ranking policy; one implementation authority."""
 
 from __future__ import annotations
 
 from infinity_context_core.application.context_ranking_reason_policy import (
-    ACTIVITY_OBSERVATION_SOURCE_REASONS,
-    CONTEXT_ITEM_REASON_PRIORITY,
-    DERIVED_SUMMARY_SOURCE_MIN_DISTINCTIVE_HITS,
-    DERIVED_SUMMARY_SOURCE_REASONS,
-    KEYWORD_EXPANSION_REASON_BOOSTS,
-    KEYWORD_EXPANSION_SCORE_CAPS,
+    ACTIVITY_OBSERVATION_SOURCE_REASONS as _ACTIVITY_OBSERVATION_SOURCE_REASONS,
+)
+from infinity_context_core.application.context_ranking_reason_policy import (
+    CONTEXT_ITEM_REASON_PRIORITY as _CONTEXT_ITEM_REASON_PRIORITY,
+)
+from infinity_context_core.application.context_ranking_reason_policy import (
+    DERIVED_SUMMARY_SOURCE_MIN_DISTINCTIVE_HITS as _DERIVED_SUMMARY_SOURCE_MIN_DISTINCTIVE_HITS,
+)
+from infinity_context_core.application.context_ranking_reason_policy import (
+    DERIVED_SUMMARY_SOURCE_REASONS as _DERIVED_SUMMARY_SOURCE_REASONS,
+)
+from infinity_context_core.application.context_ranking_reason_policy import (
+    KEYWORD_EXPANSION_REASON_BOOSTS as _KEYWORD_EXPANSION_REASON_BOOSTS,
+)
+from infinity_context_core.application.context_ranking_reason_policy import (
+    KEYWORD_EXPANSION_SCORE_CAPS as _KEYWORD_EXPANSION_SCORE_CAPS,
 )
 from infinity_context_core.application.context_relevance import QueryRelevance
 
 _DERIVED_SUMMARY_SOURCE_BOOST = 0.06
+
+
 _DERIVED_SUMMARY_SOURCE_CAP = 0.985
+
+
 _ACTIVITY_DERIVED_SUMMARY_SOURCE_BOOST = 0.09
+
+
 _ACTIVITY_DERIVED_SUMMARY_SOURCE_CAP = 0.99
+
+
 _ACTIVITY_DERIVED_SUMMARY_STRONG_HITS = 10
+
+
 _DERIVED_SUMMARY_SOURCE_SUFFIXES = (":observation", ":summary", ":events")
+
+
 _ACTIVITY_EVIDENCE_SOURCE_SUFFIXES = (":turn", ":observation", ":summary", ":events")
+
+
 _ATTRIBUTE_EVIDENCE_SOURCE_SUFFIXES = (":turn", ":observation", ":events")
+
+
 _PRECISE_EVIDENCE_SOURCE_REASONS = frozenset(
     {
         "adoption_current_goal_bridge",
         "adoption_current_milestone_bridge",
+        "activity_competition_evidence_bridge",
         "allergy_condition_inference_bridge",
         "allergy_inventory_bridge",
         "business_networking_event_bridge",
@@ -32,12 +59,14 @@ _PRECISE_EVIDENCE_SOURCE_REASONS = frozenset(
         "business_store_promotion_event_bridge",
         "business_start_reason_bridge",
         "book_reading_list_bridge",
+        "church_friend_activity_inventory_bridge",
         "charity_brand_sponsorship_bridge",
         "charity_tournament_count_bridge",
         "children_count_event_bridge",
         "choice_reason_bridge",
         "business_commonality_bridge",
         "store_promotion_inventory_bridge",
+        "camping_location_bridge",
         "degree_policy_inference_bridge",
         "exercise_activity_inventory_bridge",
         "endorsement_gear_brand_bridge",
@@ -66,9 +95,12 @@ _PRECISE_EVIDENCE_SOURCE_REASONS = frozenset(
         "future_plan_timing_bridge",
         "tournament_count_bridge",
         "volunteer_career_inference_bridge",
+        "volunteering_people_inventory_bridge",
         "yoga_delay_gaming_bridge",
     }
 )
+
+
 _TURN_ONLY_EVIDENCE_SOURCE_REASONS = frozenset(
     {
         "personality_authenticity_bridge",
@@ -79,6 +111,8 @@ _TURN_ONLY_EVIDENCE_SOURCE_REASONS = frozenset(
         "state_residence_inference_bridge",
     }
 )
+
+
 _ACTIVITY_OBSERVATION_MIN_DISTINCTIVE_HITS = 8
 
 
@@ -91,8 +125,8 @@ def keyword_chunk_score(
     phrase_boost = min(0.018, relevance.phrase_bigram_hits * 0.006)
     frequency_boost = min(0.014, relevance.capped_frequency_hits * 0.0015)
     expansion_boost = 0.004 if query_expansion_reason != "original_query" else 0.0
-    reason_boost = KEYWORD_EXPANSION_REASON_BOOSTS.get(query_expansion_reason, 0.0)
-    score_cap = KEYWORD_EXPANSION_SCORE_CAPS.get(query_expansion_reason, 0.93)
+    reason_boost = _KEYWORD_EXPANSION_REASON_BOOSTS.get(query_expansion_reason, 0.0)
+    score_cap = _KEYWORD_EXPANSION_SCORE_CAPS.get(query_expansion_reason, 0.93)
     return min(
         score_cap,
         round(
@@ -116,10 +150,10 @@ def keyword_chunk_source_score_boost(
 ) -> float:
     """Prefer compact derived observations/summaries for broad aggregation answers."""
 
-    if query_expansion_reason not in DERIVED_SUMMARY_SOURCE_REASONS:
+    if query_expansion_reason not in _DERIVED_SUMMARY_SOURCE_REASONS:
         return 0.0
     normalized_source_id = source_external_id.casefold()
-    if query_expansion_reason in ACTIVITY_OBSERVATION_SOURCE_REASONS:
+    if query_expansion_reason in _ACTIVITY_OBSERVATION_SOURCE_REASONS:
         allowed_suffixes = _ACTIVITY_EVIDENCE_SOURCE_SUFFIXES
     elif query_expansion_reason in _TURN_ONLY_EVIDENCE_SOURCE_REASONS:
         allowed_suffixes = (":turn",)
@@ -132,14 +166,14 @@ def keyword_chunk_source_score_boost(
         allowed_suffixes = _DERIVED_SUMMARY_SOURCE_SUFFIXES
     if not normalized_source_id.endswith(allowed_suffixes):
         return 0.0
-    min_hits = DERIVED_SUMMARY_SOURCE_MIN_DISTINCTIVE_HITS.get(
+    min_hits = _DERIVED_SUMMARY_SOURCE_MIN_DISTINCTIVE_HITS.get(
         query_expansion_reason,
         _ACTIVITY_OBSERVATION_MIN_DISTINCTIVE_HITS,
     )
     if relevance.distinctive_term_hits < min_hits:
         return 0.0
     if (
-        query_expansion_reason in ACTIVITY_OBSERVATION_SOURCE_REASONS
+        query_expansion_reason in _ACTIVITY_OBSERVATION_SOURCE_REASONS
         and relevance.distinctive_term_hits >= _ACTIVITY_DERIVED_SUMMARY_STRONG_HITS
     ):
         return _ACTIVITY_DERIVED_SUMMARY_SOURCE_BOOST
@@ -147,7 +181,7 @@ def keyword_chunk_source_score_boost(
 
 
 def query_expansion_reason_priority(reason: str) -> int:
-    return CONTEXT_ITEM_REASON_PRIORITY.get(reason, 0)
+    return _CONTEXT_ITEM_REASON_PRIORITY.get(reason, 0)
 
 
 def apply_keyword_chunk_source_score_boost(
@@ -167,7 +201,7 @@ def apply_keyword_chunk_source_score_boost(
     cap = (
         _ACTIVITY_DERIVED_SUMMARY_SOURCE_CAP
         if (
-            query_expansion_reason in ACTIVITY_OBSERVATION_SOURCE_REASONS
+            query_expansion_reason in _ACTIVITY_OBSERVATION_SOURCE_REASONS
             and boost >= _ACTIVITY_DERIVED_SUMMARY_SOURCE_BOOST
         )
         else _DERIVED_SUMMARY_SOURCE_CAP

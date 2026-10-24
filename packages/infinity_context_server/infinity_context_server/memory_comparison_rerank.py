@@ -6,6 +6,17 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from infinity_context_benchmarks.retrieval_intent import (
+    RetrievalEntityIntent,
+    RetrievalIntent,
+    RetrievalTimeIntent,
+    infer_bundle_evidence_roles,
+    infer_evidence_need,
+    infer_relation_intents,
+    infer_risk_flags,
+    infer_time_intent_kind,
+    merge_relation_evidence_needs,
+)
 from infinity_context_core.application.context_answer_unit_shapes import (
     requested_answer_unit_shapes as _requested_answer_unit_shapes,
 )
@@ -25,17 +36,6 @@ from infinity_context_server.memory_comparison_comparative_preference import (
 )
 from infinity_context_server.memory_comparison_comparative_preference import (
     without_contrast_requirement as _without_contrast_requirement,
-)
-from infinity_context_server.memory_comparison_intent import (
-    RetrievalEntityIntent,
-    RetrievalIntent,
-    RetrievalTimeIntent,
-    infer_bundle_evidence_roles,
-    infer_evidence_need,
-    infer_relation_intents,
-    infer_risk_flags,
-    infer_time_intent_kind,
-    merge_relation_evidence_needs,
 )
 from infinity_context_server.memory_comparison_location_roles import (
     has_current_location_query as _has_current_location_query,
