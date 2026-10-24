@@ -6,7 +6,7 @@ permissions:
   contents: read
 jobs:
   export:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
@@ -18,12 +18,13 @@ jobs:
           mkdir -p export
           git branch export-retrieval e2db913ad62f57ade06daf3758495936f7dd3254
           git branch export-main 35ea68beab8407995a45683d9592c052f65ed7f4
-          git bundle create export/source.bundle export-retrieval export-main
+          git branch export-integrated 88afd7814d9d0e4731056c2871a9b0968e4e1a88
+          git bundle create export/source.bundle export-retrieval export-main export-integrated
           git show export-retrieval:uv.lock | sha256sum > export/retrieval-lock-sha256.txt
-          git show export-main:uv.lock | sha256sum > export/main-lock-sha256.txt
+          git show export-integrated:uv.lock | sha256sum > export/integrated-lock-sha256.txt
       - uses: actions/upload-artifact@v7.0.1
         with:
-          name: memory-completion-sources
+          name: memory-completion-sources-integrated
           path: export/
           retention-days: 7
           if-no-files-found: error
