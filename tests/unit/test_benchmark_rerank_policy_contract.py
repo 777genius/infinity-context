@@ -21,6 +21,7 @@ from infinity_context_server.memory_comparison_rerank import benchmark_rerank_me
 
 from scripts.benchmark_policy_contract_inventory import (
     binding_inventory,
+    frozen_ast_dump,
     replay_scoring_case,
     scoring_features,
 )
@@ -194,7 +195,7 @@ def test_original_definitions_and_duplicate_arithmetic_have_one_canonical_body()
                     definitions.append(node)
         assert len(definitions) == 1, qualified
         assert (
-            hashlib.sha256(ast.dump(definitions[0], include_attributes=False).encode()).hexdigest()
+            hashlib.sha256(frozen_ast_dump(definitions[0]).encode()).hexdigest()
             == expected
         ), qualified
     assert score._rounded_boosts is policies._rounded_boosts

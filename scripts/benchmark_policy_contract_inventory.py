@@ -5,6 +5,7 @@ import __future__
 
 import ast
 import builtins
+import copy
 import dataclasses
 import dis
 import inspect
@@ -15,6 +16,19 @@ from collections.abc import Mapping
 
 INTENT_PREFIX = "infinity_context_benchmarks.retrieval_intent."
 LEGACY_INTENT = "infinity_context_server.memory_comparison_intent"
+
+
+def frozen_ast_dump(node: ast.AST) -> str:
+    """Retain the Python 3.12 AST format used by immutable ownership evidence."""
+    if "type_params" not in ast.FunctionDef._fields:
+        node = copy.deepcopy(node)
+        for definition in ast.walk(node):
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # Python 3.11 has no generics field; preserve the captured empty field.
+                definition._fields = (*definition._fields, "type_params")
+                definition.type_params = []
+    options = {"show_empty": True} if "show_empty" in inspect.signature(ast.dump).parameters else {}
+    return ast.dump(node, include_attributes=False, **options)
 
 
 def intent_owners(source: str) -> dict[str, str]:

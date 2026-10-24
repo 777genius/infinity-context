@@ -16,7 +16,12 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
-from benchmark_policy_contract_inventory import binding_inventory, callable_record, scoring_features
+from benchmark_policy_contract_inventory import (
+    binding_inventory,
+    callable_record,
+    frozen_ast_dump,
+    scoring_features,
+)
 
 SERVER = "infinity_context_server."
 PREFIX = "infinity_context_benchmarks.rerank_policy."
@@ -270,15 +275,13 @@ def capture(base_sha, output):
         for definition in (concrete, structural):
             for parameter in definition.args.args:
                 parameter.annotation = None
-        assert ast.dump(concrete, include_attributes=False) == ast.dump(
-            structural, include_attributes=False
-        ), name
+        assert frozen_ast_dump(concrete) == frozen_ast_dump(structural), name
         left = callable_record(getattr(score, name), owners)
         right = callable_record(getattr(policies, name), owners)
         assert left["globals"] == right["globals"], name
         equivalence[name] = {
             "arithmetic_body_sha256": hashlib.sha256(
-                ast.dump(concrete, include_attributes=False).encode()
+                frozen_ast_dump(concrete).encode()
             ).hexdigest(),
             "concrete_contract": left,
             "structural_contract": right,
@@ -359,7 +362,7 @@ def capture(base_sha, output):
             },
             "definitions": {
                 f"{module}.{name}": hashlib.sha256(
-                    ast.dump(node, include_attributes=False).encode()
+                    frozen_ast_dump(node).encode()
                 ).hexdigest()
                 for module, members in nodes.items()
                 for name, node in members.items()
