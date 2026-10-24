@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
+from types import SimpleNamespace
 
+import pytest
 from infinity_context_core.application.use_cases.asset_extractions import RunAssetExtractionUseCase
 from infinity_context_core.domain.assets import MemoryAssetId
 from infinity_context_core.domain.entities import MemoryScopeId, SpaceId, ThreadId
@@ -40,6 +44,21 @@ class _AssetExtractions:
     async def save(self, job: AssetExtractionJob) -> AssetExtractionJob:
         self.job = job
         return job
+
+    async def save_running_progress(
+        self, proposed: AssetExtractionJob, *, expected: AssetExtractionJob
+    ) -> AssetExtractionJob:
+        if self.job != expected:
+            return self.job
+        return await self.save(
+            replace(
+                self.job,
+                metadata=proposed.metadata,
+                heartbeat_at=proposed.heartbeat_at,
+                lease_expires_at=proposed.lease_expires_at,
+                updated_at=proposed.updated_at,
+            )
+        )
 
 
 class _Uow:
@@ -92,6 +111,57 @@ def test_success_finalization_preserves_existing_terminal_job_state() -> None:
     assert saved.metadata["success_finalization_status"] == "skipped_non_running_state"
     assert saved.metadata["success_finalization_skipped_status"] == "failed"
     assert uow_factory.instances[-1].committed is True
+
+
+@pytest.mark.parametrize("transition", ["replacement", "cancellation"])
+def test_completed_stale_provider_error_is_consumed_without_adopting_new_state(transition):
+    asyncio.run(_completed_provider_error(transition))
+
+
+def test_completed_active_provider_error_still_propagates():
+    asyncio.run(_completed_provider_error("active"))
+
+
+async def _completed_provider_error(transition):
+    original = _running_job()
+    use_case, factory = _use_case(original)
+    loop = asyncio.get_running_loop()
+    unhandled = []
+    previous = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+
+    class Extractor:
+        async def extract(self, _request):
+            if transition == "replacement":
+                factory.asset_extractions.job = (
+                    original.mark_canceled(now=_now(), code="canceled", message="gone")
+                    .reset_for_retry(now=_now())
+                    .mark_running(now=_now(), lease_owner="worker_2")
+                )
+            elif transition == "cancellation":
+                factory.asset_extractions.job = original.request_cancellation(now=_now())
+            raise RuntimeError("completed provider failure")
+
+    use_case._extractor = Extractor()
+    request = SimpleNamespace(limits=SimpleNamespace(parser_timeout_seconds=10))
+    try:
+        if transition == "active":
+            with pytest.raises(RuntimeError, match="completed provider failure"):
+                await use_case._extract_with_supervision(original, request=request)
+        else:
+            job, result = await use_case._extract_with_supervision(original, request=request)
+            assert result is None
+            assert job == factory.asset_extractions.job
+            if transition == "replacement":
+                assert job.lease_owner == "worker_2"
+                assert job.attempt_count == original.attempt_count + 1
+            else:
+                assert job.status == AssetExtractionStatus.CANCELED
+        gc.collect()
+        await asyncio.sleep(0)  # Drain one loop turn, without a timed race window.
+        assert unhandled == []
+    finally:
+        loop.set_exception_handler(previous)
 
 
 def _use_case(

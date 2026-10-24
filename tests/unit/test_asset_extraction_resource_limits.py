@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
@@ -138,6 +139,21 @@ class _AssetExtractions:
         self.job = job
         self.saved.append(job)
         return job
+
+    async def save_running_progress(
+        self, proposed: AssetExtractionJob, *, expected: AssetExtractionJob
+    ) -> AssetExtractionJob:
+        if self.job != expected:
+            return self.job
+        return await self.save(
+            replace(
+                self.job,
+                metadata=proposed.metadata,
+                heartbeat_at=proposed.heartbeat_at,
+                lease_expires_at=proposed.lease_expires_at,
+                updated_at=proposed.updated_at,
+            )
+        )
 
     async def create_artifact(self, artifact: object) -> object:
         self.artifacts.append(artifact)

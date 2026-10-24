@@ -1191,8 +1191,8 @@ def test_slow_asset_extraction_refreshes_outbox_running_heartbeat(
 
         def run_worker() -> None:
             try:
-                asyncio.run(
-                    OutboxWorker(
+                client.portal.call(
+                    lambda: OutboxWorker(
                         client.app.state.container,
                         running_heartbeat_interval=timedelta(seconds=0.05),
                     ).run_once(limit=10)
@@ -1204,11 +1204,11 @@ def test_slow_asset_extraction_refreshes_outbox_running_heartbeat(
         try:
             worker_thread.start()
             assert slow_extractor.started.wait(timeout=3)
-            initial_row = asyncio.run(_get_asset_extract_outbox_row(client, extraction_id))
+            initial_row = client.portal.call(_get_asset_extract_outbox_row, client, extraction_id)
             assert initial_row.status == "running"
 
             assert not slow_extractor.cancelled.wait(timeout=0.2)
-            refreshed_row = asyncio.run(_get_asset_extract_outbox_row(client, extraction_id))
+            refreshed_row = client.portal.call(_get_asset_extract_outbox_row, client, extraction_id)
             assert refreshed_row.status == "running"
             assert refreshed_row.updated_at > initial_row.updated_at
 
@@ -1222,7 +1222,7 @@ def test_slow_asset_extraction_refreshes_outbox_running_heartbeat(
             assert worker_error == []
             assert slow_extractor.cancelled.wait(timeout=1)
 
-            done_row = asyncio.run(_get_asset_extract_outbox_row(client, extraction_id))
+            done_row = client.portal.call(_get_asset_extract_outbox_row, client, extraction_id)
             assert done_row.status == "done"
         finally:
             run_use_case._extractor = original_extractor

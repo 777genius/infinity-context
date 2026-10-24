@@ -24,6 +24,7 @@ from infinity_context_core.domain.extraction import (
     AssetExtractionJob,
     AssetExtractionStatus,
     ExtractionRetryDisposition,
+    extraction_datetime_utc,
 )
 from infinity_context_core.ports.clock import ClockPort
 from infinity_context_core.ports.extraction import ExtractionResult
@@ -121,19 +122,31 @@ async def save_progress(
         current = await uow.asset_extractions.get_by_id(str(job.id))
         if current is None:
             raise MemoryNotFoundError("Asset extraction job not found")
-        if current.status != AssetExtractionStatus.RUNNING:
+        if (
+            not current.same_running_attempt(job)
+            or current.cancellation_requested_at is not None
+        ):
             return current
-        now = clock.now()
+        now = max(
+            extraction_datetime_utc(value)
+            for value in (clock.now(), current.updated_at, current.heartbeat_at)
+            if value is not None
+        )
+        expiry = max(
+            extraction_datetime_utc(value)
+            for value in (now + execution_lease, current.lease_expires_at)
+            if value is not None
+        )
         updated = current.record_heartbeat(
             now=now,
-            lease_expires_at=now + execution_lease,
+            lease_expires_at=expiry,
             metadata={
                 "processing_stage": stage,
                 "progress_percent": max(0, min(percent, 99)),
                 "progress_message": message,
             },
         )
-        saved = await uow.asset_extractions.save(updated)
+        saved = await uow.asset_extractions.save_running_progress(updated, expected=current)
         await uow.commit()
     return saved
 

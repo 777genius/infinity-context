@@ -767,6 +767,7 @@ class RunAssetExtractionUseCase:
         *,
         request: ExtractionRequest,
     ) -> tuple[AssetExtractionJob, ExtractionResult | None]:
+        original_attempt = job
         task = asyncio.create_task(self._extractor.extract(request))
         last_heartbeat_at = self._clock.now()
         timeout_seconds = max(0.001, float(request.limits.parser_timeout_seconds))
@@ -783,16 +784,16 @@ class RunAssetExtractionUseCase:
                     {task},
                     timeout=min(self._cancellation_poll_seconds, remaining_seconds),
                 )
-                if task in done:
-                    return job, task.result()
                 current = await self._get_current_job(str(job.id))
-                if current.status != AssetExtractionStatus.RUNNING:
+                if not current.same_running_attempt(original_attempt):
                     await self._cancel_supervised_task(task)
                     return current, None
                 if current.cancellation_requested_at is not None:
                     canceled = await self._cancel_if_requested(current)
                     await self._cancel_supervised_task(task)
                     return canceled, None
+                if task in done:
+                    return current, task.result()
                 if _datetime_after(now, last_heartbeat_at + self._heartbeat_interval):
                     job = await self._save_progress(
                         current,
@@ -800,6 +801,9 @@ class RunAssetExtractionUseCase:
                         percent=45,
                         message="Extracting searchable content",
                     )
+                    if not job.same_running_attempt(original_attempt):
+                        await self._cancel_supervised_task(task)
+                        return job, None
                     last_heartbeat_at = now
                 else:
                     job = current
@@ -812,6 +816,8 @@ class RunAssetExtractionUseCase:
 
     async def _cancel_supervised_task(self, task: asyncio.Task[ExtractionResult]) -> None:
         if task.done():
+            with suppress(asyncio.CancelledError):
+                task.exception()
             return
         task.cancel()
         with suppress(asyncio.CancelledError):

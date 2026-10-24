@@ -10,8 +10,16 @@ from infinity_context_core.domain.assets import (
     MemoryContextLink,
     MemoryContextLinkSuggestion,
 )
-from infinity_context_core.domain.errors import MemoryConflictError, MemoryNotFoundError
-from infinity_context_core.domain.extraction import AssetExtractionJob, ExtractionArtifact
+from infinity_context_core.domain.errors import (
+    MemoryConflictError,
+    MemoryNotFoundError,
+    MemoryValidationError,
+)
+from infinity_context_core.domain.extraction import (
+    AssetExtractionJob,
+    ExtractionArtifact,
+    extraction_datetime_utc,
+)
 from infinity_context_core.ports.assets import (
     AssetRepositoryPort,
     ContextLinkRepositoryPort,
@@ -19,7 +27,7 @@ from infinity_context_core.ports.assets import (
     StoredBlobReference,
 )
 from infinity_context_core.ports.extraction import AssetExtractionRepositoryPort
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -350,6 +358,52 @@ class PostgresAssetExtractionRepository(AssetExtractionRepositoryPort):
             raise MemoryNotFoundError("Asset extraction job not found")
         apply_asset_extraction_job_to_row(job, row)
         await self._session.flush()
+        return asset_extraction_job_row_to_domain(row)
+
+    async def save_running_progress(
+        self, proposed: AssetExtractionJob, *, expected: AssetExtractionJob
+    ) -> AssetExtractionJob:
+        if (
+            not proposed.same_running_attempt(expected)
+            or proposed.cancellation_requested_at is not None
+            or expected.cancellation_requested_at is not None
+            or proposed.heartbeat_at is None
+        ):
+            raise MemoryValidationError("Progress requires the same uncancelled running attempt")
+        for name in ("updated_at", "heartbeat_at", "lease_expires_at"):
+            before = extraction_datetime_utc(getattr(expected, name))
+            after = extraction_datetime_utc(getattr(proposed, name))
+            if before is not None and (after is None or after < before):
+                raise MemoryValidationError("Extraction progress timestamps cannot regress")
+        if extraction_datetime_utc(proposed.updated_at) < extraction_datetime_utc(
+            proposed.heartbeat_at
+        ):
+            raise MemoryValidationError("Extraction update time cannot precede its heartbeat")
+        model = MemoryAssetExtractionJobRow
+        await self._session.execute(
+            update(model)
+            .where(
+                model.id == str(expected.id),
+                model.status == "running",
+                model.attempt_count == expected.attempt_count,
+                model.lease_owner == expected.lease_owner,
+                model.started_at == extraction_datetime_utc(expected.started_at),
+                model.updated_at == extraction_datetime_utc(expected.updated_at),
+                model.heartbeat_at == extraction_datetime_utc(expected.heartbeat_at),
+                model.lease_expires_at == extraction_datetime_utc(expected.lease_expires_at),
+                model.cancellation_requested_at.is_(None),
+            )
+            .values(
+                metadata_json=dict(proposed.metadata),
+                heartbeat_at=extraction_datetime_utc(proposed.heartbeat_at),
+                lease_expires_at=extraction_datetime_utc(proposed.lease_expires_at),
+                updated_at=extraction_datetime_utc(proposed.updated_at),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        row = await self._session.get(model, str(expected.id), populate_existing=True)
+        if row is None:
+            raise MemoryNotFoundError("Asset extraction job not found")
         return asset_extraction_job_row_to_domain(row)
 
     async def create_artifact(self, artifact: ExtractionArtifact) -> ExtractionArtifact:
