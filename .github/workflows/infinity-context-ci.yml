@@ -34,7 +34,9 @@ jobs:
 
       - name: Fetch pull request base
         if: github.event_name == 'pull_request'
-        run: git fetch --no-tags origin "${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git fetch --no-tags origin "$PR_BASE_SHA"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -48,7 +50,7 @@ jobs:
 
       - name: Run lint and file-size boundaries
         env:
-          FILE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event_name == 'push' && github.event.before || '' }}
+          FILE_SIZE_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event_name == 'push' && github.event.before || '' }}
         run: make infinity-context-lint
 
       - name: Run deterministic memory evaluations
