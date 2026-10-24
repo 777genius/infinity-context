@@ -245,49 +245,71 @@ async def _positive_progress(tmp_path, backend, backward_clock):
 @pytest.mark.parametrize("backend", ["sqlite", "postgres"])
 @pytest.mark.parametrize(
     "invalid",
-    ["id", "attempt", "lease", "started", "status", "cancel", "updated", "heartbeat", "expiry"],
+    [
+        "id",
+        "attempt",
+        "lease",
+        "started",
+        "status",
+        "cancel",
+        "updated",
+        "heartbeat",
+        "expiry",
+        "expected_status",
+        "expected_cancel",
+        "heartbeat_none",
+        "expiry_none",
+    ],
 )
 def test_invalid_progress_cannot_write(tmp_path, backend, invalid):
     asyncio.run(_invalid_progress(tmp_path, backend, invalid))
 
 
 async def _invalid_progress(tmp_path, backend, invalid):
-    async with _database(tmp_path, backend) as engine:
-        async with AsyncSession(engine, expire_on_commit=False) as session:
-            repository = PostgresAssetExtractionRepository(session)
-            expected = await repository.get_by_id("extract_1")
-            persisted_before = expected
-            proposed = expected.record_heartbeat(now=NOW + timedelta(seconds=2))
-            mutations = {
-                "id": {"id": AssetExtractionJobId("other")},
-                "attempt": {"attempt_count": 2},
-                "lease": {"lease_owner": "other"},
-                "started": {"started_at": NOW + timedelta(seconds=1)},
-                "status": {"status": AssetExtractionStatus.CANCELED},
-                "cancel": {"cancellation_requested_at": NOW},
-                "updated": {"updated_at": NOW - timedelta(seconds=1)},
-                "heartbeat": {"heartbeat_at": NOW - timedelta(seconds=1)},
-                "expiry": {"lease_expires_at": NOW - timedelta(seconds=1)},
-                "heartbeat_none": {"heartbeat_at": None},
-                "expiry_none": {"lease_expires_at": None},
-            }
-            if invalid == "expected_status":
-                expected = replace(expected, status=AssetExtractionStatus.CANCELED)
-            elif invalid == "expected_cancel":
-                expected = replace(expected, cancellation_requested_at=NOW)
-            else:
-                proposed = replace(proposed, **mutations[invalid])
-            with pytest.raises(MemoryValidationError):
-                await repository.save_running_progress(proposed, expected=expected)
-            assert _normalized(await repository.get_by_id("extract_1")) == _normalized(
-                persisted_before
+    async with (
+        _database(tmp_path, backend) as engine,
+        AsyncSession(engine, expire_on_commit=False) as session,
+    ):
+        repository = PostgresAssetExtractionRepository(session)
+        expected = await repository.get_by_id("extract_1")
+        persisted_before = expected
+        proposed = expected.record_heartbeat(now=NOW + timedelta(seconds=2))
+        mutations = {
+            "id": {"id": AssetExtractionJobId("other")},
+            "attempt": {"attempt_count": 2},
+            "lease": {"lease_owner": "other"},
+            "started": {"started_at": NOW + timedelta(seconds=1)},
+            "status": {"status": AssetExtractionStatus.CANCELED},
+            "cancel": {"cancellation_requested_at": NOW},
+            "updated": {"updated_at": NOW - timedelta(seconds=1)},
+            "heartbeat": {"heartbeat_at": NOW - timedelta(seconds=1)},
+            "expiry": {"lease_expires_at": NOW - timedelta(seconds=1)},
+            "heartbeat_none": {"heartbeat_at": None},
+            "expiry_none": {"lease_expires_at": None},
+        }
+        if invalid == "expected_status":
+            expected = replace(expected, status=AssetExtractionStatus.CANCELED)
+        elif invalid == "expected_cancel":
+            expected = replace(expected, cancellation_requested_at=NOW)
+        else:
+            proposed = replace(proposed, **mutations[invalid])
+        with pytest.raises(MemoryValidationError):
+            await repository.save_running_progress(proposed, expected=expected)
+        assert _normalized(await repository.get_by_id("extract_1")) == _normalized(persisted_before)
+
+
+@pytest.mark.parametrize("backend", ["sqlite", "postgres"])
+def test_missing_progress_job_raises_not_found(tmp_path, backend):
+    asyncio.run(_missing_progress(tmp_path, backend))
+
+
+async def _missing_progress(tmp_path, backend):
+    async with _database(tmp_path, backend) as engine, AsyncSession(engine) as session:
+        with pytest.raises(MemoryNotFoundError):
+            await PostgresAssetExtractionRepository(session).save_running_progress(
+                replace(_job(), id=AssetExtractionJobId("missing")),
+                expected=replace(_job(), id=AssetExtractionJobId("missing")),
             )
-        async with AsyncSession(engine) as session:
-            with pytest.raises(MemoryNotFoundError):
-                await PostgresAssetExtractionRepository(session).save_running_progress(
-                    replace(_job(), id=AssetExtractionJobId("missing")),
-                    expected=replace(_job(), id=AssetExtractionJobId("missing")),
-                )
 
 
 @pytest.mark.parametrize("backend", ["sqlite", "postgres"])

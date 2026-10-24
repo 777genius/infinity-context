@@ -76,3 +76,13 @@ Approved the revised plan with no design blocker. Confirmed atomic progress-only
 ## Commit and review sequence
 
 This plan and the review responses are committed before production implementation for an early draft pull request. Production and meaningful regression changes follow in a separate commit, then independent code review and focused acceptance evidence. No production edits were made before both critics completed both plan rounds.
+
+## Separately reviewed fixture ownership amendment
+
+The atomic progress repair passes deterministic SQLite and PostgreSQL concurrency checks. A focused run still reproduced the original completion assertion after extraction had correctly reached `canceled`, while its outbox row remained `running`. A scratch diagnostic confirmed one `AsyncAdaptedQueuePool` engine was shared across the TestClient server loop, a separate worker loop and independent readback loops. That diagnostic did not reproduce the residual timeout or capture a blocked task stack. The exact internal cause of that timeout is therefore not claimed as proven.
+
+The fixture amendment routes exactly four existing operations through the live TestClient `BlockingPortal`: construct and run the worker inside the owning server loop, and perform all three outbox readbacks there. The existing external worker thread still blocks until the actual asynchronous work completes. No production pooling behavior changes, global `NullPool`, new engine, retry or sleep is introduced.
+
+All eleven ordered assertion subtrees are preserved exactly. The worker constructor, `run_once(limit=10)` and `join(timeout=5)` ASTs remain identical. The API test file stays exactly 3,051 lines, with no legacy size-ceiling change. Separate scratch loop-ID proof will establish that HTTP requests, worker construction/execution and readbacks share the owner loop; normal exact-node and affected-file runs remain the functional acceptance evidence.
+
+Root fixture critic round 1 accepted the direction with requirements for construction and invocation inside the portal, blocking completion, all three readbacks, unchanged assertions/options and honest diagnostic classification. The independent architecture critic round 1 required the same live portal, thread/error/finally preservation, exact AST comparisons, owner-loop proof and unchanged line budget. The revised round-two plan included each requirement. Both critics approved round two before the fixture was edited. This amendment is committed separately from the production repair.
