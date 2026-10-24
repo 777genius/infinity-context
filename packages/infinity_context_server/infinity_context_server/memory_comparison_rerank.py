@@ -6,6 +6,10 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 
+from infinity_context_benchmarks.rerank_policy import (
+    BenchmarkRerankFeatures,
+    score_benchmark_rerank_candidate,
+)
 from infinity_context_benchmarks.retrieval_intent import (
     RetrievalEntityIntent,
     RetrievalIntent,
@@ -55,10 +59,6 @@ from infinity_context_server.memory_comparison_query_terms import (
 )
 from infinity_context_server.memory_comparison_rerank_intents import (
     focused_intent_policy_boosts,
-)
-from infinity_context_server.memory_comparison_rerank_policy import (
-    BenchmarkRerankFeatures,
-    score_benchmark_rerank_candidate,
 )
 from infinity_context_server.memory_comparison_rerank_shapes import (
     focused_evidence_shape_boosts,

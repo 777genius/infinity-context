@@ -30,26 +30,42 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
     # Invoked with -I -S: only stdlib and this explicit wheel installation exist.
     sys.path.insert(0, str(target))
     from infinity_context_benchmarks import evidence_bundle as evidence
-    from infinity_context_benchmarks import retrieval_intent, source_identity
+    from infinity_context_benchmarks import rerank_policy, retrieval_intent, source_identity
 
     intent_fixtures = fixtures.parent / "benchmark_retrieval_intent"
     intent_contract = json.loads((intent_fixtures / "contract.json").read_text())
     raw = gzip.decompress((intent_fixtures / "cases.json.gz").read_bytes())
     assert hashlib.sha256(raw).hexdigest() == intent_contract["cases_sha256"]
-    replay = runpy.run_path(
+    replayers = runpy.run_path(
         str(Path(__file__).with_name("benchmark_policy_contract_inventory.py"))
-    )["replay_intent_case"]
+    )
+    replay = replayers["replay_intent_case"]
     intent_cases = json.loads(raw)
     for case in intent_cases:
         assert replay(case, retrieval_intent) == {
             key: case[key] for key in ("intent", "diagnostics", "profile")
         }
     assert get_type_hints(retrieval_intent.RetrievalIntent)
+    score_fixtures = fixtures.parent / "benchmark_rerank_policy"
+    score_contract = json.loads((score_fixtures / "contract.json").read_text())
+    score_raw = gzip.decompress((score_fixtures / "cases.json.gz").read_bytes())
+    assert hashlib.sha256(score_raw).hexdigest() == score_contract["cases_sha256"]
+    for case in json.loads(score_raw):
+        assert replayers["replay_scoring_case"](case, rerank_policy) == case["expected"]
+    activation = gzip.decompress((score_fixtures / "activation_cases.json.gz").read_bytes())
+    assert hashlib.sha256(activation).hexdigest() == score_contract["activation_cases_sha256"]
+    for case in json.loads(activation):
+        assert replayers["replay_scoring_case"](case, rerank_policy) == case["expected"]
+    assert get_type_hints(rerank_policy.BenchmarkRerankFeatures)
     if mode != "standalone":
         import base64
 
         from infinity_context_server import memory_comparison_intent as legacy_intent
-        from infinity_context_server.memory_comparison_rerank import query_retrieval_intent
+        from infinity_context_server.memory_comparison_models import RetrievedMemory
+        from infinity_context_server.memory_comparison_rerank import (
+            benchmark_rerank_memories,
+            query_retrieval_intent,
+        )
 
         for name, encoded in intent_contract["legacy_reference_pickles"].items():
             assert pickle.loads(base64.b64decode(encoded)) is getattr(legacy_intent, name)
@@ -71,6 +87,28 @@ def _probe(target: Path, mode: str, fixtures: Path) -> None:
             assert json.loads(json.dumps(actual)) == {
                 key: case[key] for key in ("intent", "diagnostics", "profile")
             }
+        for qualified, encoded in score_contract["legacy_reference_pickles"].items():
+            module, name = qualified.rsplit(".", 1)
+            assert pickle.loads(base64.b64decode(encoded)) is getattr(
+                importlib.import_module(module), name
+            )
+        for name, encoded in score_contract["legacy_pickles"].items():
+            value = pickle.loads(base64.b64decode(encoded))
+            assert type(value) is getattr(rerank_policy, name)
+            assert pickle.loads(pickle.dumps(value)) == value
+        for case in json.loads((score_fixtures / "consumers.json").read_text()):
+            memories = tuple(
+                RetrievedMemory(**dict(item, source_refs=tuple(item["source_refs"])))
+                for item in case["input"]
+            )
+            result, metadata = benchmark_rerank_memories(
+                SimpleNamespace(question=case["question"], metadata={"category": 4}), memories
+            )
+            actual = {
+                "memories": [dataclasses.asdict(item) for item in result],
+                "metadata": metadata,
+            }
+            assert json.loads(json.dumps(actual)) == case["expected"]
 
     annotations = get_type_hints(evidence.EvidenceBundleCandidate)
     assert get_type_hints(evidence.PlannedEvidenceItem)["candidate"] is (
