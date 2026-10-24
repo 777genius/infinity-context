@@ -131,7 +131,7 @@ def _validate_managed_document_projection(
         or not _managed_fragment_metadata_matches(command, document, chunk, piece)
         for chunk, piece in zip(chunks, pieces, strict=False)
     ):
-        raise MemoryInvariantError("Managed document chunk projection is incomplete or divergent")
+        raise MemoryConflictError("Managed document chunk projection is incomplete or divergent")
 
 
 def _managed_fragment_metadata_matches(command, document, chunk, piece) -> bool:

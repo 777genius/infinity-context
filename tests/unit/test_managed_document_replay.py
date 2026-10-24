@@ -421,10 +421,73 @@ def test_managed_projection_rejects_incomplete_or_changed_canonical_evidence(tmp
                 elif corruption == "metadata_number":
                     metadata["source_ref_count"] = float(metadata["source_ref_count"])
                 chunks[index] = replace(chunks[index], metadata=metadata)
-            with pytest.raises((MemoryConflictError, MemoryInvariantError)):
+            expected_error = (
+                MemoryConflictError
+                if corruption == "text"
+                else (MemoryConflictError, MemoryInvariantError)
+            )
+            with pytest.raises(expected_error):
                 validate_document_replay(
                     fixture.command, document, chunks, modern=False, managed=True
                 )
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("corruption", ("ownership", "impossible_span"))
+def test_managed_replay_keeps_structural_invariant_errors(tmp_path, corruption):
+    async def run():
+        async with _fixture(tmp_path) as fixture:
+            first = await fixture.ingest.execute(fixture.command)
+            chunks = list(first.chunks)
+            if corruption == "ownership":
+                chunks[0] = replace(chunks[0], document_id="unrelated-document")
+            else:
+                chunks[0] = replace(chunks[0], char_end=chunks[0].char_start - 1)
+            with pytest.raises(
+                MemoryInvariantError, match="^Document chunk ownership is incomplete or unrelated$"
+            ):
+                validate_document_replay(
+                    fixture.command, first.document, chunks, modern=False, managed=True
+                )
+
+    asyncio.run(run())
+
+
+def test_managed_projection_conflict_recovers_with_fresh_admission_without_writes(
+    tmp_path, monkeypatch
+):
+    async def run():
+        async with _fixture(tmp_path) as fixture:
+            first = await fixture.ingest.execute(fixture.command)
+            chunk_id = str(first.chunks[0].id)
+            async with AsyncSession(fixture.engine) as session:
+                row = await session.get(MemoryChunkRow, chunk_id)
+                corrupted_text = row.text.lower()
+                assert corrupted_text != row.text
+                row.text = corrupted_text
+                await session.commit()
+            counts = await _counts(fixture.engine)
+            original_admission = ingestion.require_managed_document_admission
+            admissions = []
+
+            async def admit(**kwargs):
+                key = await original_admission(**kwargs)
+                assert key is not None
+                admissions.append(kwargs["uow"])
+                return key
+
+            monkeypatch.setattr(ingestion, "require_managed_document_admission", admit)
+            with pytest.raises(
+                MemoryConflictError,
+                match="^Managed document chunk projection is incomplete or divergent$",
+            ):
+                await fixture.ingest.execute(fixture.command)
+            assert len(admissions) == 2
+            assert len({id(uow) for uow in admissions}) == 2
+            assert await _counts(fixture.engine) == counts
+            async with AsyncSession(fixture.engine) as session:
+                assert (await session.get(MemoryChunkRow, chunk_id)).text == corrupted_text
 
     asyncio.run(run())
 
