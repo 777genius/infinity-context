@@ -77,3 +77,35 @@ def test_old_domain_dto_and_error_instance_pickles_remain_valid(sample):
         assert restored == value
     else:
         assert list(value.args) == list(restored.args) == sample["args"]
+
+
+def test_real_import_failure_propagates_unchanged_and_is_not_cached(monkeypatch):
+    from infinity_context_core.shared_kernel import lazy_exports
+
+    error = ModuleNotFoundError("Synthetic unavailable dependency", name="synthetic_provider")
+    namespace = {}
+    exports = {"SourceRef": ("infinity_context_core.domain.entities", "SourceRef")}
+
+    def unavailable(_name):
+        raise error
+
+    with monkeypatch.context() as patch:
+        patch.setattr(lazy_exports, "import_module", unavailable)
+        with pytest.raises(ModuleNotFoundError) as caught:
+            lazy_exports.resolve_lazy_export("SourceRef", exports, namespace, "synthetic")
+        assert caught.value is error
+        assert namespace == {}
+
+    value = lazy_exports.resolve_lazy_export("SourceRef", exports, namespace, "synthetic")
+    assert namespace == {"SourceRef": value}
+    assert value is importlib.import_module("infinity_context_core.domain.entities").SourceRef
+
+
+def test_module_valued_export_caches_the_real_module():
+    from infinity_context_core.shared_kernel.lazy_exports import resolve_lazy_export
+
+    namespace = {}
+    route = "infinity_context_core.features.memory_facts.public"
+    value = resolve_lazy_export("public", {"public": (route, None)}, namespace, "synthetic")
+    assert value is importlib.import_module(route)
+    assert namespace["public"] is value
