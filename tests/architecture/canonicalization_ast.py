@@ -151,12 +151,18 @@ class SourceIndex:
         self.import_binding(path, node, bindings)
         if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            value = dotted(node.value, bindings)
+            root = node.value
+            while isinstance(root, ast.Attribute):
+                root = root.value
+            if isinstance(root, ast.Name) and root.id not in bindings:
+                value = ""
             for target in targets:
                 if isinstance(target, ast.Name):
-                    value = dotted(node.value, bindings)
+                    binding = value
                     if isinstance(node.value, ast.Call) and value.endswith(".APIRouter"):
-                        value = f"{module_name(path)}.{target.id}"
-                    bindings[target.id] = value or target.id
+                        binding = f"{module_name(path)}.{target.id}"
+                    bindings[target.id] = binding or f"{module_name(path)}.{target.id}"
 
     def resolve(self, symbol: str) -> str:
         seen = set()

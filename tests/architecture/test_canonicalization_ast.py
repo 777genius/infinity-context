@@ -695,6 +695,11 @@ def test_ordinary_positional_helper_preserves_both_execution_edges(tail: str, ex
         ("from typing import TYPE_CHECKING", "TYPE_CHECKING"),
         ("from typing import TYPE_CHECKING as checking", "checking"),
         ("import typing as types", "types.TYPE_CHECKING"),
+        ("import typing\nTypes = typing", "Types.TYPE_CHECKING"),
+        ("from typing import TYPE_CHECKING\nChecking = TYPE_CHECKING", "Checking"),
+        ("import typing\nChecking = typing.TYPE_CHECKING", "Checking"),
+        ("import typing\nTypes = typing\ntyping = False", "Types.TYPE_CHECKING"),
+        ("import typing\ntyping = False\nimport typing", "typing.TYPE_CHECKING"),
     ],
 )
 def test_type_checking_reexports_preserve_legacy_execution_ownership(preamble, guard):
@@ -732,6 +737,13 @@ def test_type_checking_reexports_preserve_legacy_execution_ownership(preamble, g
         ("from unrelated import TYPE_CHECKING", "TYPE_CHECKING"),
         ("from typing import TYPE_CHECKING\nTYPE_CHECKING = False", "TYPE_CHECKING"),
         ("import typing\ntyping = unrelated", "typing.TYPE_CHECKING"),
+        ("import typing\ntyping = False", "typing.TYPE_CHECKING"),
+        ("import typing\ntyping = object()", "typing.TYPE_CHECKING"),
+        ("typing = False", "typing.TYPE_CHECKING"),
+        ("Alias = typing", "Alias.TYPE_CHECKING"),
+        ("Checking = typing.TYPE_CHECKING", "Checking"),
+        ("Alias = typing\nOther = Alias", "Other.TYPE_CHECKING"),
+        ("from typing import TYPE_CHECKING as flag\nflag = object()", "flag"),
     ],
 )
 def test_non_typing_or_shadowed_guards_do_not_create_export_bindings(preamble, guard):
