@@ -17,7 +17,9 @@ PACKAGES = (
 )
 
 
-@pytest.mark.parametrize("policy_path", ("evidence.py", "retrieval_intent/contracts.py"))
+@pytest.mark.parametrize(
+    "policy_path", ("evidence.py", "retrieval_intent/contracts.py", "rerank_policy/scoring.py")
+)
 def test_benchmark_source_is_part_of_repository_runtime_identity(
     tmp_path: Path, policy_path: str
 ) -> None:
@@ -70,7 +72,9 @@ def _installation(tmp_path: Path, monkeypatch, policy_path: str = "evidence.py")
     return _Distribution(root, files), modules, policy
 
 
-@pytest.mark.parametrize("policy_path", ("evidence.py", "retrieval_intent/contracts.py"))
+@pytest.mark.parametrize(
+    "policy_path", ("evidence.py", "retrieval_intent/contracts.py", "rerank_policy/scoring.py")
+)
 def test_installed_benchmark_policy_changes_runtime_digest(
     tmp_path: Path, monkeypatch, policy_path: str
 ) -> None:

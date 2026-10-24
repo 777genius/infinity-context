@@ -76,3 +76,60 @@ def test_every_original_definition_has_exactly_one_declared_canonical_owner():
         isinstance(node, (ast.FunctionDef, ast.ClassDef))
         for node in ast.parse(facade.read_text()).body
     )
+
+
+def test_complete_score_capsule_is_standalone_acyclic_and_owns_original_definitions():
+    prefix = "infinity_context_benchmarks.rerank_policy"
+    root = POLICY.parent / "rerank_policy"
+    manifest = json.loads(
+        (ROOT / "tests/fixtures/benchmark_rerank_policy/ownership.json").read_text()
+    )
+    graph, definitions = {}, {}
+    for path in root.glob("*.py"):
+        module = prefix if path.stem == "__init__" else prefix + "." + path.stem
+        tree = ast.parse(path.read_text())
+        graph[module] = set()
+        definitions[module] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imports = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                assert node.level == 0
+                imports = [node.module]
+            else:
+                imports = []
+            for imported in imports:
+                if imported.startswith(prefix + "."):
+                    graph[module].add(imported)
+                else:
+                    assert imported in {"__future__", "collections.abc", "dataclasses", "typing"}
+            if isinstance(node, ast.Call):
+                name = node.func.id if isinstance(node.func, ast.Name) else ""
+                attr = node.func.attr if isinstance(node.func, ast.Attribute) else ""
+                assert name not in {"__import__", "exec", "eval", "import_module"}
+                assert attr != "import_module"
+        for node in tree.body:
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef)):
+                definitions[module][node.name] = node
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        definitions[module][target.id] = node
+
+    def visit(module, ancestors):
+        assert module not in ancestors, (module, ancestors)
+        for dependency in graph[module]:
+            visit(dependency, (*ancestors, module))
+
+    for module in graph:
+        visit(module, ())
+    for qualified, owner in manifest["owners"].items():
+        name = qualified.rsplit(".", 1)[-1]
+        assert name in definitions[owner]
+    for filename in ("memory_comparison_rerank_policy.py", "memory_comparison_rerank_policies.py"):
+        facade = ROOT / "packages/infinity_context_server/infinity_context_server" / filename
+        assert not any(
+            isinstance(node, (ast.FunctionDef, ast.ClassDef))
+            for node in ast.parse(facade.read_text()).body
+        )

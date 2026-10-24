@@ -5,6 +5,7 @@ import __future__
 
 import ast
 import builtins
+import copy
 import dataclasses
 import dis
 import inspect
@@ -15,6 +16,19 @@ from collections.abc import Mapping
 
 INTENT_PREFIX = "infinity_context_benchmarks.retrieval_intent."
 LEGACY_INTENT = "infinity_context_server.memory_comparison_intent"
+
+
+def frozen_ast_dump(node: ast.AST) -> str:
+    """Retain the Python 3.12 AST format used by immutable ownership evidence."""
+    if "type_params" not in ast.FunctionDef._fields:
+        node = copy.deepcopy(node)
+        for definition in ast.walk(node):
+            if isinstance(definition, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                # Python 3.11 has no generics field; preserve the captured empty field.
+                definition._fields = (*definition._fields, "type_params")
+                definition.type_params = []
+    options = {"show_empty": True} if "show_empty" in inspect.signature(ast.dump).parameters else {}
+    return ast.dump(node, include_attributes=False, **options)
 
 
 def intent_owners(source: str) -> dict[str, str]:
@@ -113,9 +127,19 @@ def value_record(value: object, owners: Mapping[str, str]) -> object:
     name = getattr(value, "__name__", None)
     module = getattr(value, "__module__", None)
     if name and module:
-        if module == LEGACY_INTENT:
+        if f"{module}.{name}" in owners:
+            module = owners[f"{module}.{name}"]
+        elif module == LEGACY_INTENT:
             module = owners[name]
         return {"object": f"{module}.{getattr(value, '__qualname__', name)}"}
+    if (
+        f"{type(value).__module__}.{type(value).__name__}" in owners
+        or type(value).__module__ in owners.values()
+    ):
+        return {
+            "instance": value_record(type(value), owners),
+            "state": value_record(vars(value), owners),
+        }
     raise TypeError(f"Unsupported contract value: {type(value)}")
 
 
@@ -130,7 +154,8 @@ def _global_names(code: types.CodeType) -> set[str]:
 def _hint_record(value: object, owners: Mapping[str, str]) -> str:
     rendered = repr(value)
     for name, owner in owners.items():
-        rendered = rendered.replace(f"{LEGACY_INTENT}.{name}", f"{owner}.{name}")
+        original = name if "." in name else f"{LEGACY_INTENT}.{name}"
+        rendered = rendered.replace(original, f"{owner}.{name.rsplit('.', 1)[-1]}")
     return rendered
 
 
@@ -151,26 +176,30 @@ def callable_record(function, owners: Mapping[str, str]) -> dict[str, object]:
     }
 
 
-def binding_inventory(module, owners: Mapping[str, str]) -> dict[str, object]:
+def binding_inventory(module, owners: Mapping[str, str], public=None) -> dict[str, object]:
     result = {}
     for name, value in vars(module).items():
         if name.startswith("__"):
             continue
         record = {"value": value_record(value, owners)}
-        if name in owners:
+        owner_key = name if name in owners else f"{module.__name__}.{name}"
+        if owner_key in owners:
             record.update(
                 {
-                    "owner": owners[name],
-                    "visibility": "public" if name in public_names() else "compatibility-only",
+                    "owner": owners[owner_key],
+                    "visibility": "public"
+                    if name in (public or public_names())
+                    else "compatibility-only",
                 }
             )
             if inspect.isfunction(value):
                 record["callable"] = callable_record(value, owners)
             elif inspect.isclass(value):
                 record["signature"] = str(inspect.signature(value))
-                record["fields"] = [field.name for field in dataclasses.fields(value)]
                 record["doc"] = value.__doc__
-                record["frozen"] = value.__dataclass_params__.frozen
+                if dataclasses.is_dataclass(value):
+                    record["fields"] = [field.name for field in dataclasses.fields(value)]
+                    record["frozen"] = value.__dataclass_params__.frozen
                 record["hints"] = {
                     key: _hint_record(item, owners)
                     for key, item in typing.get_type_hints(value).items()
@@ -259,5 +288,28 @@ def replay_intent_case(case, policy):
             "intent": dataclasses.asdict(result),
             "diagnostics": result.to_diagnostics(),
             "profile": result.to_query_profile(),
+        }
+    )
+
+
+def scoring_features(payload, policy):
+    hints = typing.get_type_hints(policy.BenchmarkRerankFeatures)
+    return policy.BenchmarkRerankFeatures(
+        **{
+            key: tuple(value) if typing.get_origin(hints[key]) is tuple else value
+            for key, value in payload.items()
+        }
+    )
+
+
+def replay_scoring_case(case, policy):
+    features = scoring_features(case["input"], policy)
+    result = policy.score_benchmark_rerank_candidate(features)
+    plan = policy.score_rerank_policy_contributions(features)
+    return _normalized(
+        {
+            "score": dataclasses.asdict(result),
+            "plan": plan.to_diagnostics(),
+            "signals": plan.score_signals,
         }
     )
