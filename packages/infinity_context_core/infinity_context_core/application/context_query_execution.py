@@ -37,12 +37,15 @@ async def collect_query_results(
             if stopping:
                 return
             try:
-                operation = search(query)
-                results[index] = (
-                    await operation
-                    if timeout_seconds is None
-                    else await asyncio.wait_for(operation, timeout=timeout_seconds)
-                )
+                if timeout_seconds is not None and timeout_seconds <= 0:
+                    raise TimeoutError
+                async with asyncio.timeout(timeout_seconds) as deadline:
+                    result = await search(query)
+                # Providers may swallow cancellation while finishing cleanup. An
+                # expired operation must not become successful ranking evidence.
+                if deadline.expired():
+                    raise TimeoutError
+                results[index] = result
             except Exception as exc:
                 results[index] = exc
 
