@@ -1,6 +1,6 @@
 [project]
 name = "infinity-context-adapters"
-version = "0.1.0"
+version = "0.2.0"
 requires-python = ">=3.11"
 dependencies = [
   "alembic>=1.18.4,<2.0.0",

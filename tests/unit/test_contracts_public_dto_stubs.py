@@ -137,7 +137,7 @@ def test_capabilities_response_dto_covers_current_top_level_shape() -> None:
 
     assert set(payload) == CURRENT_CAPABILITIES_TOP_LEVEL_KEYS | {"future_public_section"}
     assert payload["api_version"] == "v1"
-    assert payload["server_version"] == "0.1.0"
+    assert payload["server_version"] == "0.2.0"
     assert payload["adapters"]["qdrant"]["enabled"] is False
     assert payload["capabilities"][0]["capability"] == "vector_recall"
     assert payload["captures"]["modes"] == ["off", "retrieve_only", "capture_only"]

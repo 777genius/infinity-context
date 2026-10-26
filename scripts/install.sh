@@ -3,7 +3,7 @@ set -euo pipefail
 
 PREFIX="${INFINITY_CONTEXT_HOME:-${HOME}/.infinity-context}"
 REPO_URL="${INFINITY_CONTEXT_INSTALL_REPO:-https://github.com/777genius/infinity-context.git}"
-REF="${INFINITY_CONTEXT_INSTALL_REF:-v0.1.0}"
+REF="${INFINITY_CONTEXT_INSTALL_REF:-v0.2.0}"
 NO_START=0
 DRY_RUN=0
 FORCE=0
@@ -33,7 +33,7 @@ Options:
   --dry-run             Print actions without writing files.
   --prefix PATH         Install home. Defaults to ~/.infinity-context.
   --repo URL_OR_PATH    Git repo URL or local path.
-  --ref REF             Git ref to checkout. Defaults to v0.1.0.
+  --ref REF             Git ref to checkout. Defaults to v0.2.0.
   --no-start            Install files only, do not start Docker stack.
   --force               Overwrite generated config files.
   --reset               Stop existing containers before install. Keeps data volumes.

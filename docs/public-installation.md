@@ -1,6 +1,6 @@
 # Public installation and first run
 
-Infinity Context 0.1.0 is distributed as a local installer, a Python package,
+Infinity Context 0.2.0 is distributed as a local installer, a Python package,
 and a multi-architecture container image. The local installer is the recommended
 path when you want the complete self-hosted runtime, agent connection, and UI.
 
@@ -12,15 +12,13 @@ Download the versioned installer so it can be inspected before execution:
 
 ```bash
 curl -fsSLo infinity-context-install.sh \
-  https://raw.githubusercontent.com/777genius/infinity-context/v0.1.0/scripts/install.sh
+  https://raw.githubusercontent.com/777genius/infinity-context/v0.2.0/scripts/install.sh
 less infinity-context-install.sh
 bash infinity-context-install.sh --agent codex
 ```
 
-> **Persistence warning:** v0.1.0 does not declare a named Postgres volume.
-> Back up canonical Postgres data before `docker compose down`, container
-> recreation, reset, or upgrade. The persistence fix currently exists on
-> `main` and will reach installers in the next release.
+> **Upgrading from v0.1.0?** Back up Postgres before recreating its container.
+> See [data persistence and upgrades](#data-persistence-and-v010-upgrades).
 
 Repeat `--agent` to connect more agents, or use `--all-agents`. The normal mode
 creates review-gated memory suggestions and opens the UI after readiness. It does
@@ -55,7 +53,7 @@ Use pipx when you need the CLI, SDK, MCP server, or want to connect to an
 existing Infinity Context deployment:
 
 ```bash
-pipx install 'infinity-context[mcp]==0.1.0'
+pipx install 'infinity-context[mcp]==0.2.0'
 infinity-context --version
 ```
 
@@ -69,7 +67,7 @@ The release workflow publishes build provenance and a multi-architecture image
 for Linux AMD64 and ARM64:
 
 ```bash
-docker pull ghcr.io/777genius/infinity-context:0.1.0
+docker pull ghcr.io/777genius/infinity-context:0.2.0
 ```
 
 The image contains the Infinity Context server. Postgres remains the canonical
@@ -78,7 +76,7 @@ by the recommended installer provides the complete local topology.
 
 ## Data persistence and v0.1.0 upgrades
 
-The current `main` developer Compose stack stores canonical Postgres data in a
+The v0.2.0 local Compose stack stores canonical Postgres data in a
 named volume. A normal `docker compose down` keeps named volumes, while
 `docker compose down -v` and installer `--reset-data` delete them. The
 self-hosted team topology also persists Postgres.

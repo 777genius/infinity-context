@@ -308,7 +308,7 @@ def test_root_distribution_registers_publishable_run_console_script() -> None:
         PUBLISHABLE_MEM0_INFINITY_PROVIDER_NAME
     ] == ("publishable_mem0_v5.run_provider:Mem0InfinityPublishableRunDependencyFactory")
     assert "cryptography==50.0.0" in project["project"]["dependencies"]
-    assert "infinity-context-runtime-bridge==0.1.0" in server_project["project"]["dependencies"]
+    assert "infinity-context-runtime-bridge==0.2.0" in server_project["project"]["dependencies"]
     assert "cryptography>=50.0.0,<51.0.0" not in server_project["project"]["dependencies"]
     assert "cryptography>=50.0.0,<51.0.0" in runtime_bridge_project["project"][
         "dependencies"
