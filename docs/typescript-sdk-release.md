@@ -96,27 +96,26 @@ An exhausted operation signal stops all SDK attempts, even when the error is
 retryable. To retry a deadline failure, start a new operation with a fresh signal
 and preserve the operation's idempotency requirements, especially for writes.
 
-## Executable release runbook for 0.2.4
+## Executable release runbook for 0.3.2
 
-Version 0.2.3 is already published and must remain immutable. Version 0.2.4
-is the next runtime-changing release: a caller signal aborted with a standard
-DOMException `TimeoutError` now reports `memory.request_timeout` with
-`retryable=true`. Ordinary cancellation remains non-retryable. Never replace
-the 0.2.3 assets or move its tag to distribute this fix.
+Version 0.2.4 is published and immutable. The existing 0.3.1 draft remains
+non-resumable. Release 0.3.2 packages the current SDK from reviewed main, including
+Locator Retrieval contracts, document reconciliation and runtime canary support.
+Never replace older assets or move their tags.
 
-Version 0.2.4 is prepared but not yet published, and no consumer is pinned to its
-release asset. The commands below apply only after the reviewed source is committed
-and the release operator is ready to qualify a draft. Public publication requires
-explicit approval of the exact SDK version and `publish_release=true`.
+The release operator dispatches the reviewed 0.3.2 tag with
+`publish_release=true` for the requested public release. Use false only when
+intentionally qualifying a new draft; existing drafts cannot be promoted by this
+workflow.
 
 Start from the reviewed release commit. Create and push the one protected annotated
 tag; the workflow never creates or moves it:
 
 ```bash
 git status --short
-test "$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")" = 0.2.4
-git tag -a sdk-v0.2.4 -m "Infinity Context TypeScript SDK 0.2.4" <REVIEWED_COMMIT_SHA>
-git push origin refs/tags/sdk-v0.2.4
+test "$(node -p "require('./packages/infinity_context_ts_sdk/package.json').version")" = 0.3.2
+git tag -a sdk-v0.3.2 -m "Infinity Context TypeScript SDK 0.3.2" <REVIEWED_COMMIT_SHA>
+git push origin refs/tags/sdk-v0.3.2
 ```
 
 Dispatch only that exact tag and record the run URL:
@@ -124,9 +123,9 @@ Dispatch only that exact tag and record the run URL:
 ```bash
 gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
-  --ref sdk-v0.2.4 \
-  -f sdk_tag=sdk-v0.2.4 \
-  -f publish_release=false \
+  --ref sdk-v0.3.2 \
+  -f sdk_tag=sdk-v0.3.2 \
+  -f publish_release=true \
   -f reconcile_only=false
 gh run list --repo 777genius/infinity-context \
   --workflow .github/workflows/typescript-sdk-release.yml --limit 1
@@ -172,8 +171,8 @@ exact tag with:
 ```bash
 gh workflow run .github/workflows/typescript-sdk-release.yml \
   --repo 777genius/infinity-context \
-  --ref sdk-v0.2.4 \
-  -f sdk_tag=sdk-v0.2.4 \
+  --ref sdk-v0.3.2 \
+  -f sdk_tag=sdk-v0.3.2 \
   -f reconcile_only=true
 ```
 
@@ -220,16 +219,16 @@ The immutable release URL is a dependency: do not use a branch archive or Action
 artifact as distribution. Download and verify the exact two assets:
 
 ```bash
-mkdir -p .verify/infinity-sdk-0.2.4
-gh release download sdk-v0.2.4 --repo 777genius/infinity-context \
-  --dir .verify/infinity-sdk-0.2.4
-test "$(find .verify/infinity-sdk-0.2.4 -maxdepth 1 -type f | wc -l)" -eq 2
-gh release verify sdk-v0.2.4 --repo 777genius/infinity-context
-gh release verify-asset sdk-v0.2.4 \
-  .verify/infinity-sdk-0.2.4/infinity-context-sdk-0.2.4.tgz \
+mkdir -p .verify/infinity-sdk-0.3.2
+gh release download sdk-v0.3.2 --repo 777genius/infinity-context \
+  --dir .verify/infinity-sdk-0.3.2
+test "$(find .verify/infinity-sdk-0.3.2 -maxdepth 1 -type f | wc -l)" -eq 2
+gh release verify sdk-v0.3.2 --repo 777genius/infinity-context
+gh release verify-asset sdk-v0.3.2 \
+  .verify/infinity-sdk-0.3.2/infinity-context-sdk-0.3.2.tgz \
   --repo 777genius/infinity-context
-gh release verify-asset sdk-v0.2.4 \
-  .verify/infinity-sdk-0.2.4/infinity-context-sdk-release-manifest.json \
+gh release verify-asset sdk-v0.3.2 \
+  .verify/infinity-sdk-0.3.2/infinity-context-sdk-release-manifest.json \
   --repo 777genius/infinity-context
 ```
 
@@ -238,7 +237,7 @@ Pin the immutable release URL in the consumer:
 ```json
 {
   "dependencies": {
-    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz"
+    "@infinity-context/sdk": "https://github.com/777genius/infinity-context/releases/download/sdk-v0.3.2/infinity-context-sdk-0.3.2.tgz"
   }
 }
 ```
@@ -247,9 +246,9 @@ Then prove a cold, lockfile-driven install:
 
 ```bash
 test "$(jq -r '.packages["node_modules/@infinity-context/sdk"].resolved' package-lock.json)" = \
-  "https://github.com/777genius/infinity-context/releases/download/sdk-v0.2.4/infinity-context-sdk-0.2.4.tgz"
+  "https://github.com/777genius/infinity-context/releases/download/sdk-v0.3.2/infinity-context-sdk-0.3.2.tgz"
 npm ci --ignore-scripts --no-audit --no-fund
-node -e 'import("@infinity-context/sdk").then(() => console.log("SDK 0.2.4 import ok"))'
+node -e 'import("@infinity-context/sdk").then(() => console.log("SDK 0.3.2 import ok"))'
 ```
 
 Compare the consumer lock integrity and downloaded bytes to the manifest before
@@ -276,11 +275,11 @@ Export the 90-day receipt from the completed run into durable operations custody
 before artifact expiry:
 
 ```bash
-mkdir -p .verify/infinity-sdk-0.2.4/receipt
+mkdir -p .verify/infinity-sdk-0.3.2/receipt
 gh run download <RUN_ID> --repo 777genius/infinity-context \
-  --name typescript-sdk-release-verification-sdk-v0.2.4 \
-  --dir .verify/infinity-sdk-0.2.4/receipt
-test -f .verify/infinity-sdk-0.2.4/receipt/infinity-context-sdk-release-verification-receipt.json
+  --name typescript-sdk-release-verification-sdk-v0.3.2 \
+  --dir .verify/infinity-sdk-0.3.2/receipt
+test -f .verify/infinity-sdk-0.3.2/receipt/infinity-context-sdk-release-verification-receipt.json
 ```
 
 Downstream Discord release quality is a separate decision. It binds this immutable

@@ -704,8 +704,8 @@ def test_receipt_rejects_hostile_attestation_output(tmp_path: Path, tamper: str)
 def test_runbook_and_retention_contract() -> None:
     runbook = (ROOT / "docs/typescript-sdk-release.md").read_text(encoding="utf-8")
     normalized = " ".join(runbook.split())
-    assert "--ref sdk-v0.2.4" in runbook
-    assert "Version 0.2.3 is already published and must remain immutable." in normalized
+    assert "--ref sdk-v0.3.2" in runbook
+    assert "Version 0.2.4 is published and immutable." in normalized
     assert "memory.request_timeout" in runbook
     assert "retryable=true" in runbook
     assert "--ref <DEFAULT_BRANCH>" not in runbook

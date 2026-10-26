@@ -44,7 +44,7 @@ def build_test_app() -> object:
 def test_openapi_contains_stable_v1_fields() -> None:
     body = build_test_app().openapi()
 
-    assert body["info"] == {"title": "Infinity Context", "version": "0.1.0"}
+    assert body["info"] == {"title": "Infinity Context", "version": "0.2.0"}
     paths = body["paths"]
     assert "/v1/facts" in paths
     assert "/v1/facts/{fact_id}" in paths

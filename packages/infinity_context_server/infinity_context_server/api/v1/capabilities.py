@@ -45,7 +45,7 @@ async def capabilities(
         context_capability["retrieval"] = descriptor.to_dict()
     return {
         "api_version": "v1",
-        "server_version": "0.1.0",
+        "server_version": "0.2.0",
         "service_name": result.service_name,
         "service_revision": serving_profile.service_revision,
         "embedding_profile_id": profile_id,

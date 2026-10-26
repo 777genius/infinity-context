@@ -19,7 +19,7 @@ class CapabilitiesResponseDto:
     deploy_profile: str
     policy_mode: str
     api_version: str = "v1"
-    server_version: str = "0.1.0"
+    server_version: str = "0.2.0"
     adapters: Mapping[str, Mapping[str, JsonValue]] = field(default_factory=dict)
     capabilities: Sequence[Mapping[str, JsonValue]] = field(default_factory=tuple)
     enabled_adapters: Sequence[str] = field(default_factory=tuple)

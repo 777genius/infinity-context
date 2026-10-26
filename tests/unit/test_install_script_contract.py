@@ -90,7 +90,7 @@ def test_install_script_uses_stable_source_and_verified_agent_tool(tmp_path: Pat
 
     assert result.returncode == 0, result.stderr
     assert "https://github.com/777genius/infinity-context.git" in result.stdout
-    assert "--branch v0.1.0" in result.stdout
+    assert "--branch v0.2.0" in result.stdout
     assert "python3 -m venv" in result.stdout
     assert "pip==26.2.1" in result.stdout
     assert "setuptools==83.0.0" in result.stdout
@@ -169,13 +169,13 @@ def test_release_metadata_and_workflow_contract() -> None:
     )
     script = INSTALL_SCRIPT.read_text(encoding="utf-8")
 
-    assert project["version"] == "0.1.0"
+    assert project["version"] == "0.2.0"
     assert project["license"] == "Apache-2.0"
     assert project["license-files"] == ["LICENSE"]
     assert project["urls"]["Repository"] == "https://github.com/777genius/infinity-context.git"
     assert (PROJECT_ROOT / "LICENSE").is_file()
     assert "Apache License" in (PROJECT_ROOT / "LICENSE").read_text(encoding="utf-8")
-    assert 'REF="${INFINITY_CONTEXT_INSTALL_REF:-v0.1.0}"' in script
+    assert 'REF="${INFINITY_CONTEXT_INSTALL_REF:-v0.2.0}"' in script
     assert "PLUGIN_KIT_AI_VERSION=\"1.2.4\"" in script
     assert "BOOTSTRAP_PIP_VERSION=\"26.2.1\"" in script
     assert "BOOTSTRAP_SETUPTOOLS_VERSION=\"83.0.0\"" in script
