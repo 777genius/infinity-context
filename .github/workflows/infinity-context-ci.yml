@@ -17,8 +17,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: infinity-context-ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: infinity-context-ci-${{ github.event_name }}-${{ (github.event_name == 'pull_request' || github.event_name == 'push') && (github.event.pull_request.number || github.ref) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 jobs:
   static_and_evals:
@@ -361,7 +361,7 @@ jobs:
 
   quality:
     name: Quality Gate
-    if: always()
+    if: always() && !cancelled()
     needs:
       - static_and_evals
       - test_suite
